@@ -1,0 +1,167 @@
+from decimal import Decimal
+
+from sqlalchemy import select
+
+from app.core.security import hash_password
+from app.modules.documents.enums import DocumentType
+from app.modules.documents.models import TaxRate
+from app.modules.documents.schemas import DocumentCreate, DocumentLineInput
+from app.modules.documents.service import DocumentService
+from app.modules.fbr.invoice import FbrInvoiceBuilder
+from app.modules.fbr.models import FbrReferenceData
+from app.modules.orgs.service import OrgService
+from app.modules.parties.models import Party
+from app.modules.products.models import Product
+from app.modules.users.models import User
+
+
+def _seed_refs(db):
+    db.add_all([
+        FbrReferenceData(type="sale_type", code="75", description="Goods at standard rate (default)"),
+        FbrReferenceData(type="tax_rate", code="728", description="18%", value=Decimal("18"), parent_type="sale_type", parent_code="75"),
+        FbrReferenceData(type="uom", code="69", description="Numbers, pieces, units"),
+    ])
+    db.flush()
+
+
+def _setup(db):
+    user = User(email="inv@test.io", hashed_password=hash_password("password123"))
+    db.add(user)
+    db.flush()
+    org = OrgService(db).create_org_with_owner(owner=user, name="Seller Co")
+    org.ntn = "1234567-8"
+    org.fbr_enabled = True
+    org.fbr_province = "SINDH"
+    org.address = {"line1": "1 Mill Road", "city": "Karachi", "state": "SINDH"}
+    customer = Party(
+        org_id=org.id,
+        is_customer=True,
+        name="Buyer Ltd",
+        ntn="7654321",
+        strn="3277876500000",
+        billing_address={"line1": "9 Mall Road", "city": "Lahore", "state": "PUNJAB"},
+    )
+    product = Product(
+        org_id=org.id,
+        name="Widget",
+        type="single",
+        sale_price=Decimal("100"),
+        hs_code="8432.1010",
+        uom_code="69",
+        sale_type_code="75",
+        tax_rate_code="728",
+    )
+    db.add_all([customer, product])
+    db.flush()
+    return org, customer.id, product.id
+
+
+def test_build_invoice_payload(db):
+    _seed_refs(db)
+    org, party_id, pid = _setup(db)
+    tax = db.scalar(select(TaxRate).where(TaxRate.org_id == org.id, TaxRate.name == "GST 18%"))
+    invoice = DocumentService(db).create(
+        org.id,
+        DocumentType.INVOICE,
+        DocumentCreate(
+            party_id=party_id,
+            lines=[DocumentLineInput(product_id=pid, description="Widget", quantity=Decimal("2"),
+                                     unit_price=Decimal("100"), tax_rate_id=tax.id)],
+        ),
+    )
+
+    payload = FbrInvoiceBuilder(db).build(invoice, org)
+
+    assert payload["sellerNTNCNIC"] == "12345678"
+    assert payload["sellerProvince"] == "SINDH"
+    assert payload["buyerNTNCNIC"] == "7654321"
+    assert payload["buyerProvince"] == "PUNJAB"
+    assert payload["buyerRegistrationType"] == "Registered"
+    assert payload["invoiceType"] == "Sale Invoice"
+
+    item = payload["items"][0]
+    assert item["hsCode"] == "8432.1010"
+    assert item["rate"] == "18%"
+    assert item["uoM"] == "Numbers, pieces, units"
+    assert item["saleType"] == "Goods at standard rate (default)"
+    assert item["quantity"] == 2.0
+    assert item["valueSalesExcludingST"] == 200.0
+    assert item["salesTaxApplicable"] == 36.0
+
+
+def test_fbr_tax_from_product_rate_and_further_tax(db):
+    _seed_refs(db)
+    org, party_id, pid = _setup(db)
+    tax = db.scalar(select(TaxRate).where(TaxRate.org_id == org.id, TaxRate.name == "GST 18%"))
+    svc = DocumentService(db)
+
+    def make():
+        return svc.create(
+            org.id,
+            DocumentType.INVOICE,
+            DocumentCreate(
+                party_id=party_id,
+                lines=[DocumentLineInput(product_id=pid, description="Widget", quantity=Decimal("2"),
+                                         unit_price=Decimal("100"), tax_rate_id=tax.id)],
+            ),
+        )
+
+    registered = make()
+    assert registered.tax_total == Decimal("36")
+    assert registered.further_tax_total == Decimal("0")
+    assert registered.lines[0].tax_amount == Decimal("36")
+    assert registered.total == Decimal("236")
+
+    buyer = db.get(Party, party_id)
+    buyer.strn = None
+    db.flush()
+    unregistered = make()
+    assert unregistered.tax_total == Decimal("36")
+    assert unregistered.further_tax_total == Decimal("6")
+    assert unregistered.lines[0].further_tax == Decimal("6")
+    assert unregistered.total == Decimal("242")
+    payload = FbrInvoiceBuilder(db).build(unregistered, org)
+    assert payload["items"][0]["furtherTax"] == 6.0
+
+
+def test_fbr_fixed_rate_per_unit(db):
+    _seed_refs(db)
+    db.add(FbrReferenceData(type="tax_rate", code="1023", description="Rs.200",
+                            value=Decimal("200"), parent_type="sale_type", parent_code="75"))
+    db.flush()
+    org, party_id, _ = _setup(db)
+    fixed = Product(org_id=org.id, name="Cement", type="single", tax_rate_code="1023")
+    db.add(fixed)
+    db.flush()
+    tax = db.scalar(select(TaxRate).where(TaxRate.org_id == org.id, TaxRate.name == "GST 18%"))
+    invoice = DocumentService(db).create(
+        org.id,
+        DocumentType.INVOICE,
+        DocumentCreate(
+            party_id=party_id,
+            lines=[DocumentLineInput(product_id=fixed.id, description="Cement", quantity=Decimal("3"),
+                                     unit_price=Decimal("500"), tax_rate_id=tax.id)],
+        ),
+    )
+    assert invoice.lines[0].tax_amount == Decimal("600")
+    assert invoice.tax_total == Decimal("600")
+
+
+def test_unregistered_buyer_without_strn(db):
+    _seed_refs(db)
+    org, party_id, pid = _setup(db)
+    buyer = db.get(Party, party_id)
+    buyer.strn = None
+    db.flush()
+    tax = db.scalar(select(TaxRate).where(TaxRate.org_id == org.id, TaxRate.name == "GST 18%"))
+    invoice = DocumentService(db).create(
+        org.id,
+        DocumentType.INVOICE,
+        DocumentCreate(
+            party_id=party_id,
+            lines=[DocumentLineInput(product_id=pid, description="Widget", quantity=Decimal("1"),
+                                     unit_price=Decimal("100"), tax_rate_id=tax.id)],
+        ),
+    )
+    payload = FbrInvoiceBuilder(db).build(invoice, org)
+    assert payload["buyerRegistrationType"] == "Unregistered"

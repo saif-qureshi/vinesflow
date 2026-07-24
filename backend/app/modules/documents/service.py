@@ -83,6 +83,15 @@ def _q(value: Decimal) -> Decimal:
     return Decimal(value).quantize(_CENTS)
 
 
+def _fbr_line_tax(rate_desc: str, rate_value: Decimal, taxable: Decimal, quantity: Decimal) -> Decimal:
+    desc = (rate_desc or "").strip().lower()
+    if "%" in desc:
+        return _q(taxable * rate_value / _HUNDRED)
+    if "rs" in desc:
+        return _q(rate_value * quantity)
+    return _ZERO
+
+
 class DocumentService:
     def __init__(self, db: Session) -> None:
         self.db = db
@@ -132,7 +141,8 @@ class DocumentService:
         if search:
             like = f"%{search.strip()}%"
             stmt = stmt.where(or_(Product.name.ilike(like), Product.sku.ilike(like)))
-        products = self.db.scalars(stmt.order_by(Product.name).limit(limit))
+        products = list(self.db.scalars(stmt.order_by(Product.name).limit(limit)))
+        rate_rows = self._fbr_rate_rows(p.tax_rate_code for p in products)
         return [
             SellableItemRead(
                 id=p.id,
@@ -143,9 +153,23 @@ class DocumentService:
                 uom_symbol=p.uom.symbol if p.uom else None,
                 sale_price=p.sale_price,
                 purchase_price=p.purchase_price,
+                fbr_rate=rate_rows[p.tax_rate_code].description if p.tax_rate_code in rate_rows else None,
             )
             for p in products
         ]
+
+    def _fbr_rate_rows(self, codes) -> dict:
+        from app.modules.fbr.models import FbrReferenceData
+
+        wanted = {c for c in codes if c}
+        if not wanted:
+            return {}
+        rows = self.db.scalars(
+            select(FbrReferenceData).where(
+                FbrReferenceData.type == "tax_rate", FbrReferenceData.code.in_(wanted)
+            )
+        )
+        return {row.code: row for row in rows}
 
     @staticmethod
     def _item_image(product: Product) -> str | None:
@@ -229,12 +253,55 @@ class DocumentService:
         return lines, subtotal, discount_total, tax_total
 
     def _apply_totals(
-        self, doc: Document, subtotal: Decimal, discount_total: Decimal, tax_total: Decimal
+        self,
+        doc: Document,
+        subtotal: Decimal,
+        discount_total: Decimal,
+        tax_total: Decimal,
+        further_total: Decimal = _ZERO,
     ) -> None:
         doc.subtotal = subtotal
         doc.discount_total = discount_total
         doc.tax_total = tax_total
-        doc.total = subtotal - discount_total + tax_total + doc.shipping + doc.adjustment
+        doc.further_tax_total = further_total
+        doc.total = (
+            subtotal - discount_total + tax_total + further_total + doc.shipping + doc.adjustment
+        )
+
+    def _org_fbr_enabled(self, org_id: int) -> bool:
+        from app.modules.orgs.models import Organization
+
+        return bool(
+            self.db.scalar(select(Organization.fbr_enabled).where(Organization.id == org_id))
+        )
+
+    def _apply_fbr_tax(
+        self, org_id: int, lines: list[DocumentLine], party: Party | None
+    ) -> tuple[Decimal, Decimal]:
+        further_rate = _ZERO if (party and party.strn) else Decimal("3")
+        product_ids = [line.product_id for line in lines if line.product_id]
+        products = {
+            p.id: p for p in self.db.scalars(select(Product).where(Product.id.in_(product_ids)))
+        } if product_ids else {}
+        rate_rows = self._fbr_rate_rows(p.tax_rate_code for p in products.values())
+
+        tax_total = further_total = _ZERO
+        for line in lines:
+            product = products.get(line.product_id)
+            taxable = _q(line.quantity * line.unit_price) - line.discount
+            rate = rate_rows.get(product.tax_rate_code) if product else None
+            sales_tax = (
+                _fbr_line_tax(rate.description, rate.value or _ZERO, taxable, line.quantity)
+                if rate
+                else _ZERO
+            )
+            further = _q(taxable * further_rate / _HUNDRED)
+            line.tax_amount = sales_tax
+            line.further_tax = further
+            line.line_total = taxable + sales_tax + further
+            tax_total += sales_tax
+            further_total += further
+        return tax_total, further_total
 
     def _get_party(self, org_id: int, party_id: int, doc_type: DocumentType) -> Party:
         party = self.db.scalar(select(Party).where(Party.id == party_id, Party.org_id == org_id))
@@ -290,10 +357,16 @@ class DocumentService:
             adjustment=_q(payload.adjustment),
             billing_address=party.billing_address,
             shipping_address=party.shipping_address,
+            fbr_sale_origin=payload.fbr_sale_origin,
+            fbr_sale_destination=payload.fbr_sale_destination,
+            fbr_scenario_id=payload.fbr_scenario_id,
         )
         lines, subtotal, discount_total, tax_total = self._build_lines(org_id, payload.lines)
         doc.lines = lines
-        self._apply_totals(doc, subtotal, discount_total, tax_total)
+        further_total = _ZERO
+        if doc_type == DocumentType.INVOICE and self._org_fbr_enabled(org_id):
+            tax_total, further_total = self._apply_fbr_tax(org_id, lines, party)
+        self._apply_totals(doc, subtotal, discount_total, tax_total, further_total)
         assign_number(
             self.db, doc, Document.number, prefix, start, restart, issue_date.year,
             Document.org_id == org_id, Document.type == doc_type,
@@ -330,7 +403,10 @@ class DocumentService:
             doc.party_id = party.id
             doc.billing_address = party.billing_address
             doc.shipping_address = party.shipping_address
-        for field in ("issue_date", "due_date", "reference", "warehouse_id", "notes", "terms"):
+        for field in (
+            "issue_date", "due_date", "reference", "warehouse_id", "notes", "terms",
+            "fbr_sale_origin", "fbr_sale_destination", "fbr_scenario_id",
+        ):
             if field in fields:
                 setattr(doc, field, getattr(payload, field))
         if payload.shipping is not None:
@@ -340,9 +416,15 @@ class DocumentService:
         if payload.lines is not None:
             lines, subtotal, discount_total, tax_total = self._build_lines(org_id, payload.lines)
             doc.lines = lines
-            self._apply_totals(doc, subtotal, discount_total, tax_total)
+            further_total = _ZERO
+            if doc_type == DocumentType.INVOICE and self._org_fbr_enabled(org_id):
+                party = self.db.get(Party, doc.party_id)
+                tax_total, further_total = self._apply_fbr_tax(org_id, lines, party)
+            self._apply_totals(doc, subtotal, discount_total, tax_total, further_total)
         else:
-            self._apply_totals(doc, doc.subtotal, doc.discount_total, doc.tax_total)
+            self._apply_totals(
+                doc, doc.subtotal, doc.discount_total, doc.tax_total, doc.further_tax_total
+            )
         self.activity.record(org_id, "updated", doc_type, doc.number, entity_id=doc.id)
         self.db.commit()
         self.db.refresh(doc)
@@ -425,7 +507,11 @@ class DocumentService:
             source_document_id=source.id,
         )
         target.lines = lines
-        self._apply_totals(target, subtotal, discount_total, tax_total)
+        further_total = _ZERO
+        if target_type == DocumentType.INVOICE and self._org_fbr_enabled(org_id):
+            party = self.db.get(Party, source.party_id)
+            tax_total, further_total = self._apply_fbr_tax(org_id, lines, party)
+        self._apply_totals(target, subtotal, discount_total, tax_total, further_total)
         assign_number(
             self.db, target, Document.number, prefix, start, restart, date.today().year,
             Document.org_id == org_id, Document.type == target_type,

@@ -1,11 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DatePicker, InputNumber, Segmented, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import dayjs, { type Dayjs } from "dayjs";
-import { Package, Plus, Trash2 } from "lucide-react";
+import { Info, Package, Plus, Trash2 } from "lucide-react";
 
 import {
   App,
@@ -16,6 +16,7 @@ import {
   Input,
   Select,
   TextArea,
+  Tooltip,
   Typography,
 } from "@/components/ui";
 import { useCurrency } from "@/hooks/useCurrency";
@@ -26,9 +27,13 @@ import {
   useUpdateDocument,
 } from "@/hooks/useDocuments";
 import { useParties } from "@/hooks/useParties";
+import { useSession } from "@/hooks/useSession";
 import { useWarehouses } from "@/hooks/useWarehouses";
 import { apiErrorMessage } from "@/lib/api";
 import type { DocumentKindConfig } from "@/lib/documentKinds";
+import { FBR_SCENARIOS } from "@/lib/fbrScenarios";
+import { fbrFurtherTax, fbrSalesTax } from "@/lib/fbrTax";
+import { PK_PROVINCES } from "@/lib/provinces";
 import type { DiscountType, DocumentInput, DocumentRecord } from "@/types";
 
 interface LineRow {
@@ -40,9 +45,11 @@ interface LineRow {
   discount_type: DiscountType;
   discount_value: number;
   tax_rate_id: number | null;
+  fbr_rate: string | null;
 }
 
 interface FormValues {
+  number?: string;
   party_id: number;
   issue_date: Dayjs;
   due_date?: Dayjs | null;
@@ -52,6 +59,9 @@ interface FormValues {
   terms?: string;
   shipping?: number;
   adjustment?: number;
+  fbr_sale_origin?: string;
+  fbr_sale_destination?: string;
+  fbr_scenario_id?: string;
 }
 
 let counter = 0;
@@ -66,6 +76,7 @@ const emptyLine = (): LineRow => ({
   discount_type: "amount",
   discount_value: 0,
   tax_rate_id: null,
+  fbr_rate: null,
 });
 
 const lineDiscount = (row: LineRow): number => {
@@ -93,6 +104,16 @@ export function DocumentForm({
   const [itemSearch, setItemSearch] = useState("");
   const { data: sellable } = useSellableItems(itemSearch);
   const parties = useParties(config.partyRole);
+  const { currentMembership } = useSession();
+  const org = currentMembership?.organization;
+  const showFbr = !!org?.fbr_enabled && config.kind === "invoice";
+  const isSandbox = org?.fbr_environment === "sandbox";
+  const partyList = useMemo(
+    () => parties.data?.pages.flatMap((p) => p.items) ?? [],
+    [parties.data],
+  );
+  const selectedPartyId = Form.useWatch("party_id", form);
+  const buyerRegistered = !!partyList.find((p) => p.id === selectedPartyId)?.strn;
 
   const [lines, setLines] = useState<LineRow[]>(() =>
     document?.lines.length
@@ -105,6 +126,7 @@ export function DocumentForm({
           discount_type: l.discount_type,
           discount_value: Number(l.discount_value),
           tax_rate_id: l.tax_rate_id,
+          fbr_rate: null,
         }))
       : [emptyLine()],
   );
@@ -120,7 +142,13 @@ export function DocumentForm({
   const saving = create.isPending || update.isPending;
   const backHref = isEdit ? `${config.basePath}/${document.id}` : config.basePath;
 
-  const partyOptions = (parties.data?.pages.flatMap((p) => p.items) ?? []).map((c) => ({
+  useEffect(() => {
+    if (isEdit || !warehouses?.length || form.getFieldValue("warehouse_id")) return;
+    const preferred = warehouses.find((w) => w.is_default) ?? warehouses[0];
+    if (preferred) form.setFieldValue("warehouse_id", preferred.id);
+  }, [warehouses, isEdit, form]);
+
+  const partyOptions = partyList.map((c) => ({
     value: c.id,
     label: c.name,
   }));
@@ -140,22 +168,29 @@ export function DocumentForm({
     let subtotal = 0;
     let discountTotal = 0;
     let taxTotal = 0;
+    let furtherTotal = 0;
     for (const line of lines) {
       const base = line.quantity * line.unit_price;
       const discount = lineDiscount(line);
       const taxable = base - discount;
       subtotal += base;
       discountTotal += discount;
-      taxTotal += (taxable * rateOf(line.tax_rate_id)) / 100;
+      if (showFbr) {
+        taxTotal += fbrSalesTax(line.fbr_rate, taxable, line.quantity);
+        furtherTotal += fbrFurtherTax(buyerRegistered, taxable);
+      } else {
+        taxTotal += (taxable * rateOf(line.tax_rate_id)) / 100;
+      }
     }
     return {
       subtotal,
       discountTotal,
       taxTotal,
-      total: subtotal - discountTotal + taxTotal + shipping + adjustment,
+      furtherTotal,
+      total: subtotal - discountTotal + taxTotal + furtherTotal + shipping + adjustment,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lines, shipping, adjustment, taxRates]);
+  }, [lines, shipping, adjustment, taxRates, showFbr, buyerRegistered]);
 
   const patchLine = (key: string, patch: Partial<LineRow>) =>
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -193,6 +228,7 @@ export function DocumentForm({
       product_id: productId,
       description: item?.name ?? "",
       unit_price: price != null ? Number(price) : 0,
+      fbr_rate: item?.fbr_rate ?? null,
     });
     setItemSearch("");
   };
@@ -297,22 +333,60 @@ export function DocumentForm({
         />
       ),
     },
-    {
-      title: "Tax",
-      key: "tax",
-      width: 150,
-      render: (_, row) => (
-        <Select
-          value={row.tax_rate_id ?? undefined}
-          onChange={(v) => patchLine(row.key, { tax_rate_id: v ?? null })}
-          options={taxOptions}
-          placeholder="No tax"
-          allowClear
-          onKeyDown={tabToNewRow(row)}
-          className="w-full"
-        />
-      ),
-    },
+    ...(showFbr
+      ? ([
+          {
+            title: "Tax Rate",
+            key: "sales_tax_rate",
+            width: 110,
+            render: (_, row) => <span className="text-gray-600">{row.fbr_rate ?? "—"}</span>,
+          },
+          {
+            title: "Sales Tax",
+            key: "sales_tax",
+            width: 110,
+            align: "right",
+            render: (_, row) => {
+              const taxable = row.quantity * row.unit_price - lineDiscount(row);
+              return <span className="tabular-nums">{money(fbrSalesTax(row.fbr_rate, taxable, row.quantity))}</span>;
+            },
+          },
+          {
+            title: (
+              <span className="inline-flex items-center gap-1">
+                Further Tax
+                <Tooltip title="Additional 3% tax charged when the buyer is not sales-tax registered (has no STRN).">
+                  <Info size={13} className="text-gray-400" />
+                </Tooltip>
+              </span>
+            ),
+            key: "further_tax",
+            width: 120,
+            align: "right",
+            render: (_, row) => {
+              const taxable = row.quantity * row.unit_price - lineDiscount(row);
+              return <span className="tabular-nums">{money(fbrFurtherTax(buyerRegistered, taxable))}</span>;
+            },
+          },
+        ] as ColumnsType<LineRow>)
+      : ([
+          {
+            title: "Tax",
+            key: "tax",
+            width: 150,
+            render: (_, row) => (
+              <Select
+                value={row.tax_rate_id ?? undefined}
+                onChange={(v) => patchLine(row.key, { tax_rate_id: v ?? null })}
+                options={taxOptions}
+                placeholder="No tax"
+                allowClear
+                onKeyDown={tabToNewRow(row)}
+                className="w-full"
+              />
+            ),
+          },
+        ] as ColumnsType<LineRow>)),
     {
       title: "Amount",
       key: "amount",
@@ -320,9 +394,12 @@ export function DocumentForm({
       width: 120,
       render: (_, row) => {
         const taxable = row.quantity * row.unit_price - lineDiscount(row);
+        const tax = showFbr
+          ? fbrSalesTax(row.fbr_rate, taxable, row.quantity) + fbrFurtherTax(buyerRegistered, taxable)
+          : (taxable * rateOf(row.tax_rate_id)) / 100;
         return (
           <span className="tabular-nums">
-            {money(taxable + (taxable * rateOf(row.tax_rate_id)) / 100)}
+            {money(taxable + tax)}
           </span>
         );
       },
@@ -361,6 +438,13 @@ export function DocumentForm({
       terms: values.terms || null,
       shipping,
       adjustment,
+      ...(showFbr
+        ? {
+            fbr_sale_origin: values.fbr_sale_origin || null,
+            fbr_sale_destination: values.fbr_sale_destination || null,
+            fbr_scenario_id: values.fbr_scenario_id || null,
+          }
+        : {}),
       lines: clean.map((l) => ({
         product_id: l.product_id,
         description: l.description.trim() || "Item",
@@ -387,7 +471,15 @@ export function DocumentForm({
       form={form}
       layout="vertical"
       onFinish={submit}
+      onValuesChange={(changed) => {
+        if (showFbr && "party_id" in changed && !form.getFieldValue("fbr_sale_destination")) {
+          const party = partyList.find((p) => p.id === changed.party_id);
+          const province = party?.billing_address?.state;
+          if (province) form.setFieldValue("fbr_sale_destination", province);
+        }
+      }}
       initialValues={{
+        number: document?.number ?? undefined,
         party_id: document?.party_id ?? undefined,
         issue_date: document ? dayjs(document.issue_date) : dayjs(),
         due_date: document?.due_date ? dayjs(document.due_date) : null,
@@ -395,6 +487,9 @@ export function DocumentForm({
         warehouse_id: document?.warehouse_id ?? undefined,
         notes: document?.notes ?? undefined,
         terms: document?.terms ?? undefined,
+        fbr_sale_origin: document?.fbr_sale_origin ?? org?.fbr_province ?? undefined,
+        fbr_sale_destination: document?.fbr_sale_destination ?? undefined,
+        fbr_scenario_id: document?.fbr_scenario_id ?? undefined,
       }}
       className="flex flex-col gap-6 pb-24"
     >
@@ -404,6 +499,9 @@ export function DocumentForm({
 
       <Card className="border-gray-100">
         <div className="grid grid-cols-1 gap-x-6 md:grid-cols-3">
+          <Form.Item name="number" label={`${config.labels.singular} No.`}>
+            <Input placeholder="Auto-generated" disabled />
+          </Form.Item>
           <Form.Item
             name="party_id"
             label={config.labels.party}
@@ -440,6 +538,24 @@ export function DocumentForm({
         </div>
       </Card>
 
+      {showFbr && (
+        <Card title="FBR e-Invoicing" className="border-gray-100">
+          <div className="grid grid-cols-1 gap-x-6 md:grid-cols-3">
+            <Form.Item name="fbr_sale_origin" label="Sale Origin" extra="Seller province of supply.">
+              <Select options={PK_PROVINCES} placeholder="Province" showSearch optionFilterProp="label" allowClear />
+            </Form.Item>
+            <Form.Item name="fbr_sale_destination" label="Sale Destination" extra="Buyer province, defaults from the customer.">
+              <Select options={PK_PROVINCES} placeholder="Province" showSearch optionFilterProp="label" allowClear />
+            </Form.Item>
+            {isSandbox && (
+              <Form.Item name="fbr_scenario_id" label="Scenario" extra="Sandbox testing scenario.">
+                <Select options={FBR_SCENARIOS} placeholder="Select scenario" showSearch optionFilterProp="label" allowClear />
+              </Form.Item>
+            )}
+          </div>
+        </Card>
+      )}
+
       <Card title="Items" className="border-gray-100">
         <Table<LineRow>
           size="small"
@@ -474,10 +590,22 @@ export function DocumentForm({
               <span className="text-gray-500">Discount</span>
               <span className="tabular-nums">-{money(totals.discountTotal)}</span>
             </div>
+            {showFbr && (
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Total Value Excluding Tax</span>
+                <span className="tabular-nums">{money(totals.subtotal - totals.discountTotal)}</span>
+              </div>
+            )}
             <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Tax</span>
+              <span className="text-gray-500">{showFbr ? "Sales Tax" : "Tax"}</span>
               <span className="tabular-nums">{money(totals.taxTotal)}</span>
             </div>
+            {showFbr && totals.furtherTotal > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Further Tax</span>
+                <span className="tabular-nums">{money(totals.furtherTotal)}</span>
+              </div>
+            )}
             <div className="flex items-center justify-between text-sm">
               <span className="text-gray-500">Shipping</span>
               <InputNumber

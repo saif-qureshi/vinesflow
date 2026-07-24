@@ -81,9 +81,16 @@ class Document(Base, TimestampMixin, AuditMixin):
     billing_address: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     shipping_address: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
+    fbr_sale_origin: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    fbr_sale_destination: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    fbr_scenario_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
     subtotal: Mapped[Decimal] = mapped_column(_MONEY, default=0, nullable=False)
     discount_total: Mapped[Decimal] = mapped_column(_MONEY, default=0, nullable=False)
     tax_total: Mapped[Decimal] = mapped_column(_MONEY, default=0, nullable=False)
+    further_tax_total: Mapped[Decimal] = mapped_column(
+        _MONEY, default=0, server_default="0", nullable=False
+    )
     shipping: Mapped[Decimal] = mapped_column(_MONEY, default=0, nullable=False)
     adjustment: Mapped[Decimal] = mapped_column(_MONEY, default=0, nullable=False)
     total: Mapped[Decimal] = mapped_column(_MONEY, default=0, nullable=False)
@@ -186,6 +193,9 @@ class DocumentLine(Base, TimestampMixin):
         ForeignKey("tax_rates.id", ondelete="SET NULL"), nullable=True
     )
     tax_amount: Mapped[Decimal] = mapped_column(_MONEY, default=0, nullable=False)
+    further_tax: Mapped[Decimal] = mapped_column(
+        _MONEY, default=0, server_default="0", nullable=False
+    )
     line_total: Mapped[Decimal] = mapped_column(_MONEY, nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 

@@ -8,11 +8,13 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.crypto import decrypt_secret
-from app.core.exceptions import ServiceUnavailableError
+from app.core.exceptions import BadRequestError, NotFoundError, ServiceUnavailableError
 from app.modules.fbr.client import FbrClient
-from app.modules.fbr.enums import FbrProvince
+from app.modules.fbr.enums import FbrEnvironment, FbrProvince
+from app.modules.fbr.invoice import FbrInvoiceBuilder
 from app.modules.fbr.models import NONE_MARK, FbrReferenceData
 from app.modules.fbr.schemas import FbrOption, FbrReferenceRead
+from app.modules.documents.models import Document
 from app.modules.orgs.models import Organization
 
 
@@ -130,3 +132,25 @@ class FbrService:
             select(FbrReferenceData.type, func.count()).group_by(FbrReferenceData.type)
         ).all()
         return {ref_type: count for ref_type, count in rows}
+
+    def _org_client(self, org: Organization) -> FbrClient:
+        environment = org.fbr_environment or "production"
+        encrypted = (
+            org.fbr_production_token if environment == "production" else org.fbr_sandbox_token
+        )
+        if not encrypted:
+            raise BadRequestError(f"No {environment} FBR token is configured")
+        return FbrClient(decrypt_secret(encrypted), FbrEnvironment(environment))
+
+    def validate_document(
+        self, org_id: int, doc_id: int, scenario_id: str | None = None
+    ) -> dict:
+        org = self.db.get(Organization, org_id)
+        if org is None or not org.fbr_enabled:
+            raise BadRequestError("FBR e-invoicing is not enabled for this organization")
+        doc = self.db.get(Document, doc_id)
+        if doc is None or doc.org_id != org_id:
+            raise NotFoundError("Document not found")
+        payload = FbrInvoiceBuilder(self.db).build(doc, org, scenario_id)
+        response = self._org_client(org).validate_invoice(payload)
+        return {"payload": payload, "response": response}

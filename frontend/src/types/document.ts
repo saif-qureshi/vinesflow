@@ -44,6 +44,9 @@ export interface DocumentRecord {
   terms: string | null;
   billing_address: Address | null;
   shipping_address: Address | null;
+  fbr_sale_origin: string | null;
+  fbr_sale_destination: string | null;
+  fbr_scenario_id: string | null;
   subtotal: string;
   discount_total: string;
   tax_total: string;
@@ -92,6 +95,9 @@ export interface DocumentInput {
   terms?: string | null;
   shipping?: number;
   adjustment?: number;
+  fbr_sale_origin?: string | null;
+  fbr_sale_destination?: string | null;
+  fbr_scenario_id?: string | null;
   lines: DocumentLineInput[];
 }
 
@@ -112,4 +118,5 @@ export interface SellableItem {
   uom_symbol: string | null;
   sale_price: string | null;
   purchase_price: string | null;
+  fbr_rate: string | null;
 }

@@ -35,6 +35,9 @@ class DocumentCreate(BaseModel):
     terms: str | None = None
     shipping: Decimal = Field(default=Decimal("0"), ge=0)
     adjustment: Decimal = Field(default=Decimal("0"))
+    fbr_sale_origin: str | None = Field(default=None, max_length=50)
+    fbr_sale_destination: str | None = Field(default=None, max_length=50)
+    fbr_scenario_id: str | None = Field(default=None, max_length=20)
     lines: list[DocumentLineInput] = Field(min_length=1)
 
 
@@ -48,6 +51,9 @@ class DocumentUpdate(BaseModel):
     terms: str | None = None
     shipping: Decimal | None = None
     adjustment: Decimal | None = None
+    fbr_sale_origin: str | None = Field(default=None, max_length=50)
+    fbr_sale_destination: str | None = Field(default=None, max_length=50)
+    fbr_scenario_id: str | None = Field(default=None, max_length=20)
     lines: list[DocumentLineInput] | None = None
 
 
@@ -72,6 +78,7 @@ class DocumentLineRead(BaseModel):
     discount: Decimal
     tax_rate_id: int | None = None
     tax_amount: Decimal
+    further_tax: Decimal = Decimal("0")
     line_total: Decimal
     sort_order: int
 
@@ -96,9 +103,13 @@ class DocumentRead(BaseModel):
     terms: str | None = None
     billing_address: dict | None = None
     shipping_address: dict | None = None
+    fbr_sale_origin: str | None = None
+    fbr_sale_destination: str | None = None
+    fbr_scenario_id: str | None = None
     subtotal: Decimal
     discount_total: Decimal
     tax_total: Decimal
+    further_tax_total: Decimal = Decimal("0")
     shipping: Decimal
     adjustment: Decimal
     total: Decimal
@@ -161,3 +172,4 @@ class SellableItemRead(BaseModel):
     uom_symbol: str | None = None
     sale_price: Decimal | None = None
     purchase_price: Decimal | None = None
+    fbr_rate: str | None = None

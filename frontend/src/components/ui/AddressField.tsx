@@ -1,7 +1,8 @@
 "use client";
 
-import { Input } from "antd";
+import { Input, Select } from "antd";
 
+import { PK_PROVINCES, isPakistan } from "@/lib/provinces";
 import type { Address } from "@/types";
 import { PhoneField } from "./PhoneField";
 
@@ -24,6 +25,7 @@ interface AddressFieldProps {
 
 export function AddressField({ value = {}, onChange, disabled }: AddressFieldProps) {
   const set = (key: keyof Address, v: string) => onChange?.({ ...value, [key]: v });
+  const pk = isPakistan(value.country);
 
   return (
     <div className="grid grid-cols-1 gap-x-6 gap-y-3 md:grid-cols-2">
@@ -32,6 +34,18 @@ export function AddressField({ value = {}, onChange, disabled }: AddressFieldPro
           <div className="mb-1 text-sm text-gray-600">{label}</div>
           {key === "phone" ? (
             <PhoneField value={value[key] ?? undefined} onChange={(v) => set(key, v)} placeholder={label} />
+          ) : key === "state" && pk ? (
+            <Select
+              value={value.state || undefined}
+              onChange={(v) => set("state", v ?? "")}
+              options={PK_PROVINCES}
+              placeholder="Province"
+              showSearch
+              optionFilterProp="label"
+              allowClear
+              disabled={disabled}
+              className="!w-full"
+            />
           ) : (
             <Input
               value={value[key] ?? ""}

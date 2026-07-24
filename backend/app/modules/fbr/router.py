@@ -42,3 +42,13 @@ def reference(
 @router.get("/summary", response_model=FbrSyncSummary)
 def summary(membership: CurrentMembership, svc: FbrService = Svc):
     return FbrSyncSummary(counts=svc.summary())
+
+
+@router.post("/invoices/{doc_id}/validate")
+def validate_invoice(
+    doc_id: int,
+    membership: CurrentMembership,
+    scenario_id: str | None = None,
+    svc: FbrService = Svc,
+):
+    return svc.validate_document(membership.org_id, doc_id, scenario_id)
