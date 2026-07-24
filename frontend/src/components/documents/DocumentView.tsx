@@ -12,11 +12,12 @@ import {
   Download,
   MoreHorizontal,
   Pencil,
+  ShieldCheck,
   Trash2,
   Wallet,
 } from "lucide-react";
 
-import { App, Button, Card, Dropdown, Popconfirm, Tag, Typography } from "@/components/ui";
+import { App, Button, Card, Dropdown, Modal, Popconfirm, Tag, Typography } from "@/components/ui";
 import { PaymentModal } from "@/components/payments/PaymentModal";
 import { useCurrency } from "@/hooks/useCurrency";
 import {
@@ -26,7 +27,8 @@ import {
   useFinalizeDocument,
   useVoidDocument,
 } from "@/hooks/useDocuments";
-import { useCan } from "@/hooks/useSession";
+import { useValidateInvoice, type FbrValidationResponse } from "@/hooks/useFbr";
+import { useCan, useSession } from "@/hooks/useSession";
 import { apiErrorMessage } from "@/lib/api";
 import { downloadDocumentPdf } from "@/lib/documentPdf";
 import type { DocumentKindConfig } from "@/lib/documentKinds";
@@ -59,13 +61,18 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
   const { message } = App.useApp();
   const { money } = useCurrency();
   const can = useCan();
+  const { currentMembership } = useSession();
   const { data: doc, isLoading } = useDocument(config.apiPath, id);
   const finalize = useFinalizeDocument(config.apiPath);
   const voidDoc = useVoidDocument(config.apiPath);
   const del = useDeleteDocument(config.apiPath);
   const convert = useConvertDocument(config.apiPath);
+  const validate = useValidateInvoice();
   const [payOpen, setPayOpen] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const [validation, setValidation] = useState<FbrValidationResponse | null>(null);
+
+  const showFbrValidate = !!currentMembership?.organization.fbr_enabled && config.kind === "invoice";
 
   if (isLoading || !doc) {
     return (
@@ -184,6 +191,26 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
                 {conversion.label}
               </Button>
             ))}
+          {showFbrValidate && (
+            <Button
+              icon={<ShieldCheck size={16} />}
+              loading={validate.isPending}
+              onClick={async () => {
+                try {
+                  const res = await validate.mutateAsync(doc.id);
+                  const vr = res.response?.validationResponse ?? {};
+                  setValidation(vr);
+                  if (vr.status === "Valid" || vr.statusCode === "00") {
+                    message.success("FBR validation passed");
+                  }
+                } catch (err) {
+                  message.error(apiErrorMessage(err));
+                }
+              }}
+            >
+              Validate with FBR
+            </Button>
+          )}
           {isDraft && can(`${config.permission}:update`) && (
             <>
               <Button
@@ -342,6 +369,31 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
         open={payOpen}
         onClose={() => setPayOpen(false)}
       />
+
+      <Modal
+        open={validation !== null}
+        onCancel={() => setValidation(null)}
+        onOk={() => setValidation(null)}
+        title="FBR validation"
+        footer={null}
+      >
+        {validation && (
+          <div className="space-y-3">
+            <Tag color={validation.status === "Valid" || validation.statusCode === "00" ? "green" : "red"}>
+              {validation.status ?? validation.statusCode ?? "Result"}
+            </Tag>
+            {validation.error && <div className="text-sm text-rose-600">{validation.error}</div>}
+            {(validation.invoiceStatuses ?? [])
+              .filter((s) => s.error)
+              .map((s, i) => (
+                <div key={i} className="text-sm">
+                  <span className="text-gray-500">Item {s.itemSNo}: </span>
+                  <span className="text-rose-600">{s.error}</span>
+                </div>
+              ))}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

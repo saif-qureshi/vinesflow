@@ -36,6 +36,12 @@ class SettingsService:
         )
         self.db.execute(stmt)
 
+    def set_group(self, org_id: int, group: str, values: dict[str, Any]) -> dict[str, Any]:
+        for key, value in values.items():
+            self.set(org_id, group, key, value)
+        self.db.commit()
+        return self.get_group(org_id, group)
+
     def numbering_spec(self) -> list[tuple[str, str, str]]:
         from app.modules.documents.enums import (
             DEFAULT_PREFIXES,

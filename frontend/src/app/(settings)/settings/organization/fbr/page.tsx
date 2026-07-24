@@ -8,6 +8,7 @@ import { SettingRow, SettingsFooter } from "@/components/settings/SettingRow";
 import { useCan, useSession } from "@/hooks/useSession";
 import { useFbrProvinces } from "@/hooks/useFbr";
 import { useUpdateOrg } from "@/hooks/useOrg";
+import { useSettingsGroup, useUpdateSettingsGroup } from "@/hooks/useSettings";
 import { apiErrorMessage } from "@/lib/api";
 
 export default function FbrSettingsPage() {
@@ -16,6 +17,8 @@ export default function FbrSettingsPage() {
   const { message } = App.useApp();
   const updateOrg = useUpdateOrg();
   const provinces = useFbrProvinces();
+  const fbrSettings = useSettingsGroup<{ validate_before_submit?: boolean }>("fbr");
+  const updateFbrSettings = useUpdateSettingsGroup("fbr");
 
   const org = currentMembership?.organization;
   const canEdit = can("orgs:update");
@@ -25,6 +28,7 @@ export default function FbrSettingsPage() {
   const [province, setProvince] = useState<string | undefined>();
   const [sandboxToken, setSandboxToken] = useState("");
   const [productionToken, setProductionToken] = useState("");
+  const [validateBeforeSubmit, setValidateBeforeSubmit] = useState(true);
 
   useEffect(() => {
     if (!org) return;
@@ -34,6 +38,10 @@ export default function FbrSettingsPage() {
     setSandboxToken("");
     setProductionToken("");
   }, [org]);
+
+  useEffect(() => {
+    setValidateBeforeSubmit(fbrSettings.data?.validate_before_submit ?? true);
+  }, [fbrSettings.data]);
 
   const activeConfigured =
     environment === "sandbox" ? org?.fbr_sandbox_configured : org?.fbr_production_configured;
@@ -53,6 +61,7 @@ export default function FbrSettingsPage() {
         ...(sandboxToken.trim() ? { fbr_sandbox_token: sandboxToken.trim() } : {}),
         ...(productionToken.trim() ? { fbr_production_token: productionToken.trim() } : {}),
       });
+      await updateFbrSettings.mutateAsync({ validate_before_submit: validateBeforeSubmit });
       setSandboxToken("");
       setProductionToken("");
       message.success("FBR settings saved");
@@ -151,6 +160,17 @@ export default function FbrSettingsPage() {
             autoComplete="off"
             disabled={disabled}
             className="max-w-md"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Require validation before submission"
+          help="When on, an invoice must pass FBR validation before it can be submitted."
+        >
+          <Switch
+            checked={validateBeforeSubmit}
+            disabled={disabled}
+            onChange={setValidateBeforeSubmit}
           />
         </SettingRow>
 

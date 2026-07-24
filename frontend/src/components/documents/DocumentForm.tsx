@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DatePicker, InputNumber, Segmented, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
@@ -12,6 +12,7 @@ import {
   Avatar,
   Button,
   Card,
+  Dropdown,
   Form,
   Input,
   Select,
@@ -22,6 +23,7 @@ import {
 import { useCurrency } from "@/hooks/useCurrency";
 import {
   useCreateDocument,
+  useFinalizeDocument,
   useNextNumber,
   useSellableItems,
   useStockOnHand,
@@ -106,6 +108,8 @@ export function DocumentForm({
   const [form] = Form.useForm<FormValues>();
   const create = useCreateDocument(config.apiPath);
   const update = useUpdateDocument(config.apiPath);
+  const finalize = useFinalizeDocument(config.apiPath);
+  const saveModeRef = useRef<"draft" | "finalize">("draft");
 
   const { data: taxRates } = useTaxRates();
   const { data: warehouses } = useWarehouses();
@@ -512,7 +516,12 @@ export function DocumentForm({
       const saved = isEdit
         ? await update.mutateAsync({ id: document.id, payload })
         : await create.mutateAsync(payload);
-      message.success(`${config.labels.singular} ${isEdit ? "updated" : "created"}`);
+      if (saveModeRef.current === "finalize") {
+        await finalize.mutateAsync(saved.id);
+        message.success(`${config.labels.singular} finalized`);
+      } else {
+        message.success(`${config.labels.singular} ${isEdit ? "updated" : "created"}`);
+      }
       router.push(`${config.basePath}/${saved.id}`);
     } catch (err) {
       message.error(apiErrorMessage(err));
@@ -698,9 +707,26 @@ export function DocumentForm({
       </Card>
 
       <div className="sticky bottom-0 -mx-6 flex gap-3 border-t border-gray-100 bg-slate-50 px-6 py-3">
-        <Button type="primary" htmlType="submit" loading={saving}>
+        <Dropdown.Button
+          type="primary"
+          className="!inline-flex !w-auto"
+          loading={saving || finalize.isPending}
+          onClick={() => {
+            saveModeRef.current = "draft";
+            form.submit();
+          }}
+          menu={{
+            items: [{ key: "finalize", label: `Save & Finalize` }],
+            onClick: ({ key }) => {
+              if (key === "finalize") {
+                saveModeRef.current = "finalize";
+                form.submit();
+              }
+            },
+          }}
+        >
           {isEdit ? "Save" : "Save as Draft"}
-        </Button>
+        </Dropdown.Button>
         <Button onClick={() => router.push(backHref)}>Cancel</Button>
       </div>
     </Form>

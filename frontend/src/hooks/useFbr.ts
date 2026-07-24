@@ -1,9 +1,35 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 import { useSessionStore } from "@/stores/session";
+
+export interface FbrItemStatus {
+  itemSNo?: string;
+  statusCode?: string;
+  status?: string;
+  error?: string;
+}
+
+export interface FbrValidationResponse {
+  statusCode?: string;
+  status?: string;
+  error?: string;
+  invoiceStatuses?: FbrItemStatus[];
+}
+
+export interface FbrValidateResult {
+  payload: Record<string, unknown>;
+  response: { validationResponse?: FbrValidationResponse };
+}
+
+export function useValidateInvoice() {
+  return useMutation({
+    mutationFn: async (docId: number) =>
+      (await api.post<FbrValidateResult>(`/fbr/invoices/${docId}/validate`)).data,
+  });
+}
 
 export interface FbrOption {
   value: string;
