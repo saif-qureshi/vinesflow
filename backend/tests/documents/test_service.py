@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import select
 
-from app.core.exceptions import BadRequestError, NotFoundError
+from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.core.security import hash_password
 from app.modules.documents.enums import DocumentStatus, DocumentType
 from app.modules.documents.models import TaxRate
@@ -112,6 +112,25 @@ def test_sequences_are_per_type(db):
     )
     assert inv.number == "INV-0001"
     assert bill.number == "BILL-0001"
+
+
+def test_explicit_number_and_duplicate_rejected(db):
+    org_id, loc_id, party_id, pid = _setup(db)
+    tax = _tax(db, org_id)
+    svc = DocumentService(db)
+    a = _invoice(svc, org_id, party_id, pid, tax.id, number="INV-CUSTOM-1")
+    assert a.number == "INV-CUSTOM-1"
+    with pytest.raises(ConflictError):
+        _invoice(svc, org_id, party_id, pid, tax.id, number="INV-CUSTOM-1")
+
+
+def test_next_number_preview(db):
+    org_id, loc_id, party_id, pid = _setup(db)
+    tax = _tax(db, org_id)
+    svc = DocumentService(db)
+    assert svc.next_number(org_id, DocumentType.INVOICE) == "INV-0001"
+    _invoice(svc, org_id, party_id, pid, tax.id)
+    assert svc.next_number(org_id, DocumentType.INVOICE) == "INV-0002"
 
 
 def test_numbering_format_from_settings(db):

@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
@@ -28,7 +29,7 @@ from app.modules.documents.models import (
     SalesOrder,
     TaxRate,
 )
-from app.modules.documents.numbering import assign_number, numbering_format
+from app.modules.documents.numbering import assign_number, numbering_format, preview_number
 from app.modules.documents.schemas import (
     DocumentCreate,
     DocumentLineInput,
@@ -132,7 +133,9 @@ class DocumentService:
 
     # --- Sellable items (document line picker) ----------------------------
 
-    def sellable_items(self, org_id: int, search: str | None, limit: int) -> list[SellableItemRead]:
+    def sellable_items(
+        self, org_id: int, search: str | None, limit: int, warehouse_id: int | None = None
+    ) -> list[SellableItemRead]:
         stmt = select(Product).where(
             Product.org_id == org_id,
             Product.type == "single",
@@ -143,6 +146,7 @@ class DocumentService:
             stmt = stmt.where(or_(Product.name.ilike(like), Product.sku.ilike(like)))
         products = list(self.db.scalars(stmt.order_by(Product.name).limit(limit)))
         rate_rows = self._fbr_rate_rows(p.tax_rate_code for p in products)
+        stock = self._stock_levels(org_id, [p.id for p in products], warehouse_id)
         return [
             SellableItemRead(
                 id=p.id,
@@ -154,9 +158,51 @@ class DocumentService:
                 sale_price=p.sale_price,
                 purchase_price=p.purchase_price,
                 fbr_rate=rate_rows[p.tax_rate_code].description if p.tax_rate_code in rate_rows else None,
+                track_inventory=p.track_inventory,
+                stock=stock.get(p.id, _ZERO) if p.track_inventory else None,
             )
             for p in products
         ]
+
+    def stock_on_hand(
+        self, org_id: int, product_ids: list[int], warehouse_id: int | None
+    ) -> dict[int, Decimal]:
+        return self._stock_levels(org_id, product_ids, warehouse_id)
+
+    def _set_explicit_number(self, doc: Document, number: str) -> None:
+        doc.number = number
+        savepoint = self.db.begin_nested()
+        try:
+            self.db.add(doc)
+            self.db.flush()
+            savepoint.commit()
+        except IntegrityError:
+            savepoint.rollback()
+            raise ConflictError(f"Number '{number}' is already in use")
+
+    def next_number(self, org_id: int, doc_type: DocumentType) -> str:
+        prefix, start, restart = numbering_format(
+            self.db, org_id, str(doc_type), DEFAULT_PREFIXES[doc_type]
+        )
+        return preview_number(
+            self.db, Document.number, prefix, start, restart, date.today().year,
+            Document.org_id == org_id, Document.type == doc_type,
+        )
+
+    def _stock_levels(self, org_id: int, product_ids: list[int], warehouse_id: int | None) -> dict:
+        from sqlalchemy import func
+
+        from app.modules.inventory.models import StockLevel
+
+        if not product_ids:
+            return {}
+        stmt = select(StockLevel.product_id, func.sum(StockLevel.quantity)).where(
+            StockLevel.org_id == org_id, StockLevel.product_id.in_(product_ids)
+        )
+        if warehouse_id:
+            stmt = stmt.where(StockLevel.location_id == warehouse_id)
+        stmt = stmt.group_by(StockLevel.product_id)
+        return {pid: qty for pid, qty in self.db.execute(stmt)}
 
     def _fbr_rate_rows(self, codes) -> dict:
         from app.modules.fbr.models import FbrReferenceData
@@ -367,10 +413,13 @@ class DocumentService:
         if doc_type == DocumentType.INVOICE and self._org_fbr_enabled(org_id):
             tax_total, further_total = self._apply_fbr_tax(org_id, lines, party)
         self._apply_totals(doc, subtotal, discount_total, tax_total, further_total)
-        assign_number(
-            self.db, doc, Document.number, prefix, start, restart, issue_date.year,
-            Document.org_id == org_id, Document.type == doc_type,
-        )
+        if payload.number and payload.number.strip():
+            self._set_explicit_number(doc, payload.number.strip())
+        else:
+            assign_number(
+                self.db, doc, Document.number, prefix, start, restart, issue_date.year,
+                Document.org_id == org_id, Document.type == doc_type,
+            )
         self.activity.record(org_id, "created", doc_type, doc.number, entity_id=doc.id)
         self.db.commit()
         self.db.refresh(doc)
@@ -398,6 +447,20 @@ class DocumentService:
         if doc.status != DocumentStatus.DRAFT:
             raise BadRequestError("Only draft documents can be edited")
         fields = payload.model_fields_set
+        if "number" in fields and payload.number and payload.number.strip():
+            new_number = payload.number.strip()
+            if new_number != doc.number:
+                clash = self.db.scalar(
+                    select(Document.id).where(
+                        Document.org_id == org_id,
+                        Document.type == doc_type,
+                        Document.number == new_number,
+                        Document.id != doc.id,
+                    )
+                )
+                if clash:
+                    raise ConflictError(f"Number '{new_number}' is already in use")
+                doc.number = new_number
         if "party_id" in fields and payload.party_id is not None:
             party = self._get_party(org_id, payload.party_id, doc_type)
             doc.party_id = party.id

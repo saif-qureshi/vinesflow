@@ -139,14 +139,43 @@ export function useTaxRates() {
   });
 }
 
-export function useSellableItems(search: string, limit = 50) {
+export function useNextNumber(apiPath: string, enabled: boolean) {
   const token = useSessionStore((s) => s.accessToken);
   const orgId = useSessionStore((s) => s.currentOrgId);
   return useQuery({
-    queryKey: ["sellable-items", orgId, search, limit],
+    queryKey: ["next-number", orgId, apiPath],
+    queryFn: async () =>
+      (await api.get<{ number: string }>(`/${apiPath}/next-number`)).data,
+    enabled: enabled && !!token && !!orgId,
+    staleTime: 0,
+  });
+}
+
+export function useStockOnHand(productIds: number[], warehouseId?: number | null) {
+  const token = useSessionStore((s) => s.accessToken);
+  const orgId = useSessionStore((s) => s.currentOrgId);
+  const ids = [...productIds].sort((a, b) => a - b);
+  return useQuery({
+    queryKey: ["stock-on-hand", orgId, warehouseId ?? null, ids],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      ids.forEach((id) => params.append("product_ids", String(id)));
+      if (warehouseId) params.set("warehouse_id", String(warehouseId));
+      return (await api.get<Record<string, number>>(`/stock-on-hand?${params.toString()}`)).data;
+    },
+    enabled: !!token && !!orgId && ids.length > 0,
+  });
+}
+
+export function useSellableItems(search: string, warehouseId?: number | null, limit = 50) {
+  const token = useSessionStore((s) => s.accessToken);
+  const orgId = useSessionStore((s) => s.currentOrgId);
+  return useQuery({
+    queryKey: ["sellable-items", orgId, search, warehouseId ?? null, limit],
     queryFn: async () => {
       const params = new URLSearchParams({ limit: String(limit) });
       if (search) params.set("search", search);
+      if (warehouseId) params.set("warehouse_id", String(warehouseId));
       return (await api.get<SellableItem[]>(`/sellable-items?${params.toString()}`)).data;
     },
     enabled: !!token && !!orgId,

@@ -31,6 +31,21 @@ def _peak(db: Session, number_col: InstrumentedAttribute, *where: ColumnElement)
     return int(value or 0)
 
 
+def preview_number(
+    db: Session,
+    number_col: InstrumentedAttribute,
+    prefix: str,
+    start: str,
+    restart: str,
+    year: int,
+    *where: ColumnElement,
+) -> str:
+    body = f"{prefix}{year}-" if restart == "yearly" else prefix
+    scope = (number_col.like(f"{body}%"),) if restart == "yearly" else ()
+    seq = max(_peak(db, number_col, *where, *scope), int(start) - 1) + 1
+    return f"{body}{seq:0{len(start)}d}"
+
+
 def assign_number(
     db: Session,
     entity,
@@ -51,10 +66,10 @@ def assign_number(
         return f"{body}{seq:0{width}d}"
 
     entity.number = _make()
-    db.add(entity)
     for _ in range(_MAX_RETRIES):
         savepoint = db.begin_nested()
         try:
+            db.add(entity)
             db.flush()
             savepoint.commit()
             return

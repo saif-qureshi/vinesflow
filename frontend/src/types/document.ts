@@ -87,6 +87,7 @@ export interface DocumentLineInput {
 
 export interface DocumentInput {
   party_id: number;
+  number?: string | null;
   issue_date?: string | null;
   due_date?: string | null;
   reference?: string | null;
@@ -119,4 +120,6 @@ export interface SellableItem {
   sale_price: string | null;
   purchase_price: string | null;
   fbr_rate: string | null;
+  track_inventory: boolean;
+  stock: string | null;
 }

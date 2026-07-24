@@ -47,10 +47,21 @@ def create_tax_rate(
 def sellable_items(
     membership: CurrentMembership,
     search: str | None = None,
+    warehouse_id: int | None = None,
     limit: int = Query(default=50, ge=1, le=100),
     svc: DocumentService = Svc,
 ):
-    return svc.sellable_items(membership.org_id, search, limit)
+    return svc.sellable_items(membership.org_id, search, limit, warehouse_id)
+
+
+@router.get("/stock-on-hand", response_model=dict[int, float])
+def stock_on_hand(
+    membership: CurrentMembership,
+    product_ids: list[int] = Query(default=[]),
+    warehouse_id: int | None = None,
+    svc: DocumentService = Svc,
+):
+    return svc.stock_on_hand(membership.org_id, product_ids, warehouse_id)
 
 
 def register_document_routes(path: str, doc_type: DocumentType, module: str) -> None:
@@ -78,6 +89,10 @@ def register_document_routes(path: str, doc_type: DocumentType, module: str) -> 
         payload: DocumentCreate, membership: Membership = make, svc: DocumentService = Svc
     ):
         return svc.create(membership.org_id, doc_type, payload)
+
+    @router.get(f"/{path}/next-number", name=f"next_number_{path}")
+    def _next_number(membership: Membership = read, svc: DocumentService = Svc):
+        return {"number": svc.next_number(membership.org_id, doc_type)}
 
     @router.get(f"/{path}/{{doc_id}}", response_model=DocumentRead, name=f"get_{path}")
     def _get(doc_id: int, membership: Membership = read, svc: DocumentService = Svc):

@@ -27,6 +27,7 @@ class DocumentLineInput(BaseModel):
 
 class DocumentCreate(BaseModel):
     party_id: int
+    number: str | None = Field(default=None, max_length=40)
     issue_date: date | None = None
     due_date: date | None = None
     reference: str | None = Field(default=None, max_length=100)
@@ -43,6 +44,7 @@ class DocumentCreate(BaseModel):
 
 class DocumentUpdate(BaseModel):
     party_id: int | None = None
+    number: str | None = Field(default=None, max_length=40)
     issue_date: date | None = None
     due_date: date | None = None
     reference: str | None = None
@@ -173,3 +175,5 @@ class SellableItemRead(BaseModel):
     sale_price: Decimal | None = None
     purchase_price: Decimal | None = None
     fbr_rate: str | None = None
+    track_inventory: bool = False
+    stock: Decimal | None = None

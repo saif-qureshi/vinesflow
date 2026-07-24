@@ -22,7 +22,9 @@ import {
 import { useCurrency } from "@/hooks/useCurrency";
 import {
   useCreateDocument,
+  useNextNumber,
   useSellableItems,
+  useStockOnHand,
   useTaxRates,
   useUpdateDocument,
 } from "@/hooks/useDocuments";
@@ -46,6 +48,9 @@ interface LineRow {
   discount_value: number;
   tax_rate_id: number | null;
   fbr_rate: string | null;
+  stock: number | null;
+  track_inventory: boolean;
+  image_url: string | null;
 }
 
 interface FormValues {
@@ -77,6 +82,9 @@ const emptyLine = (): LineRow => ({
   discount_value: 0,
   tax_rate_id: null,
   fbr_rate: null,
+  stock: null,
+  track_inventory: false,
+  image_url: null,
 });
 
 const lineDiscount = (row: LineRow): number => {
@@ -101,8 +109,9 @@ export function DocumentForm({
 
   const { data: taxRates } = useTaxRates();
   const { data: warehouses } = useWarehouses();
+  const warehouseId = Form.useWatch("warehouse_id", form);
   const [itemSearch, setItemSearch] = useState("");
-  const { data: sellable } = useSellableItems(itemSearch);
+  const { data: sellable } = useSellableItems(itemSearch, warehouseId);
   const parties = useParties(config.partyRole);
   const { currentMembership } = useSession();
   const org = currentMembership?.organization;
@@ -127,6 +136,9 @@ export function DocumentForm({
           discount_value: Number(l.discount_value),
           tax_rate_id: l.tax_rate_id,
           fbr_rate: null,
+          stock: null,
+          track_inventory: false,
+          image_url: null,
         }))
       : [emptyLine()],
   );
@@ -138,15 +150,27 @@ export function DocumentForm({
     () => document?.lines[0]?.discount_type ?? "amount",
   );
 
+  const lineProductIds = useMemo(
+    () => lines.map((l) => l.product_id).filter((id): id is number => id != null),
+    [lines],
+  );
+  const { data: stockMap } = useStockOnHand(lineProductIds, warehouseId);
+
   const isEdit = !!document;
   const saving = create.isPending || update.isPending;
   const backHref = isEdit ? `${config.basePath}/${document.id}` : config.basePath;
+  const nextNumber = useNextNumber(config.apiPath, !isEdit);
 
   useEffect(() => {
     if (isEdit || !warehouses?.length || form.getFieldValue("warehouse_id")) return;
     const preferred = warehouses.find((w) => w.is_default) ?? warehouses[0];
     if (preferred) form.setFieldValue("warehouse_id", preferred.id);
   }, [warehouses, isEdit, form]);
+
+  useEffect(() => {
+    if (isEdit || !nextNumber.data?.number || form.getFieldValue("number")) return;
+    form.setFieldValue("number", nextNumber.data.number);
+  }, [nextNumber.data, isEdit, form]);
 
   const partyOptions = partyList.map((c) => ({
     value: c.id,
@@ -229,6 +253,9 @@ export function DocumentForm({
       description: item?.name ?? "",
       unit_price: price != null ? Number(price) : 0,
       fbr_rate: item?.fbr_rate ?? null,
+      stock: item?.stock != null ? Number(item.stock) : null,
+      track_inventory: item?.track_inventory ?? false,
+      image_url: item?.image_url ?? null,
     });
     setItemSearch("");
   };
@@ -251,7 +278,26 @@ export function DocumentForm({
           showSearch
           filterOption={false}
           allowClear
-          labelRender={() => row.description}
+          labelRender={() => {
+            const live = row.product_id != null ? stockMap?.[row.product_id] : undefined;
+            const stock = live != null ? Number(live) : row.stock;
+            return (
+              <span className="flex items-center gap-2">
+                <Avatar
+                  shape="square"
+                  size={20}
+                  src={row.image_url ?? undefined}
+                  icon={<Package size={11} />}
+                />
+                <span className="min-w-0 flex-1 truncate">{row.description}</span>
+                {row.track_inventory && stock != null && (
+                  <span className={`shrink-0 text-xs ${stock < 0 ? "text-rose-500" : "text-gray-400"}`}>
+                    Stock In Hand: {stock}
+                  </span>
+                )}
+              </span>
+            );
+          }}
           autoFocus={row.key === focusKey}
           popupMatchSelectWidth={420}
           optionRender={(option) => {
@@ -265,12 +311,15 @@ export function DocumentForm({
                   src={item.image_url ?? undefined}
                   icon={<Package size={14} />}
                 />
-                <div className="min-w-0 leading-tight">
+                <div className="min-w-0 flex-1 leading-tight">
                   <div className="truncate text-sm">{item.name}</div>
                   {item.description && (
                     <div className="truncate text-xs text-gray-400">{item.description}</div>
                   )}
                 </div>
+                {item.track_inventory && item.stock != null && (
+                  <span className="shrink-0 text-xs text-gray-400">Stock In Hand: {Number(item.stock)}</span>
+                )}
               </div>
             );
           }}
@@ -428,8 +477,12 @@ export function DocumentForm({
       message.error("Add at least one line item");
       return;
     }
+    const baselineNumber = isEdit ? document.number : nextNumber.data?.number;
+    const typedNumber = values.number?.trim();
+    const numberOverride = typedNumber && typedNumber !== baselineNumber ? typedNumber : undefined;
     const payload: DocumentInput = {
       party_id: values.party_id,
+      ...(numberOverride ? { number: numberOverride } : {}),
       issue_date: values.issue_date.format("YYYY-MM-DD"),
       due_date: values.due_date ? values.due_date.format("YYYY-MM-DD") : null,
       reference: values.reference || null,
@@ -500,7 +553,7 @@ export function DocumentForm({
       <Card className="border-gray-100">
         <div className="grid grid-cols-1 gap-x-6 md:grid-cols-3">
           <Form.Item name="number" label={`${config.labels.singular} No.`}>
-            <Input placeholder="Auto-generated" disabled />
+            <Input placeholder="Auto-generated" />
           </Form.Item>
           <Form.Item
             name="party_id"
