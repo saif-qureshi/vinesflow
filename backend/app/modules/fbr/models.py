@@ -8,6 +8,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base_class import Base, TimestampMixin
 
+NONE_MARK = "__NONE__"
+
 
 class FbrReferenceData(Base, TimestampMixin):
     __tablename__ = "fbr_reference_data"

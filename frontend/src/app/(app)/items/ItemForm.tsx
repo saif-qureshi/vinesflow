@@ -1,16 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { InputNumber, Radio, Segmented, Switch } from "antd";
 import { X } from "lucide-react";
 
 import { App, Button, Card, Form, Input, Select, TextArea, Typography } from "@/components/ui";
 import { Uploader } from "@/components/ui/Uploader";
+import { FbrReferenceSelect } from "@/components/fbr/FbrReferenceSelect";
+import { FbrSroItemSelect } from "@/components/fbr/FbrSroItemSelect";
+import { FbrUomSelect } from "@/components/fbr/FbrUomSelect";
+import { useFbrReference } from "@/hooks/useFbr";
 import { useCategories } from "@/hooks/useCategories";
 import { useUoms } from "@/hooks/useUoms";
 import { useCreateProduct, useUpdateProduct } from "@/hooks/useProducts";
 import { useCurrency } from "@/hooks/useCurrency";
+import { useSession } from "@/hooks/useSession";
 import { apiErrorMessage } from "@/lib/api";
 import type { Product, ProductInput, VariantAttribute } from "@/types";
 import { VariantsBuilder } from "./VariantsBuilder";
@@ -29,17 +34,29 @@ interface FormValues {
   purchase_price?: number | null;
   track_inventory: boolean;
   reorder_point?: number | null;
+  hs_code?: string;
+  uom_code?: string;
+  sale_type_code?: string;
+  tax_rate_code?: string;
+  sro_schedule_code?: string;
+  sro_item_serial?: string;
 }
 
 export function ItemForm({ product }: { product?: Product }) {
   const router = useRouter();
   const { message } = App.useApp();
   const { currency } = useCurrency();
+  const { currentMembership } = useSession();
   const categories = useCategories();
   const uoms = useUoms();
   const create = useCreateProduct();
   const update = useUpdateProduct();
   const [form] = Form.useForm<FormValues>();
+  const fbrEnabled = currentMembership?.organization.fbr_enabled ?? false;
+  const saleType = Form.useWatch("sale_type_code", form);
+  const taxRate = Form.useWatch("tax_rate_code", form);
+  const sroSchedule = Form.useWatch("sro_schedule_code", form);
+  const hsCode = Form.useWatch("hs_code", form);
 
   const [media, setMedia] = useState<string[]>(() => product?.media.map((m) => m.url) ?? []);
   const [attributes, setAttributes] = useState<VariantAttribute[]>(
@@ -80,6 +97,30 @@ export function ItemForm({ product }: { product?: Product }) {
   const saving = create.isPending || update.isPending;
   const backHref = isEdit ? `/items/${product.id}` : "/items";
 
+  const saleTypes = useFbrReference("sale_type", { enabled: fbrEnabled && !isEdit });
+  const defaultSaleType = useMemo(
+    () => saleTypes.data?.find((s) => (s.description ?? "").toLowerCase().includes("(default)"))?.code,
+    [saleTypes.data],
+  );
+  const defaultRates = useFbrReference("tax_rate", {
+    parent: defaultSaleType,
+    enabled: fbrEnabled && !isEdit && !!defaultSaleType,
+  });
+
+  useEffect(() => {
+    if (isEdit || !fbrEnabled || !defaultSaleType) return;
+    if (!form.getFieldValue("sale_type_code")) {
+      form.setFieldValue("sale_type_code", defaultSaleType);
+    }
+    if (
+      form.getFieldValue("sale_type_code") === defaultSaleType &&
+      !form.getFieldValue("tax_rate_code") &&
+      defaultRates.data?.length === 1
+    ) {
+      form.setFieldValue("tax_rate_code", defaultRates.data[0].code);
+    }
+  }, [defaultSaleType, defaultRates.data, isEdit, fbrEnabled, form]);
+
   useEffect(() => {
     if (!product) return;
     form.setFieldsValue({
@@ -95,6 +136,12 @@ export function ItemForm({ product }: { product?: Product }) {
       purchase_price: product.purchase_price ?? undefined,
       track_inventory: product.track_inventory,
       reorder_point: product.reorder_point ?? undefined,
+      hs_code: product.hs_code ?? undefined,
+      uom_code: product.uom_code ?? undefined,
+      sale_type_code: product.sale_type_code ?? undefined,
+      tax_rate_code: product.tax_rate_code ?? undefined,
+      sro_schedule_code: product.sro_schedule_code ?? undefined,
+      sro_item_serial: product.sro_item_serial ?? undefined,
     });
   }, [product, form]);
 
@@ -138,6 +185,14 @@ export function ItemForm({ product }: { product?: Product }) {
       form={form}
       layout="vertical"
       onFinish={submit}
+      onValuesChange={(changed) => {
+        if ("sale_type_code" in changed)
+          form.setFieldsValue({ tax_rate_code: undefined, sro_schedule_code: undefined, sro_item_serial: undefined });
+        if ("tax_rate_code" in changed)
+          form.setFieldsValue({ sro_schedule_code: undefined, sro_item_serial: undefined });
+        if ("sro_schedule_code" in changed) form.setFieldValue("sro_item_serial", undefined);
+        if ("hs_code" in changed) form.setFieldValue("uom_code", undefined);
+      }}
       initialValues={{ nature: "good", type: "single", track_inventory: false }}
       className="flex flex-col gap-6 pb-24"
     >
@@ -243,6 +298,55 @@ export function ItemForm({ product }: { product?: Product }) {
           </Form.Item>
         </div>
       </Card>
+
+      {fbrEnabled && (
+        <Card title="FBR e-Invoicing" className="border-gray-100">
+          <div className="grid grid-cols-1 gap-x-6 md:grid-cols-2">
+            <Form.Item name="hs_code" label="HS Code" extra="Customs tariff code reported to FBR.">
+              <FbrReferenceSelect type="hs_code" placeholder="Search HS code or description" />
+            </Form.Item>
+            <Form.Item
+              name="uom_code"
+              label="Unit of Measure (FBR)"
+              dependencies={["hs_code"]}
+              extra={hsCode ? "Units allowed for the selected HS code." : "Pick an HS code to narrow the units."}
+            >
+              <FbrUomSelect hsCode={hsCode} placeholder="Select FBR unit" />
+            </Form.Item>
+            <Form.Item name="sale_type_code" label="Sale Type">
+              <FbrReferenceSelect type="sale_type" placeholder="Select sale type" />
+            </Form.Item>
+            <Form.Item name="tax_rate_code" label="Tax Rate" dependencies={["sale_type_code"]}>
+              <FbrReferenceSelect
+                type="tax_rate"
+                parent={saleType}
+                placeholder={saleType ? "Select tax rate" : "Pick a sale type first"}
+                disabled={!saleType}
+              />
+            </Form.Item>
+            <Form.Item
+              name="sro_schedule_code"
+              label="SRO Schedule"
+              dependencies={["tax_rate_code"]}
+              extra="Required for exempt, reduced-rate, or SRO-based items."
+            >
+              <FbrReferenceSelect
+                type="sro_schedule"
+                parent={taxRate}
+                placeholder={taxRate ? "Select SRO schedule" : "Pick a tax rate first"}
+                disabled={!taxRate}
+              />
+            </Form.Item>
+            <Form.Item name="sro_item_serial" label="SRO Item Serial" dependencies={["sro_schedule_code"]}>
+              <FbrSroItemSelect
+                sroId={sroSchedule}
+                placeholder={sroSchedule ? "Select serial number" : "Pick an SRO schedule first"}
+                disabled={!sroSchedule}
+              />
+            </Form.Item>
+          </div>
+        </Card>
+      )}
 
       <Card title="Description" className="border-gray-100">
         <Form.Item name="description" noStyle>

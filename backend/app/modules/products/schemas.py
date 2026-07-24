@@ -74,6 +74,12 @@ class ProductBase(BaseModel):
     track_inventory: bool = False
     reorder_point: int | None = Field(default=None, ge=0)
     is_active: bool = True
+    hs_code: str | None = Field(default=None, max_length=20)
+    uom_code: str | None = Field(default=None, max_length=20)
+    sale_type_code: str | None = Field(default=None, max_length=20)
+    tax_rate_code: str | None = Field(default=None, max_length=20)
+    sro_schedule_code: str | None = Field(default=None, max_length=20)
+    sro_item_serial: str | None = Field(default=None, max_length=30)
 
 
 class ProductCreate(ProductBase):
@@ -96,6 +102,12 @@ class ProductUpdate(BaseModel):
     track_inventory: bool | None = None
     reorder_point: int | None = Field(default=None, ge=0)
     is_active: bool | None = None
+    hs_code: str | None = Field(default=None, max_length=20)
+    uom_code: str | None = Field(default=None, max_length=20)
+    sale_type_code: str | None = Field(default=None, max_length=20)
+    tax_rate_code: str | None = Field(default=None, max_length=20)
+    sro_schedule_code: str | None = Field(default=None, max_length=20)
+    sro_item_serial: str | None = Field(default=None, max_length=30)
     media: list[MediaCreate] | None = None
     variant_attributes: list[VariantAttributeInput] | None = None
     variants: list[VariantInput] | None = None
@@ -116,6 +128,12 @@ class ProductRead(BaseModel):
     track_inventory: bool
     reorder_point: int | None = None
     is_active: bool
+    hs_code: str | None = None
+    uom_code: str | None = None
+    sale_type_code: str | None = None
+    tax_rate_code: str | None = None
+    sro_schedule_code: str | None = None
+    sro_item_serial: str | None = None
     category: CategorySummary | None = None
     uom: UomSummary | None = None
     media: list[MediaRead] = Field(default_factory=list)

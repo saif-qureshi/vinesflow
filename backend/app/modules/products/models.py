@@ -60,6 +60,13 @@ class Product(Base, TimestampMixin, AuditMixin):
     sale_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     purchase_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
 
+    hs_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    uom_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    sale_type_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    tax_rate_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    sro_schedule_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    sro_item_serial: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
     track_inventory: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )

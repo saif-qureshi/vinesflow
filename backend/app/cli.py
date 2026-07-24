@@ -236,6 +236,49 @@ def fbr_sync(
         db.close()
 
 
+@fbr_app.command("sync-mappings")
+def fbr_sync_mappings(
+    environment: str = typer.Option("production", help="sandbox or production"),
+    token: str = typer.Option(None, help="Bearer token (defaults to FBR_REFERENCE_TOKEN)"),
+    hs_limit: int = typer.Option(None, help="Limit HS codes fetched (for testing)"),
+    workers: int = typer.Option(6, help="Concurrent HS_UOM fetchers"),
+    skip_hs: bool = typer.Option(False, help="Only sync SRO item serials, skip HS→UoM"),
+):
+    from app.core.config import settings
+    from app.core.crypto import decrypt_secret
+    from app.modules.fbr.client import FbrClient
+    from app.modules.fbr.enums import FbrEnvironment
+    from app.modules.fbr.sync import FbrReferenceSyncService
+    from app.modules.orgs.models import Organization
+
+    resolved = token or settings.FBR_REFERENCE_TOKEN
+    db = SessionLocal()
+    try:
+        if not resolved:
+            org = db.scalar(select(Organization).where(Organization.fbr_enabled.is_(True)))
+            if org is not None:
+                resolved = decrypt_secret(
+                    org.fbr_production_token if environment == "production" else org.fbr_sandbox_token
+                )
+        if not resolved:
+            typer.secho(
+                "No token. Set FBR_REFERENCE_TOKEN, pass --token, or enable FBR on an org.",
+                fg=typer.colors.RED,
+            )
+            raise typer.Exit(1)
+
+        client = FbrClient(resolved, FbrEnvironment(environment))
+        svc = FbrReferenceSyncService(db, client)
+        typer.echo("Syncing SRO item serials…")
+        svc.sync_sro_items(log=lambda m: typer.echo(f"  {m}"))
+        if not skip_hs:
+            typer.echo("Syncing HS → UoM mappings (resumable)…")
+            svc.sync_hs_uom(log=lambda m: typer.echo(f"  {m}"), limit=hs_limit, workers=workers)
+        typer.secho("Mappings sync complete.", fg=typer.colors.GREEN)
+    finally:
+        db.close()
+
+
 @fbr_app.command("summary")
 def fbr_summary():
     from sqlalchemy import func

@@ -52,6 +52,12 @@ export interface Product {
   track_inventory: boolean;
   reorder_point: number | null;
   is_active: boolean;
+  hs_code: string | null;
+  uom_code: string | null;
+  sale_type_code: string | null;
+  tax_rate_code: string | null;
+  sro_schedule_code: string | null;
+  sro_item_serial: string | null;
   category: CategorySummary | null;
   uom: UomSummary | null;
   media: Media[];
@@ -73,6 +79,12 @@ export interface ProductInput {
   purchase_price?: number | null;
   track_inventory: boolean;
   reorder_point?: number | null;
+  hs_code?: string | null;
+  uom_code?: string | null;
+  sale_type_code?: string | null;
+  tax_rate_code?: string | null;
+  sro_schedule_code?: string | null;
+  sro_item_serial?: string | null;
   media?: MediaInput[];
   variant_attributes?: VariantAttribute[];
   variants?: VariantInput[];

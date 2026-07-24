@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.fbr.client import REFERENCE_ENDPOINTS, FbrClient
 from app.modules.fbr.enums import FbrReferenceType
-from app.modules.fbr.models import FbrReferenceData
+from app.modules.fbr.models import NONE_MARK, FbrReferenceData
 
 
 def _pick(row: dict, *keys: str) -> Any:
@@ -149,6 +149,121 @@ class FbrReferenceSyncService:
         count = self._upsert(rows, synced_at)
         log(f"sro schedules: {count}")
         return count
+
+    def _fetch_retry(self, fn, attempts: int = 3, delay: float = 1.5):
+        import time
+
+        for attempt in range(attempts):
+            try:
+                return fn() or []
+            except Exception:
+                if attempt < attempts - 1:
+                    time.sleep(delay)
+        return None
+
+    def sync_sro_items(self, log=print) -> int:
+        synced_at = datetime.now(timezone.utc)
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        done = {
+            pc
+            for (pc,) in self.db.query(FbrReferenceData.parent_code)
+            .filter(FbrReferenceData.type == "sro_serial")
+            .distinct()
+        }
+        pending = [
+            code
+            for (code,) in self.db.query(FbrReferenceData.code).filter(
+                FbrReferenceData.type == FbrReferenceType.SRO_SCHEDULE
+            )
+            if code not in done
+        ]
+        rows = []
+        for code in pending:
+            items = self._fetch_retry(lambda: self.client.sro_items(code, date_str))
+            if items is None:
+                continue
+            seen: set[str] = set()
+            serials = []
+            for item in items:
+                serial = str(_pick(item, "srO_ITEM_DESC"))
+                if serial and serial not in seen:
+                    seen.add(serial)
+                    serials.append(serial)
+            for serial in serials or [NONE_MARK]:
+                rows.append({
+                    "type": "sro_serial",
+                    "code": serial,
+                    "description": None if serial == NONE_MARK else serial,
+                    "parent_type": FbrReferenceType.SRO_SCHEDULE,
+                    "parent_code": code,
+                })
+        count = self._upsert(rows, synced_at)
+        self.db.commit()
+        log(f"sro serials: {count} rows for {len(pending)} schedules")
+        return count
+
+    def sync_hs_uom(self, log=print, limit: int | None = None, workers: int = 6) -> int:
+        from concurrent.futures import ThreadPoolExecutor
+
+        synced_at = datetime.now(timezone.utc)
+        done = {
+            pc
+            for (pc,) in self.db.query(FbrReferenceData.parent_code)
+            .filter(FbrReferenceData.type == "hs_uom")
+            .distinct()
+        }
+        codes = [
+            code
+            for (code,) in self.db.query(FbrReferenceData.code).filter(
+                FbrReferenceData.type == FbrReferenceType.HS_CODE
+            )
+            if code not in done
+        ]
+        if limit:
+            codes = codes[:limit]
+        log(f"hs_uom: {len(codes)} to fetch, {len(done)} already done")
+
+        def fetch_one(hs_code):
+            return hs_code, self._fetch_retry(lambda: self.client.hs_uom(hs_code))
+
+        batch: list[dict] = []
+        stored = 0
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for index, (hs_code, result) in enumerate(pool.map(fetch_one, codes), 1):
+                if result is None:
+                    continue
+                if result:
+                    for row in result:
+                        uom_id = _pick(row, "uoM_ID", "uom_ID")
+                        if uom_id is None:
+                            continue
+                        batch.append({
+                            "type": "hs_uom",
+                            "code": str(uom_id),
+                            "description": _pick(row, "description"),
+                            "parent_type": FbrReferenceType.HS_CODE,
+                            "parent_code": hs_code,
+                        })
+                else:
+                    batch.append({
+                        "type": "hs_uom",
+                        "code": NONE_MARK,
+                        "description": None,
+                        "parent_type": FbrReferenceType.HS_CODE,
+                        "parent_code": hs_code,
+                    })
+                stored += 1
+                if len(batch) >= 300:
+                    self._upsert(batch, synced_at)
+                    self.db.commit()
+                    batch = []
+                if index % 200 == 0:
+                    log(f"  hs_uom {index}/{len(codes)}")
+        if batch:
+            self._upsert(batch, synced_at)
+            self.db.commit()
+        log(f"hs_uom: fetched {stored}/{len(codes)}")
+        return stored
 
     def _upsert(self, rows: list[dict], synced_at: datetime) -> int:
         if not rows:

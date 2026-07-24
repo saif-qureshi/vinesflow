@@ -48,6 +48,30 @@ def test_goods_require_uom(db):
         ProductService(db).create(org_id, ProductCreate(name="Item", nature="good"))
 
 
+def test_fbr_fields_round_trip(db):
+    org_id = _org(db)
+    svc = ProductService(db)
+    product = svc.create(
+        org_id,
+        ProductCreate(
+            name="Phone",
+            uom_id=_uom(db, org_id),
+            hs_code="8517.1300",
+            uom_code="100",
+            sale_type_code="75",
+            tax_rate_code="728",
+        ),
+    )
+    assert product.hs_code == "8517.1300"
+    assert product.sale_type_code == "75"
+
+    from app.modules.products.schemas import ProductUpdate
+
+    updated = svc.update(org_id, product.id, ProductUpdate(tax_rate_code="280"))
+    assert updated.tax_rate_code == "280"
+    assert updated.hs_code == "8517.1300"
+
+
 def test_audit_fields_from_session_actor(db):
     from app.modules.products.schemas import ProductUpdate
 

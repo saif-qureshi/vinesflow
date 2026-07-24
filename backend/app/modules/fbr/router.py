@@ -17,6 +17,16 @@ def provinces(membership: CurrentMembership, svc: FbrService = Svc):
     return svc.provinces()
 
 
+@router.get("/hs-uom", response_model=list[FbrReferenceRead])
+def hs_uom(hs_code: str, membership: CurrentMembership, svc: FbrService = Svc):
+    return svc.hs_uom(membership.org_id, hs_code)
+
+
+@router.get("/sro-items", response_model=list[FbrReferenceRead])
+def sro_items(sro_id: str, membership: CurrentMembership, svc: FbrService = Svc):
+    return svc.sro_items(membership.org_id, sro_id)
+
+
 @router.get("/reference/{ref_type}", response_model=list[FbrReferenceRead])
 def reference(
     ref_type: str,
