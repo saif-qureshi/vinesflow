@@ -1,10 +1,17 @@
 from decimal import Decimal
 
+import pytest
+from cryptography.fernet import Fernet
 from sqlalchemy import select
 
+from app.core import crypto
+from app.core.config import settings as app_settings
+from app.core.crypto import encrypt_secret
+from app.core.exceptions import BadRequestError
 from app.core.security import hash_password
-from app.modules.documents.enums import DocumentType
-from app.modules.documents.models import TaxRate
+from app.modules.documents.enums import DocumentStatus, DocumentType
+from app.modules.documents.models import Document, TaxRate
+from app.modules.fbr.client import FbrClient
 from app.modules.documents.schemas import DocumentCreate, DocumentLineInput
 from app.modules.documents.service import DocumentService
 from app.modules.fbr.invoice import FbrInvoiceBuilder
@@ -165,3 +172,58 @@ def test_unregistered_buyer_without_strn(db):
     )
     payload = FbrInvoiceBuilder(db).build(invoice, org)
     assert payload["buyerRegistrationType"] == "Unregistered"
+
+
+def _fbr_org(db, monkeypatch):
+    monkeypatch.setattr(app_settings, "FBR_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    crypto._cipher.cache_clear()
+    _seed_refs(db)
+    org, party_id, pid = _setup(db)
+    org.fbr_environment = "sandbox"
+    org.fbr_sandbox_token = encrypt_secret("tok-abc")
+    db.flush()
+    return org, party_id, pid
+
+
+def _make_invoice(db, org, party_id, pid):
+    tax = db.scalar(select(TaxRate).where(TaxRate.org_id == org.id, TaxRate.name == "GST 18%"))
+    return DocumentService(db).create(
+        org.id,
+        DocumentType.INVOICE,
+        DocumentCreate(
+            party_id=party_id,
+            lines=[DocumentLineInput(product_id=pid, description="Widget", quantity=Decimal("1"),
+                                     unit_price=Decimal("100"), tax_rate_id=tax.id)],
+        ),
+    )
+
+
+def test_finalize_submits_to_fbr(db, monkeypatch):
+    org, party_id, pid = _fbr_org(db, monkeypatch)
+    valid = {"validationResponse": {"statusCode": "00", "status": "Valid"}}
+    monkeypatch.setattr(FbrClient, "validate_invoice", lambda self, p: valid)
+    monkeypatch.setattr(
+        FbrClient, "post_invoice",
+        lambda self, p: {"invoiceNumber": "7000007DI123", **valid},
+    )
+    svc = DocumentService(db)
+    inv = _make_invoice(db, org, party_id, pid)
+    finalized = svc.finalize(org.id, inv.id)
+    assert finalized.status == DocumentStatus.SENT
+    assert finalized.fbr_invoice_number == "7000007DI123"
+    assert finalized.fbr_submitted_at is not None
+    crypto._cipher.cache_clear()
+
+
+def test_finalize_blocked_when_fbr_rejects(db, monkeypatch):
+    org, party_id, pid = _fbr_org(db, monkeypatch)
+    monkeypatch.setattr(
+        FbrClient, "validate_invoice",
+        lambda self, p: {"validationResponse": {"statusCode": "01", "status": "Invalid", "error": "bad HS code"}},
+    )
+    svc = DocumentService(db)
+    inv = _make_invoice(db, org, party_id, pid)
+    with pytest.raises(BadRequestError):
+        svc.finalize(org.id, inv.id)
+    assert db.get(Document, inv.id).status == DocumentStatus.DRAFT
+    crypto._cipher.cache_clear()

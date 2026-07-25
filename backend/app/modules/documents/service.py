@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import or_, select
@@ -600,6 +600,14 @@ class DocumentService:
             raise BadRequestError("Only draft documents can be finalized")
         if not doc.lines:
             raise BadRequestError("Cannot finalize a document with no lines")
+        if doc.type == DocumentType.INVOICE:
+            from app.modules.fbr.service import FbrService
+
+            result = FbrService(self.db).submit_invoice(org_id, doc)
+            if result:
+                doc.fbr_invoice_number = result["invoice_number"]
+                doc.fbr_response = result["response"]
+                doc.fbr_submitted_at = datetime.now(timezone.utc)
         moves_stock = doc.stock_direction != 0 and not self._source_moved_stock(doc)
         if moves_stock and any(line.product_id for line in doc.lines):
             if doc.warehouse_id is None:

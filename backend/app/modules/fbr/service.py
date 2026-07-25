@@ -142,6 +142,40 @@ class FbrService:
             raise BadRequestError(f"No {environment} FBR token is configured")
         return FbrClient(decrypt_secret(encrypted), FbrEnvironment(environment))
 
+    @staticmethod
+    def _fbr_error(response: dict | None, phase: str) -> str | None:
+        vr = (response or {}).get("validationResponse", {}) or {}
+        if vr.get("statusCode") == "00" or vr.get("status") == "Valid":
+            return None
+        parts = []
+        if vr.get("error"):
+            parts.append(str(vr["error"]))
+        for item in vr.get("invoiceStatuses", []) or []:
+            if item.get("error"):
+                parts.append(f"item {item.get('itemSNo')}: {item['error']}")
+        return f"FBR {phase} failed: {'; '.join(parts) or 'invalid invoice'}"
+
+    def submit_invoice(self, org_id: int, doc: Document) -> dict | None:
+        from app.modules.settings.service import SettingsService
+
+        org = self.db.get(Organization, org_id)
+        if org is None or not org.fbr_enabled:
+            return None
+        require_validate = bool(
+            SettingsService(self.db).get(org_id, "fbr", "validate_before_submit", True)
+        )
+        payload = FbrInvoiceBuilder(self.db).build(doc, org)
+        client = self._org_client(org)
+        if require_validate:
+            error = self._fbr_error(client.validate_invoice(payload), "validation")
+            if error:
+                raise BadRequestError(error)
+        result = client.post_invoice(payload)
+        error = self._fbr_error(result, "submission")
+        if error:
+            raise BadRequestError(error)
+        return {"invoice_number": result.get("invoiceNumber"), "response": result}
+
     def validate_document(
         self, org_id: int, doc_id: int, scenario_id: str | None = None
     ) -> dict:

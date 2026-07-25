@@ -108,6 +108,8 @@ class DocumentRead(BaseModel):
     fbr_sale_origin: str | None = None
     fbr_sale_destination: str | None = None
     fbr_scenario_id: str | None = None
+    fbr_invoice_number: str | None = None
+    fbr_submitted_at: datetime | None = None
     subtotal: Decimal
     discount_total: Decimal
     tax_total: Decimal

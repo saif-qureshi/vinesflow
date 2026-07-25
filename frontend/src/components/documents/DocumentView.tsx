@@ -163,6 +163,11 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
               {config.tracksPayment && doc.status === "sent" && (
                 <Tag color={paidMeta.color}>{paidMeta.label}</Tag>
               )}
+              {doc.fbr_invoice_number && (
+                <Tag color="cyan" icon={<ShieldCheck size={12} />}>
+                  FBR IRN: {doc.fbr_invoice_number}
+                </Tag>
+              )}
               <Typography.Text type="secondary">{doc.party?.name}</Typography.Text>
             </div>
           </div>
@@ -191,7 +196,7 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
                 {conversion.label}
               </Button>
             ))}
-          {showFbrValidate && (
+          {showFbrValidate && !doc.fbr_invoice_number && (
             <Button
               icon={<ShieldCheck size={16} />}
               loading={validate.isPending}

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
     Date,
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -84,6 +85,9 @@ class Document(Base, TimestampMixin, AuditMixin):
     fbr_sale_origin: Mapped[str | None] = mapped_column(String(50), nullable=True)
     fbr_sale_destination: Mapped[str | None] = mapped_column(String(50), nullable=True)
     fbr_scenario_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    fbr_invoice_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    fbr_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    fbr_response: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     subtotal: Mapped[Decimal] = mapped_column(_MONEY, default=0, nullable=False)
     discount_total: Mapped[Decimal] = mapped_column(_MONEY, default=0, nullable=False)
