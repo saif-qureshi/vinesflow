@@ -28,8 +28,17 @@ def _object_key(org_id: int, filename: str) -> str:
     return f"org-{org_id}/{uuid.uuid4().hex}{ext}"
 
 
+def _key_from_url(url: str) -> str | None:
+    # Keys always start with the org partition, so recover them base-independently.
+    idx = url.find("org-")
+    return url[idx:] if idx != -1 else None
+
+
 class Storage(Protocol):
     def save(self, *, org_id: int, filename: str, content_type: str | None, data: bytes) -> StoredFile: ...
+    def delete(self, key: str) -> None: ...
+
+    def key_from_url(self, url: str) -> str | None: ...
 
 
 class LocalStorage:
@@ -45,6 +54,12 @@ class LocalStorage:
         path.write_bytes(data)
         url = f"{settings.MEDIA_PUBLIC_URL.rstrip('/')}/media/files/{key}"
         return StoredFile(url=url, key=key, filename=filename, content_type=content_type, size=len(data))
+
+    def delete(self, key: str) -> None:
+        (self.root / key).unlink(missing_ok=True)
+
+    def key_from_url(self, url: str) -> str | None:
+        return _key_from_url(url)
 
 
 class S3Storage:
@@ -68,6 +83,12 @@ class S3Storage:
         return StoredFile(
             url=f"{base.rstrip('/')}/{key}", key=key, filename=filename, content_type=content_type, size=len(data)
         )
+
+    def delete(self, key: str) -> None:
+        self.client.delete_object(Bucket=self.bucket, Key=key)
+
+    def key_from_url(self, url: str) -> str | None:
+        return _key_from_url(url)
 
 
 def get_storage() -> Storage:

@@ -23,6 +23,7 @@ class MediaAsset(Base, TimestampMixin, AuditMixin):
     attachable_type: Mapped[str] = mapped_column(String(50), nullable=False)
     attachable_id: Mapped[int] = mapped_column(Integer, nullable=False)
     url: Mapped[str] = mapped_column(String(1024), nullable=False)
+    storage_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     size: Mapped[int | None] = mapped_column(Integer, nullable=True)

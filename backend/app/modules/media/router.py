@@ -27,6 +27,7 @@ async def upload_media(membership: CurrentMembership, file: UploadFile = File(..
     )
     return MediaUploadResult(
         url=stored.url,
+        storage_key=stored.key,
         filename=stored.filename,
         content_type=stored.content_type,
         size=stored.size,
