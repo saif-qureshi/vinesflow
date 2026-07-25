@@ -20,7 +20,20 @@ class OpeningStockInput(BaseModel):
     product_id: int
     location_id: int
     quantity: Decimal = Field(ge=0)
+    unit_cost: Decimal | None = Field(default=None, ge=0)
     note: str | None = Field(default=None, max_length=255)
+
+
+class OpeningLocationRead(BaseModel):
+    location_id: int
+    location_name: str
+    quantity: Decimal
+    unit_cost: Decimal | None = None
+
+
+class OpeningStockStateRead(BaseModel):
+    locked: bool
+    entries: list[OpeningLocationRead]
 
 
 class StockTransferInput(BaseModel):

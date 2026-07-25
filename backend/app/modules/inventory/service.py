@@ -13,7 +13,9 @@ from app.modules.inventory.schemas import (
     InventoryItemRead,
     InventoryListQuery,
     ItemStockRead,
+    OpeningLocationRead,
     OpeningStockInput,
+    OpeningStockStateRead,
     ReasonCreate,
     StockAdjustInput,
     StockByLocation,
@@ -123,15 +125,26 @@ class InventoryService:
         )
         return qty if qty is not None else _ZERO
 
-    def _apply(self, org_id, product_id, location_id, qty_delta, type_, note, reason=None) -> None:
+    def _apply(self, org_id, product_id, location_id, qty_delta, type_, note, reason=None, unit_cost=None) -> None:
         self.db.add(
             StockMovement(
                 org_id=org_id, product_id=product_id, location_id=location_id,
-                qty_delta=qty_delta, type=type_, note=note, reason=reason,
+                qty_delta=qty_delta, type=type_, note=note, reason=reason, unit_cost=unit_cost,
             )
         )
         level = self._level(org_id, product_id, location_id)
         level.quantity = level.quantity + qty_delta
+
+    def _has_transactions(self, org_id: int, product_id: int) -> bool:
+        return bool(
+            self.db.scalar(
+                select(StockMovement.id).where(
+                    StockMovement.org_id == org_id,
+                    StockMovement.product_id == product_id,
+                    StockMovement.type != "opening",
+                ).limit(1)
+            )
+        )
 
     def post_document_movement(
         self, org_id, product_id, location_id, qty_delta, type_, reference_type, reference_id, unit_cost=None
@@ -163,12 +176,59 @@ class InventoryService:
 
     def set_opening(self, org_id: int, payload: OpeningStockInput) -> None:
         product = self._validate(org_id, payload.product_id, payload.location_id)
-        self._apply(
-            org_id, payload.product_id, payload.location_id,
-            payload.quantity, "opening", payload.note,
-        )
+        if self._has_transactions(org_id, payload.product_id):
+            raise BadRequestError(
+                "Opening stock is locked once this item has transactions; use Adjust Stock instead"
+            )
+        current = self._on_hand_at(org_id, payload.product_id, payload.location_id)
+        delta = payload.quantity - current
+        if delta != _ZERO or payload.unit_cost is not None:
+            self._apply(
+                org_id, payload.product_id, payload.location_id,
+                delta, "opening", payload.note, unit_cost=payload.unit_cost,
+            )
         self._record(org_id, "set opening", product, payload.quantity, payload.location_id)
         self.db.commit()
+
+    def opening_state(self, org_id: int, product_id: int) -> OpeningStockStateRead:
+        product = self.db.scalar(
+            select(Product).where(Product.id == product_id, Product.org_id == org_id)
+        )
+        if product is None:
+            raise NotFoundError("Item not found")
+        locked = self._has_transactions(org_id, product_id)
+        levels = dict(
+            self.db.execute(
+                select(StockLevel.location_id, StockLevel.quantity).where(
+                    StockLevel.org_id == org_id, StockLevel.product_id == product_id
+                )
+            ).all()
+        )
+        costs = dict(
+            self.db.execute(
+                select(StockMovement.location_id, StockMovement.unit_cost)
+                .where(
+                    StockMovement.org_id == org_id,
+                    StockMovement.product_id == product_id,
+                    StockMovement.type == "opening",
+                    StockMovement.unit_cost.is_not(None),
+                )
+                .order_by(StockMovement.id)
+            ).all()
+        )
+        locations = self.db.execute(
+            select(Location.id, Location.name)
+            .where(Location.org_id == org_id, Location.is_active.is_(True))
+            .order_by(Location.name)
+        ).all()
+        entries = [
+            OpeningLocationRead(
+                location_id=lid, location_name=name,
+                quantity=levels.get(lid, _ZERO), unit_cost=costs.get(lid),
+            )
+            for lid, name in locations
+        ]
+        return OpeningStockStateRead(locked=locked, entries=entries)
 
     def transfer(self, org_id: int, payload: StockTransferInput) -> None:
         if payload.from_location_id == payload.to_location_id:
