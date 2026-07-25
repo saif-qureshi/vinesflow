@@ -17,7 +17,7 @@ from app.modules.documents.schemas import (
 )
 from app.modules.documents.service import DocumentService
 from app.modules.inventory.models import StockMovement
-from app.modules.inventory.schemas import OpeningStockInput
+from app.modules.inventory.schemas import StockAdjustInput
 from app.modules.inventory.service import InventoryService
 from app.modules.locations.models import Location
 from app.modules.orgs.service import OrgService
@@ -244,8 +244,8 @@ def test_create_invoice_unknown_party_raises(db):
 
 def test_finalize_ships_stock(db):
     org_id, loc_id, party_id, pid = _setup(db)
-    InventoryService(db).set_opening(
-        org_id, OpeningStockInput(product_id=pid, location_id=loc_id, quantity=Decimal(10))
+    InventoryService(db).adjust(
+        org_id, StockAdjustInput(product_id=pid, location_id=loc_id, qty_delta=Decimal(10), reason="Opening balance")
     )
     svc = DocumentService(db)
     inv = _invoice(svc, org_id, party_id, pid, _tax(db, org_id).id, warehouse_id=loc_id)
@@ -311,8 +311,8 @@ def test_finalize_only_from_draft(db):
 
 def test_void_reverses_stock(db):
     org_id, loc_id, party_id, pid = _setup(db)
-    InventoryService(db).set_opening(
-        org_id, OpeningStockInput(product_id=pid, location_id=loc_id, quantity=Decimal(10))
+    InventoryService(db).adjust(
+        org_id, StockAdjustInput(product_id=pid, location_id=loc_id, qty_delta=Decimal(10), reason="Opening balance")
     )
     svc = DocumentService(db)
     inv = _invoice(svc, org_id, party_id, pid, _tax(db, org_id).id, warehouse_id=loc_id)

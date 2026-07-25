@@ -7,7 +7,6 @@ from app.core.exceptions import BadRequestError, ConflictError
 from app.core.security import hash_password
 from app.modules.inventory.schemas import (
     InventoryListQuery,
-    OpeningStockInput,
     ReasonCreate,
     StockAdjustInput,
     StockTransferInput,
@@ -53,7 +52,7 @@ def test_transfer_moves_between_locations(db):
     org_id, loc_id, pid = _setup(db)
     svc = InventoryService(db)
     loc_b = LocationService(db).create(org_id, LocationCreate(name="Store B"))
-    svc.set_opening(org_id, OpeningStockInput(product_id=pid, location_id=loc_id, quantity=Decimal(10)))
+    svc.adjust(org_id, StockAdjustInput(product_id=pid, location_id=loc_id, qty_delta=Decimal(10), reason="Opening balance"))
     svc.transfer(
         org_id,
         StockTransferInput(product_id=pid, from_location_id=loc_id, to_location_id=loc_b.id, quantity=Decimal(4)),

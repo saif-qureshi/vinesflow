@@ -16,13 +16,6 @@ class StockAdjustInput(BaseModel):
     note: str | None = Field(default=None, max_length=255)
 
 
-class OpeningStockInput(BaseModel):
-    product_id: int
-    location_id: int
-    quantity: Decimal = Field(ge=0)
-    note: str | None = Field(default=None, max_length=255)
-
-
 class StockTransferInput(BaseModel):
     product_id: int
     from_location_id: int

@@ -13,7 +13,6 @@ from app.modules.inventory.schemas import (
     InventoryItemRead,
     InventoryListQuery,
     ItemStockRead,
-    OpeningStockInput,
     ReasonCreate,
     StockAdjustInput,
     StockByLocation,
@@ -159,15 +158,6 @@ class InventoryService:
             payload.qty_delta, "adjustment", payload.note, reason=payload.reason,
         )
         self._record(org_id, "adjusted", product, payload.qty_delta, payload.location_id)
-        self.db.commit()
-
-    def set_opening(self, org_id: int, payload: OpeningStockInput) -> None:
-        product = self._validate(org_id, payload.product_id, payload.location_id)
-        self._apply(
-            org_id, payload.product_id, payload.location_id,
-            payload.quantity, "opening", payload.note,
-        )
-        self._record(org_id, "set opening", product, payload.quantity, payload.location_id)
         self.db.commit()
 
     def transfer(self, org_id: int, payload: StockTransferInput) -> None:

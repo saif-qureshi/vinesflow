@@ -7,7 +7,7 @@ from app.modules.documents.enums import DocumentStatus, DocumentType
 from app.modules.documents.models import TaxRate
 from app.modules.documents.schemas import DocumentCreate, DocumentLineInput
 from app.modules.documents.service import DocumentService
-from app.modules.inventory.schemas import OpeningStockInput
+from app.modules.inventory.schemas import StockAdjustInput
 from app.modules.inventory.service import InventoryService
 from app.modules.locations.models import Location
 from app.modules.orgs.service import OrgService
@@ -30,8 +30,8 @@ def _setup(db):
     )
     db.add_all([vendor, product])
     db.flush()
-    InventoryService(db).set_opening(
-        org.id, OpeningStockInput(product_id=product.id, location_id=loc.id, quantity=Decimal(10))
+    InventoryService(db).adjust(
+        org.id, StockAdjustInput(product_id=product.id, location_id=loc.id, qty_delta=Decimal(10), reason="Opening balance")
     )
     tax = db.scalar(select(TaxRate).where(TaxRate.org_id == org.id, TaxRate.name == "Exempt"))
     return org.id, loc.id, vendor.id, product.id, tax.id
