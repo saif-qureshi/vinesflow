@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.modules.activities.router import router as activities_router
 from app.modules.auth.router import router as auth_router
 from app.modules.categories.router import router as categories_router
+from app.modules.dashboard.router import router as dashboard_router
 from app.modules.documents.router import router as documents_router
 from app.modules.fbr.router import router as fbr_router
 from app.modules.media.router import router as media_router
@@ -31,6 +32,7 @@ api_router.include_router(fbr_router)
 api_router.include_router(payments_router)
 api_router.include_router(activities_router)
 api_router.include_router(categories_router)
+api_router.include_router(dashboard_router)
 api_router.include_router(uoms_router)
 api_router.include_router(media_router)
 api_router.include_router(settings_router)
