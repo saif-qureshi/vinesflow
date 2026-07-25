@@ -527,6 +527,21 @@ class DocumentService:
             self.apply_settlement(source, -doc.settled_amount)
         doc.settled_amount = _ZERO
 
+    def _guard_fbr_credit_note(self, org_id: int, source: Document) -> None:
+        if not source.fbr_invoice_number:
+            raise BadRequestError("The original invoice was not filed with FBR")
+        existing = self.db.scalar(
+            select(Document.id).where(
+                Document.org_id == org_id,
+                Document.type == DocumentType.CREDIT_NOTE,
+                Document.source_document_id == source.id,
+            )
+        )
+        if existing:
+            raise BadRequestError("A credit note already exists for this invoice")
+        if source.issue_date and date.today() > source.issue_date + timedelta(days=180):
+            raise BadRequestError("Credit notes must be issued within 180 days of the invoice")
+
     def convert(
         self, org_id: int, doc_id: int, source_type: DocumentType, target_type: DocumentType
     ) -> Document:
@@ -535,6 +550,8 @@ class DocumentService:
             raise BadRequestError("That document cannot be converted to this type")
         if source.status != DocumentStatus.SENT:
             raise BadRequestError("Only a finalized document can be converted")
+        if target_type == DocumentType.CREDIT_NOTE and self._org_fbr_enabled(org_id):
+            self._guard_fbr_credit_note(org_id, source)
 
         line_inputs = [
             DocumentLineInput(
@@ -600,7 +617,7 @@ class DocumentService:
             raise BadRequestError("Only draft documents can be finalized")
         if not doc.lines:
             raise BadRequestError("Cannot finalize a document with no lines")
-        if doc.type == DocumentType.INVOICE:
+        if doc.type in (DocumentType.INVOICE, DocumentType.CREDIT_NOTE):
             from app.modules.fbr.service import FbrService
 
             result = FbrService(self.db).submit_invoice(org_id, doc)
@@ -633,6 +650,10 @@ class DocumentService:
             raise NotFoundError("Document not found")
         if doc.status in (DocumentStatus.DRAFT, DocumentStatus.VOID):
             raise BadRequestError("Only a finalized document can be voided")
+        if doc.type == DocumentType.INVOICE and doc.fbr_invoice_number:
+            raise BadRequestError(
+                "A filed FBR invoice cannot be voided; issue a credit note instead"
+            )
         if doc.amount_paid > _ZERO:
             raise BadRequestError("Cannot void a document with recorded payments")
         if doc.stock_posted:

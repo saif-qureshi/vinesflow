@@ -72,7 +72,9 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
   const [printing, setPrinting] = useState(false);
   const [validation, setValidation] = useState<FbrValidationResponse | null>(null);
 
-  const showFbrValidate = !!currentMembership?.organization.fbr_enabled && config.kind === "invoice";
+  const showFbrValidate =
+    !!currentMembership?.organization.fbr_enabled &&
+    (config.kind === "invoice" || config.kind === "credit_note");
 
   if (isLoading || !doc) {
     return (

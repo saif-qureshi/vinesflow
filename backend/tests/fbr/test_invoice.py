@@ -245,3 +245,37 @@ def test_print_includes_fbr_qr(db):
     inv.fbr_invoice_number = None
     db.flush()
     assert document_to_print(inv, org).stamp_image_data_url is None
+
+
+def _submit_ok(monkeypatch, irn):
+    valid = {"validationResponse": {"statusCode": "00", "status": "Valid"}}
+    monkeypatch.setattr(FbrClient, "validate_invoice", lambda self, p: valid)
+    monkeypatch.setattr(FbrClient, "post_invoice", lambda self, p: {"invoiceNumber": irn, **valid})
+
+
+def test_credit_note_references_invoice_and_one_per_invoice(db, monkeypatch):
+    org, party_id, pid = _fbr_org(db, monkeypatch)
+    _submit_ok(monkeypatch, "7000007DI111")
+    svc = DocumentService(db)
+    inv = _make_invoice(db, org, party_id, pid)
+    svc.finalize(org.id, inv.id)
+
+    cn = svc.convert(org.id, inv.id, DocumentType.INVOICE, DocumentType.CREDIT_NOTE)
+    payload = FbrInvoiceBuilder(db).build(cn, org)
+    assert payload["invoiceType"] == "Debit Note"
+    assert payload["invoiceRefNo"] == "7000007DI111"
+
+    with pytest.raises(BadRequestError):
+        svc.convert(org.id, inv.id, DocumentType.INVOICE, DocumentType.CREDIT_NOTE)
+    crypto._cipher.cache_clear()
+
+
+def test_cannot_void_filed_fbr_invoice(db, monkeypatch):
+    org, party_id, pid = _fbr_org(db, monkeypatch)
+    _submit_ok(monkeypatch, "7000007DI222")
+    svc = DocumentService(db)
+    inv = _make_invoice(db, org, party_id, pid)
+    svc.finalize(org.id, inv.id)
+    with pytest.raises(BadRequestError):
+        svc.void(org.id, inv.id)
+    crypto._cipher.cache_clear()

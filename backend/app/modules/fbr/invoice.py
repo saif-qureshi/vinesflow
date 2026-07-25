@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.modules.documents.enums import DocumentType
 from app.modules.documents.models import Document
 from app.modules.fbr.models import FbrReferenceData
 from app.modules.orgs.models import Organization
@@ -60,6 +61,12 @@ class FbrInvoiceBuilder:
         buyer_id = (party.ntn or party.cnic) if party else None
         registration = "Registered" if (party and party.strn) else "Unregistered"
 
+        is_credit = doc.type == DocumentType.CREDIT_NOTE
+        invoice_ref = ""
+        if is_credit and doc.source_document_id:
+            source = self.db.get(Document, doc.source_document_id)
+            invoice_ref = (source.fbr_invoice_number or "") if source else ""
+
         items = []
         for line in doc.lines:
             product = products.get(line.product_id)
@@ -86,7 +93,7 @@ class FbrInvoiceBuilder:
             })
 
         payload = {
-            "invoiceType": "Sale Invoice",
+            "invoiceType": "Debit Note" if is_credit else "Sale Invoice",
             "invoiceDate": doc.issue_date.isoformat() if doc.issue_date else "",
             "sellerNTNCNIC": _digits(org.ntn),
             "sellerBusinessName": org.name,
@@ -97,7 +104,7 @@ class FbrInvoiceBuilder:
             "buyerProvince": doc.fbr_sale_destination or buyer_address.get("state") or "",
             "buyerAddress": _address(buyer_address),
             "buyerRegistrationType": registration,
-            "invoiceRefNo": "",
+            "invoiceRefNo": invoice_ref,
             "items": items,
         }
         resolved_scenario = doc.fbr_scenario_id or scenario_id
