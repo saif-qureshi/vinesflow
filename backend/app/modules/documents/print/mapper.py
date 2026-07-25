@@ -6,6 +6,7 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+import segno
 from num2words import num2words
 
 from app.core.config import settings
@@ -98,6 +99,20 @@ def _company(org: Organization) -> PrintCompany:
     return PrintCompany(name=org.name, logo_data_url=_logo_data_url(org), lines=lines)
 
 
+_FBR_LOGO_PATH = Path(__file__).parent / "assets" / "fbr-logo.png"
+
+
+def _fbr_qr(content: str) -> str:
+    return segno.make(content, error="m").png_data_uri(scale=10, border=2)
+
+
+def _fbr_logo() -> str | None:
+    if not _FBR_LOGO_PATH.exists():
+        return None
+    mime = mimetypes.guess_type(str(_FBR_LOGO_PATH))[0] or "image/png"
+    return f"data:{mime};base64,{base64.b64encode(_FBR_LOGO_PATH.read_bytes()).decode()}"
+
+
 def document_to_print(doc: Document, org: Organization) -> PrintDocument:
     is_purchase = doc.type in (
         DocumentType.BILL,
@@ -120,6 +135,8 @@ def document_to_print(doc: Document, org: Organization) -> PrintDocument:
     ]
     if doc.reference:
         meta.append(PrintMetaField(label="Reference", value=doc.reference))
+    if doc.fbr_invoice_number:
+        meta.append(PrintMetaField(label="FBR IRN", value=doc.fbr_invoice_number))
 
     columns = [
         PrintColumn(key="description", label="Description"),
@@ -176,6 +193,8 @@ def document_to_print(doc: Document, org: Organization) -> PrintDocument:
         amount_in_words=amount_in_words(doc.total, doc.currency),
         footer_contact=PrintContact(address=", ".join(contact) or None) if contact else None,
         notes=doc.notes,
+        stamp_image_data_url=_fbr_qr(doc.fbr_invoice_number) if doc.fbr_invoice_number else None,
+        stamp_overlay_data_url=_fbr_logo() if doc.fbr_invoice_number else None,
     )
 
 

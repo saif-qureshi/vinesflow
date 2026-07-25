@@ -227,3 +227,21 @@ def test_finalize_blocked_when_fbr_rejects(db, monkeypatch):
         svc.finalize(org.id, inv.id)
     assert db.get(Document, inv.id).status == DocumentStatus.DRAFT
     crypto._cipher.cache_clear()
+
+
+def test_print_includes_fbr_qr(db):
+    _seed_refs(db)
+    org, party_id, pid = _setup(db)
+    inv = _make_invoice(db, org, party_id, pid)
+    inv.fbr_invoice_number = "7000007DI999"
+    db.flush()
+    from app.modules.documents.print.mapper import document_to_print
+
+    printable = document_to_print(inv, org)
+    assert printable.stamp_image_data_url
+    assert printable.stamp_image_data_url.startswith("data:image/png")
+    assert any(m.label == "FBR IRN" and m.value == "7000007DI999" for m in printable.meta)
+
+    inv.fbr_invoice_number = None
+    db.flush()
+    assert document_to_print(inv, org).stamp_image_data_url is None
