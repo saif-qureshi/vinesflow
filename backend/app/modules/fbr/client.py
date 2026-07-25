@@ -7,6 +7,7 @@ import httpx
 from app.core.config import settings
 from app.core.exceptions import ServiceUnavailableError
 from app.modules.fbr.enums import FbrEnvironment
+from app.modules.fbr.jsonrepair import loads as _json_loads
 
 REFERENCE_ENDPOINTS = {
     "doc_types": "/pdi/v1/doctypecode",
@@ -23,6 +24,39 @@ INVOICE_ENDPOINTS = {
     "post": "/di_data/v1/di/postinvoicedata",
     "validate": "/di_data/v1/di/validateinvoicedata",
 }
+
+FBR_TOKEN_REJECTED = (
+    "FBR rejected the sign-in token for this environment. "
+    "Check the FBR token and seller registration number in Settings → Organization → FBR."
+)
+
+
+def _decode(response: httpx.Response) -> Any:
+    try:
+        return _json_loads(response.text)
+    except ValueError as exc:
+        sample = (response.text or "").strip()[:300]
+        raise ServiceUnavailableError(f"FBR returned an unreadable response: {sample}") from exc
+
+
+def _fbr_reason(response: httpx.Response) -> str:
+    try:
+        body = _json_loads(response.text)
+    except ValueError:
+        return (response.text or "").strip()[:300]
+    if isinstance(body, dict):
+        vr = body.get("validationResponse")
+        if isinstance(vr, dict) and vr.get("error"):
+            return str(vr["error"])
+        for key in ("error", "message", "Message"):
+            if body.get(key):
+                return str(body[key])
+    return (response.text or "").strip()[:300]
+
+
+def _unauthorized(response: httpx.Response) -> ServiceUnavailableError:
+    reason = _fbr_reason(response)
+    return ServiceUnavailableError(f"FBR: {reason}" if reason else FBR_TOKEN_REJECTED)
 
 
 class FbrClient:
@@ -43,10 +77,10 @@ class FbrClient:
         except httpx.HTTPError as exc:
             raise ServiceUnavailableError("FBR service is unavailable") from exc
         if response.status_code == 401:
-            raise ServiceUnavailableError("FBR rejected the token (401)")
+            raise _unauthorized(response)
         if response.status_code != 200:
             raise ServiceUnavailableError(f"FBR returned {response.status_code}")
-        return response.json()
+        return _decode(response)
 
     def _post(self, endpoint: str, payload: dict) -> Any:
         target = endpoint if self.environment == FbrEnvironment.PRODUCTION else f"{endpoint}_sb"
@@ -57,8 +91,8 @@ class FbrClient:
         except httpx.HTTPError as exc:
             raise ServiceUnavailableError("FBR service is unavailable") from exc
         if response.status_code == 401:
-            raise ServiceUnavailableError("FBR rejected the token (401)")
-        return response.json()
+            raise _unauthorized(response)
+        return _decode(response)
 
     def hs_uom(self, hs_code: str) -> Any:
         return self.get(
