@@ -183,8 +183,11 @@ export function PartyView({ role, id }: { role: PartyRole; id: number }) {
               <Descriptions.Item label="Currency">{p.currency || dash}</Descriptions.Item>
               <Descriptions.Item label="Payment terms">{termLabel(p.payment_term_days)}</Descriptions.Item>
               <Descriptions.Item label="NTN">{p.ntn || dash}</Descriptions.Item>
-              <Descriptions.Item label="STRN">{p.strn || dash}</Descriptions.Item>
-              <Descriptions.Item label="CNIC">{p.cnic || dash}</Descriptions.Item>
+              {p.type === "individual" ? (
+                <Descriptions.Item label="CNIC">{p.cnic || dash}</Descriptions.Item>
+              ) : (
+                <Descriptions.Item label="STRN">{p.strn || dash}</Descriptions.Item>
+              )}
             </Descriptions>
           </Card>
         </div>
