@@ -11,6 +11,7 @@ export interface Organization {
   country: string;
   ntn: string | null;
   strn: string | null;
+  cnic: string | null;
   address: Address | null;
   fiscal_year_start_month: number;
   logo_url: string | null;

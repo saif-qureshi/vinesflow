@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import ROUND_HALF_UP, Decimal
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -20,8 +22,16 @@ def _address(addr) -> str:
     return ", ".join(p for p in parts if p)
 
 
-def _num(value) -> float:
-    return float(value or 0)
+def _round(value, places: str) -> float:
+    return float(Decimal(str(value or 0)).quantize(Decimal(places), rounding=ROUND_HALF_UP))
+
+
+def _money(value) -> float:
+    return _round(value, "0.01")
+
+
+def _qty(value) -> float:
+    return _round(value, "0.0001")
 
 
 def _digits(value: str | None) -> str:
@@ -58,8 +68,9 @@ class FbrInvoiceBuilder:
         } if product_ids else {}
 
         buyer_address = _as_dict(party.billing_address) if party else {}
-        buyer_id = (party.ntn or party.cnic) if party else None
+        buyer_id = (party.cnic or party.ntn or party.strn) if party else None
         registration = "Registered" if (party and party.strn) else "Unregistered"
+        seller_id = org.cnic or org.ntn or org.strn
 
         is_credit = doc.type == DocumentType.CREDIT_NOTE
         invoice_ref = ""
@@ -70,32 +81,33 @@ class FbrInvoiceBuilder:
         items = []
         for line in doc.lines:
             product = products.get(line.product_id)
-            base = round(_num(line.quantity) * _num(line.unit_price) - _num(line.discount), 2)
-            sales_tax = _num(line.tax_amount)
-            further_tax = _num(line.further_tax)
+            base = _money((line.quantity or 0) * (line.unit_price or 0) - (line.discount or 0))
+            sales_tax = _money(line.tax_amount)
+            further_tax = _money(line.further_tax)
             items.append({
                 "hsCode": (product.fbr("hs_code") if product else "") or "",
                 "productDescription": line.description,
                 "rate": self._desc("tax_rate", product.fbr("tax_rate_code")) if product else "",
                 "uoM": self._desc("uom", product.fbr("uom_code")) if product else "",
-                "quantity": _num(line.quantity),
+                "quantity": _qty(line.quantity),
+                "totalValues": _money(base + sales_tax + further_tax),
                 "valueSalesExcludingST": base,
+                "fixedNotifiedValueOrRetailPrice": 0,
                 "salesTaxApplicable": sales_tax,
                 "salesTaxWithheldAtSource": 0,
-                "extraTax": "",
+                "extraTax": 0,
                 "furtherTax": further_tax,
                 "sroScheduleNo": self._desc("sro_schedule", product.fbr("sro_schedule_code")) if product else "",
                 "fedPayable": 0,
-                "discount": _num(line.discount),
+                "discount": _money(line.discount),
                 "saleType": self._desc("sale_type", product.fbr("sale_type_code")) if product else "",
                 "sroItemSerialNo": (product.fbr("sro_item_serial") if product else "") or "",
-                "totalValues": round(base + sales_tax + further_tax, 2),
             })
 
         payload = {
             "invoiceType": "Debit Note" if is_credit else "Sale Invoice",
             "invoiceDate": doc.issue_date.isoformat() if doc.issue_date else "",
-            "sellerNTNCNIC": _digits(org.ntn),
+            "sellerNTNCNIC": _digits(seller_id),
             "sellerBusinessName": org.name,
             "sellerProvince": doc.fbr_sale_origin or org.fbr_province or "",
             "sellerAddress": _address(org.address),

@@ -26,6 +26,7 @@ class Organization(Base, TimestampMixin):
     country: Mapped[str] = mapped_column(String(2), default="PK", server_default="PK", nullable=False)
     ntn: Mapped[str | None] = mapped_column(String(20), nullable=True)
     strn: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    cnic: Mapped[str | None] = mapped_column(String(20), nullable=True)
     address: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # Month the fiscal year starts (1=January … 7=July). PKR default is July–June.
     fiscal_year_start_month: Mapped[int] = mapped_column(

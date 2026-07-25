@@ -33,6 +33,7 @@ class OrgUpdate(BaseModel):
     country: str | None = Field(default=None, min_length=2, max_length=2)
     ntn: str | None = Field(default=None, max_length=20)
     strn: str | None = Field(default=None, max_length=20)
+    cnic: str | None = Field(default=None, max_length=20)
     address: Address | None = None
     fiscal_year_start_month: int | None = Field(default=None, ge=1, le=12)
     logo_url: str | None = Field(default=None, max_length=1024)
@@ -57,6 +58,7 @@ class OrgRead(BaseModel):
     country: str
     ntn: str | None = None
     strn: str | None = None
+    cnic: str | None = None
     address: Address | None = None
     fiscal_year_start_month: int
     logo_url: str | None = None

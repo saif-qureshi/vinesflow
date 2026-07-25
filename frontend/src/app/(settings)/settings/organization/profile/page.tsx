@@ -33,6 +33,7 @@ export default function OrganizationProfilePage() {
   const [fiscalMonth, setFiscalMonth] = useState(7);
   const [ntn, setNtn] = useState("");
   const [strn, setStrn] = useState("");
+  const [cnic, setCnic] = useState("");
   const [country, setCountry] = useState("PK");
   const [address, setAddress] = useState<Address>({});
 
@@ -44,6 +45,7 @@ export default function OrganizationProfilePage() {
     setFiscalMonth(org.fiscal_year_start_month);
     setNtn(org.ntn ?? "");
     setStrn(org.strn ?? "");
+    setCnic(org.cnic ?? "");
     setCountry(org.country);
     setAddress(org.address ?? {});
   }, [org]);
@@ -64,6 +66,7 @@ export default function OrganizationProfilePage() {
         country,
         ntn,
         strn,
+        cnic,
         address,
         fiscal_year_start_month: fiscalMonth,
       });
@@ -99,6 +102,10 @@ export default function OrganizationProfilePage() {
 
         <SettingRow label="STRN" help="Sales Tax Registration Number.">
           <MaskedInput mask={MASKS.strn} value={strn} onChange={setStrn} placeholder="13-digit number" disabled={!canEdit} className="!w-56" />
+        </SettingRow>
+
+        <SettingRow label="CNIC" help="For sole proprietors filing under a personal CNIC. FBR prefers this over NTN/STRN.">
+          <MaskedInput mask={MASKS.cnic} value={cnic} onChange={setCnic} placeholder="00000-0000000-0" disabled={!canEdit} className="!w-56" />
         </SettingRow>
 
         <SettingRow label="Base Currency" required>

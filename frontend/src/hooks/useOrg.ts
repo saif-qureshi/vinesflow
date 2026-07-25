@@ -15,6 +15,7 @@ export function useUpdateOrg() {
       country?: string;
       ntn?: string;
       strn?: string;
+      cnic?: string;
       address?: Address | null;
       fiscal_year_start_month?: number;
       logo_url?: string;

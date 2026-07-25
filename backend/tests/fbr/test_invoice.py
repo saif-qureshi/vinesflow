@@ -316,3 +316,25 @@ def test_variant_inherits_parent_fbr_fields(db):
     payload = FbrInvoiceBuilder(db).build(inv, org)
     assert payload["items"][0]["hsCode"] == "6109.1000"
     assert payload["items"][0]["salesTaxApplicable"] == 36.0
+
+
+def test_seller_and_buyer_prefer_cnic(db):
+    _seed_refs(db)
+    org, party_id, pid = _setup(db)
+    org.cnic = "35202-1234567-8"
+    buyer = db.get(Party, party_id)
+    buyer.cnic = "42101-7654321-1"
+    db.flush()
+    tax = db.scalar(select(TaxRate).where(TaxRate.org_id == org.id, TaxRate.name == "GST 18%"))
+    invoice = DocumentService(db).create(
+        org.id,
+        DocumentType.INVOICE,
+        DocumentCreate(
+            party_id=party_id,
+            lines=[DocumentLineInput(product_id=pid, description="Widget", quantity=Decimal("1"),
+                                     unit_price=Decimal("100"), tax_rate_id=tax.id)],
+        ),
+    )
+    payload = FbrInvoiceBuilder(db).build(invoice, org)
+    assert payload["sellerNTNCNIC"] == "3520212345678"
+    assert payload["buyerNTNCNIC"] == "4210176543211"

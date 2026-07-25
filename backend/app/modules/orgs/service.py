@@ -99,6 +99,8 @@ class OrgService:
             org.ntn = payload.ntn or None
         if payload.strn is not None:
             org.strn = payload.strn or None
+        if payload.cnic is not None:
+            org.cnic = payload.cnic or None
         if "address" in payload.model_fields_set:
             org.address = payload.address.model_dump() if payload.address else None
         if payload.fiscal_year_start_month is not None:
