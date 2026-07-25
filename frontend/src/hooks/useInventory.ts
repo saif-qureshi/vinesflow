@@ -9,13 +9,7 @@ import {
 
 import { api } from "@/lib/api";
 import { useSessionStore } from "@/stores/session";
-import type {
-  InventoryItem,
-  ItemStock,
-  OpeningStockInput,
-  OpeningStockState,
-  StockMovement,
-} from "@/types";
+import type { InventoryItem, ItemStock, StockMovement } from "@/types";
 
 interface InventoryPage {
   items: InventoryItem[];
@@ -123,28 +117,5 @@ export function useTransferStock() {
   return useMutation({
     mutationFn: (payload: TransferInput) => api.post("/inventory/transfer", payload),
     onSuccess: (_r, vars) => invalidate(vars.product_id),
-  });
-}
-
-export function useOpeningStock(productId?: number) {
-  const orgId = useSessionStore((s) => s.currentOrgId);
-  return useQuery({
-    queryKey: ["opening-stock", orgId, productId],
-    enabled: !!productId,
-    queryFn: async () =>
-      (await api.get<OpeningStockState>(`/inventory/${productId}/opening`)).data,
-  });
-}
-
-export function useSetOpeningStock() {
-  const invalidate = useInvalidate();
-  const qc = useQueryClient();
-  const orgId = useSessionStore((s) => s.currentOrgId);
-  return useMutation({
-    mutationFn: (payload: OpeningStockInput) => api.post("/inventory/opening", payload),
-    onSuccess: (_r, vars) => {
-      invalidate(vars.product_id);
-      qc.invalidateQueries({ queryKey: ["opening-stock", orgId, vars.product_id] });
-    },
   });
 }

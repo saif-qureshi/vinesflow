@@ -14,7 +14,6 @@ from app.modules.inventory.schemas import (
     ItemStockRead,
     OnHandRead,
     OpeningStockInput,
-    OpeningStockStateRead,
     ReasonCreate,
     ReasonRead,
     StockAdjustInput,
@@ -98,15 +97,6 @@ def item_stock(
     svc: InventoryService = Svc,
 ) -> ItemStockRead:
     return svc.item_stock(membership.org_id, product_id)
-
-
-@router.get("/{product_id}/opening", response_model=OpeningStockStateRead)
-def opening_stock(
-    product_id: int,
-    membership: Membership = Depends(require_permission("inventory:read")),
-    svc: InventoryService = Svc,
-) -> OpeningStockStateRead:
-    return svc.opening_state(membership.org_id, product_id)
 
 
 @router.get("/{product_id}/on-hand", response_model=OnHandRead)

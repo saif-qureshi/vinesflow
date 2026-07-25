@@ -18,25 +18,6 @@ export interface WarehouseInput {
   is_active?: boolean;
 }
 
-export interface OpeningLocation {
-  location_id: number;
-  location_name: string;
-  quantity: string;
-  unit_cost: string | null;
-}
-
-export interface OpeningStockState {
-  locked: boolean;
-  entries: OpeningLocation[];
-}
-
-export interface OpeningStockInput {
-  product_id: number;
-  location_id: number;
-  quantity: number;
-  unit_cost?: number | null;
-}
-
 export interface InventoryItem {
   id: number;
   name: string;

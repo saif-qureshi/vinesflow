@@ -14,12 +14,10 @@ import { useFbrReference } from "@/hooks/useFbr";
 import { useCategories } from "@/hooks/useCategories";
 import { useUoms } from "@/hooks/useUoms";
 import { useCreateProduct, useUpdateProduct } from "@/hooks/useProducts";
-import { useSetOpeningStock } from "@/hooks/useInventory";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useSession } from "@/hooks/useSession";
 import { apiErrorMessage } from "@/lib/api";
 import type { Product, ProductInput, VariantAttribute } from "@/types";
-import { OpeningStock, type OpeningEntry } from "./OpeningStock";
 import { VariantsBuilder } from "./VariantsBuilder";
 import { cartesian, variantSig, type VariantOverride } from "./variants";
 
@@ -53,16 +51,12 @@ export function ItemForm({ product }: { product?: Product }) {
   const uoms = useUoms();
   const create = useCreateProduct();
   const update = useUpdateProduct();
-  const setOpening = useSetOpeningStock();
   const [form] = Form.useForm<FormValues>();
   const fbrEnabled = currentMembership?.organization.fbr_enabled ?? false;
   const saleType = Form.useWatch("sale_type_code", form);
   const taxRate = Form.useWatch("tax_rate_code", form);
   const sroSchedule = Form.useWatch("sro_schedule_code", form);
   const hsCode = Form.useWatch("hs_code", form);
-  const trackInventory = Form.useWatch("track_inventory", form);
-  const itemType = Form.useWatch("type", form);
-  const [openingEntries, setOpeningEntries] = useState<OpeningEntry[]>([]);
 
   const [media, setMedia] = useState<string[]>(() => product?.media.map((m) => m.url) ?? []);
   const [attributes, setAttributes] = useState<VariantAttribute[]>(
@@ -174,25 +168,8 @@ export function ItemForm({ product }: { product?: Product }) {
         : [],
     };
     try {
-      let productId = product?.id;
       if (isEdit) await update.mutateAsync({ id: product.id, payload });
-      else productId = (await create.mutateAsync(payload)).data.id;
-      if (values.track_inventory && !variable && productId && openingEntries.length) {
-        try {
-          await Promise.all(
-            openingEntries.map((e) =>
-              setOpening.mutateAsync({
-                product_id: productId!,
-                location_id: e.location_id,
-                quantity: e.quantity,
-                unit_cost: e.unit_cost,
-              }),
-            ),
-          );
-        } catch (e) {
-          message.warning(`Item saved, but opening stock could not be set: ${apiErrorMessage(e)}`);
-        }
-      }
+      else await create.mutateAsync(payload);
       message.success(isEdit ? "Item updated" : "Item created");
       router.push(backHref);
     } catch (err) {
@@ -320,9 +297,6 @@ export function ItemForm({ product }: { product?: Product }) {
             <InputNumber className="!w-full" min={0} placeholder="e.g. 10" />
           </Form.Item>
         </div>
-        {trackInventory && itemType !== "variable" && (
-          <OpeningStock productId={product?.id} onChange={setOpeningEntries} />
-        )}
       </Card>
 
       {fbrEnabled && (
