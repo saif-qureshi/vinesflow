@@ -135,6 +135,11 @@ def document_to_print(doc: Document, org: Organization) -> PrintDocument:
     ]
     if doc.reference:
         meta.append(PrintMetaField(label="Reference", value=doc.reference))
+    if doc.type == DocumentType.CREDIT_NOTE and doc.fbr_reason:
+        reason = doc.fbr_reason
+        if doc.fbr_reason_remarks:
+            reason = f"{reason} — {doc.fbr_reason_remarks}"
+        meta.append(PrintMetaField(label="Reason", value=reason))
     if doc.fbr_invoice_number:
         meta.append(PrintMetaField(label="FBR IRN", value=doc.fbr_invoice_number))
 

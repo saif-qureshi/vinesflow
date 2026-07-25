@@ -27,6 +27,13 @@ export interface DocumentLine {
   sort_order: number;
 }
 
+export interface RelatedDocument {
+  id: number;
+  type: string;
+  number: string;
+  status: string;
+}
+
 export interface DocumentRecord {
   id: number;
   type: string;
@@ -35,6 +42,8 @@ export interface DocumentRecord {
   payment_status: DocumentPaymentStatus;
   party_id: number | null;
   party: DocumentParty | null;
+  buyer_registered: boolean;
+  credit_notes: RelatedDocument[];
   warehouse_id: number | null;
   issue_date: string;
   due_date: string | null;
@@ -47,6 +56,8 @@ export interface DocumentRecord {
   fbr_sale_origin: string | null;
   fbr_sale_destination: string | null;
   fbr_scenario_id: string | null;
+  fbr_reason: string | null;
+  fbr_reason_remarks: string | null;
   fbr_invoice_number: string | null;
   fbr_submitted_at: string | null;
   fbr_qr: string | null;
@@ -102,6 +113,8 @@ export interface DocumentInput {
   fbr_sale_origin?: string | null;
   fbr_sale_destination?: string | null;
   fbr_scenario_id?: string | null;
+  fbr_reason?: string | null;
+  fbr_reason_remarks?: string | null;
   lines: DocumentLineInput[];
 }
 

@@ -39,6 +39,8 @@ class DocumentCreate(BaseModel):
     fbr_sale_origin: str | None = Field(default=None, max_length=50)
     fbr_sale_destination: str | None = Field(default=None, max_length=50)
     fbr_scenario_id: str | None = Field(default=None, max_length=20)
+    fbr_reason: str | None = Field(default=None, max_length=100)
+    fbr_reason_remarks: str | None = Field(default=None, max_length=255)
     lines: list[DocumentLineInput] = Field(min_length=1)
 
 
@@ -56,6 +58,8 @@ class DocumentUpdate(BaseModel):
     fbr_sale_origin: str | None = Field(default=None, max_length=50)
     fbr_sale_destination: str | None = Field(default=None, max_length=50)
     fbr_scenario_id: str | None = Field(default=None, max_length=20)
+    fbr_reason: str | None = Field(default=None, max_length=100)
+    fbr_reason_remarks: str | None = Field(default=None, max_length=255)
     lines: list[DocumentLineInput] | None = None
 
 
@@ -65,6 +69,15 @@ class PartySummary(BaseModel):
     id: int
     name: str
     email: str | None = None
+
+
+class RelatedDocument(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    type: str
+    number: str
+    status: str
 
 
 class DocumentLineRead(BaseModel):
@@ -96,6 +109,8 @@ class DocumentRead(BaseModel):
     stock_posted: bool = False
     party_id: int | None = None
     party: PartySummary | None = None
+    buyer_registered: bool = False
+    credit_notes: list[RelatedDocument] = []
     warehouse_id: int | None = None
     issue_date: date
     due_date: date | None = None
@@ -108,6 +123,8 @@ class DocumentRead(BaseModel):
     fbr_sale_origin: str | None = None
     fbr_sale_destination: str | None = None
     fbr_scenario_id: str | None = None
+    fbr_reason: str | None = None
+    fbr_reason_remarks: str | None = None
     fbr_invoice_number: str | None = None
     fbr_submitted_at: datetime | None = None
     subtotal: Decimal

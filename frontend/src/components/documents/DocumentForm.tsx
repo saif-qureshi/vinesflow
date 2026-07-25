@@ -36,6 +36,7 @@ import { useWarehouses } from "@/hooks/useWarehouses";
 import { apiErrorMessage } from "@/lib/api";
 import type { DocumentKindConfig } from "@/lib/documentKinds";
 import { FBR_SCENARIOS } from "@/lib/fbrScenarios";
+import { FBR_REASONS, FBR_REASON_OTHERS } from "@/lib/fbrReasons";
 import { fbrFurtherTax, fbrSalesTax } from "@/lib/fbrTax";
 import { PK_PROVINCES } from "@/lib/provinces";
 import type { DiscountType, DocumentInput, DocumentRecord } from "@/types";
@@ -69,6 +70,8 @@ interface FormValues {
   fbr_sale_origin?: string;
   fbr_sale_destination?: string;
   fbr_scenario_id?: string;
+  fbr_reason?: string;
+  fbr_reason_remarks?: string;
 }
 
 let counter = 0;
@@ -120,6 +123,7 @@ export function DocumentForm({
   const { currentMembership } = useSession();
   const org = currentMembership?.organization;
   const showFbr = !!org?.fbr_enabled && config.kind === "invoice";
+  const showFbrReason = !!org?.fbr_enabled && config.kind === "credit_note";
   const isSandbox = org?.fbr_environment === "sandbox";
   const partyList = useMemo(
     () => parties.data?.pages.flatMap((p) => p.items) ?? [],
@@ -502,6 +506,14 @@ export function DocumentForm({
             fbr_scenario_id: values.fbr_scenario_id || null,
           }
         : {}),
+      ...(showFbrReason
+        ? {
+            fbr_reason: values.fbr_reason || null,
+            fbr_reason_remarks:
+              values.fbr_reason === FBR_REASON_OTHERS ? values.fbr_reason_remarks || null : null,
+            ...(isSandbox ? { fbr_scenario_id: values.fbr_scenario_id || null } : {}),
+          }
+        : {}),
       lines: clean.map((l) => ({
         product_id: l.product_id,
         description: l.description.trim() || "Item",
@@ -552,6 +564,8 @@ export function DocumentForm({
         fbr_sale_origin: document?.fbr_sale_origin ?? org?.fbr_province ?? undefined,
         fbr_sale_destination: document?.fbr_sale_destination ?? undefined,
         fbr_scenario_id: document?.fbr_scenario_id ?? undefined,
+        fbr_reason: document?.fbr_reason ?? undefined,
+        fbr_reason_remarks: document?.fbr_reason_remarks ?? undefined,
       }}
       className="flex flex-col gap-6 pb-24"
     >
@@ -614,6 +628,40 @@ export function DocumentForm({
                 <Select options={FBR_SCENARIOS} placeholder="Select scenario" showSearch optionFilterProp="label" allowClear />
               </Form.Item>
             )}
+          </div>
+        </Card>
+      )}
+
+      {showFbrReason && (
+        <Card title="FBR e-Invoicing" className="border-gray-100">
+          <div className="grid grid-cols-1 gap-x-6 md:grid-cols-2">
+            <Form.Item
+              name="fbr_reason"
+              label="Reason"
+              extra="Why this credit note is issued — required by FBR."
+              rules={[{ required: true, message: "Select a reason" }]}
+            >
+              <Select options={FBR_REASONS} placeholder="Select reason" showSearch optionFilterProp="label" />
+            </Form.Item>
+            {isSandbox && (
+              <Form.Item name="fbr_scenario_id" label="Scenario" extra="Sandbox testing scenario.">
+                <Select options={FBR_SCENARIOS} placeholder="Select scenario" showSearch optionFilterProp="label" allowClear />
+              </Form.Item>
+            )}
+            <Form.Item noStyle shouldUpdate={(prev, cur) => prev.fbr_reason !== cur.fbr_reason}>
+              {({ getFieldValue }) =>
+                getFieldValue("fbr_reason") === FBR_REASON_OTHERS ? (
+                  <Form.Item
+                    name="fbr_reason_remarks"
+                    label="Remarks"
+                    extra="Required when the reason is 'Others'."
+                    rules={[{ required: true, message: "Add remarks for 'Others'" }]}
+                  >
+                    <Input placeholder="Describe the reason" maxLength={255} />
+                  </Form.Item>
+                ) : null
+              }
+            </Form.Item>
           </div>
         </Card>
       )}

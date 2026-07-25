@@ -410,11 +410,13 @@ class DocumentService:
             fbr_sale_origin=payload.fbr_sale_origin,
             fbr_sale_destination=payload.fbr_sale_destination,
             fbr_scenario_id=payload.fbr_scenario_id,
+            fbr_reason=payload.fbr_reason,
+            fbr_reason_remarks=payload.fbr_reason_remarks,
         )
         lines, subtotal, discount_total, tax_total = self._build_lines(org_id, payload.lines)
         doc.lines = lines
         further_total = _ZERO
-        if doc_type == DocumentType.INVOICE and self._org_fbr_enabled(org_id):
+        if doc_type in (DocumentType.INVOICE, DocumentType.CREDIT_NOTE) and self._org_fbr_enabled(org_id):
             tax_total, further_total = self._apply_fbr_tax(org_id, lines, party)
         self._apply_totals(doc, subtotal, discount_total, tax_total, further_total)
         if payload.number and payload.number.strip():
@@ -473,6 +475,7 @@ class DocumentService:
         for field in (
             "issue_date", "due_date", "reference", "warehouse_id", "notes", "terms",
             "fbr_sale_origin", "fbr_sale_destination", "fbr_scenario_id",
+            "fbr_reason", "fbr_reason_remarks",
         ):
             if field in fields:
                 setattr(doc, field, getattr(payload, field))
@@ -484,7 +487,7 @@ class DocumentService:
             lines, subtotal, discount_total, tax_total = self._build_lines(org_id, payload.lines)
             doc.lines = lines
             further_total = _ZERO
-            if doc_type == DocumentType.INVOICE and self._org_fbr_enabled(org_id):
+            if doc_type in (DocumentType.INVOICE, DocumentType.CREDIT_NOTE) and self._org_fbr_enabled(org_id):
                 party = self.db.get(Party, doc.party_id)
                 tax_total, further_total = self._apply_fbr_tax(org_id, lines, party)
             self._apply_totals(doc, subtotal, discount_total, tax_total, further_total)
@@ -534,6 +537,11 @@ class DocumentService:
     def _guard_fbr_credit_note(self, org_id: int, source: Document) -> None:
         if not source.fbr_invoice_number:
             raise BadRequestError("The original invoice was not filed with FBR")
+        if not source.buyer_registered:
+            raise BadRequestError(
+                "FBR credit notes require a sales-tax-registered buyer (with STRN); "
+                "this customer is unregistered"
+            )
         existing = self.db.scalar(
             select(Document.id).where(
                 Document.org_id == org_id,
@@ -589,10 +597,16 @@ class DocumentService:
             billing_address=source.billing_address,
             shipping_address=source.shipping_address,
             source_document_id=source.id,
+            fbr_sale_origin=source.fbr_sale_origin,
+            fbr_sale_destination=source.fbr_sale_destination,
+            fbr_scenario_id=source.fbr_scenario_id,
+            fbr_reason=(
+                "Return of Goods" if target_type == DocumentType.CREDIT_NOTE else None
+            ),
         )
         target.lines = lines
         further_total = _ZERO
-        if target_type == DocumentType.INVOICE and self._org_fbr_enabled(org_id):
+        if target_type in (DocumentType.INVOICE, DocumentType.CREDIT_NOTE) and self._org_fbr_enabled(org_id):
             party = self.db.get(Party, source.party_id)
             tax_total, further_total = self._apply_fbr_tax(org_id, lines, party)
         self._apply_totals(target, subtotal, discount_total, tax_total, further_total)

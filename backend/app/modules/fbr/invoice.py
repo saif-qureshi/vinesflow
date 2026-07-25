@@ -119,6 +119,10 @@ class FbrInvoiceBuilder:
             "invoiceRefNo": invoice_ref,
             "items": items,
         }
+        if is_credit and doc.fbr_reason:
+            payload["reason"] = doc.fbr_reason
+            if doc.fbr_reason_remarks:
+                payload["reasonRemarks"] = doc.fbr_reason_remarks
         resolved_scenario = doc.fbr_scenario_id or scenario_id
         if resolved_scenario:
             payload["scenarioId"] = resolved_scenario

@@ -338,3 +338,41 @@ def test_seller_and_buyer_prefer_cnic(db):
     payload = FbrInvoiceBuilder(db).build(invoice, org)
     assert payload["sellerNTNCNIC"] == "3520212345678"
     assert payload["buyerNTNCNIC"] == "4210176543211"
+
+
+def test_credit_note_from_invoice_defaults_reason(db, monkeypatch):
+    org, party_id, pid = _fbr_org(db, monkeypatch)
+    valid = {"validationResponse": {"statusCode": "00", "status": "Valid"}}
+    monkeypatch.setattr(FbrClient, "validate_invoice", lambda self, p: valid)
+    monkeypatch.setattr(
+        FbrClient, "post_invoice", lambda self, p: {"invoiceNumber": "7000007DI123", **valid}
+    )
+    svc = DocumentService(db)
+    inv = _make_invoice(db, org, party_id, pid)
+    svc.finalize(org.id, inv.id)
+    cn = svc.convert(org.id, inv.id, DocumentType.INVOICE, DocumentType.CREDIT_NOTE)
+    assert cn.fbr_reason == "Return of Goods"
+    payload = FbrInvoiceBuilder(db).build(cn, org)
+    assert payload["invoiceType"] == "Debit Note"
+    assert payload["reason"] == "Return of Goods"
+    crypto._cipher.cache_clear()
+
+
+def test_credit_note_requires_reason_before_filing(db, monkeypatch):
+    from app.modules.fbr.service import FbrService
+
+    org, party_id, pid = _fbr_org(db, monkeypatch)
+    valid = {"validationResponse": {"statusCode": "00", "status": "Valid"}}
+    monkeypatch.setattr(FbrClient, "validate_invoice", lambda self, p: valid)
+    monkeypatch.setattr(
+        FbrClient, "post_invoice", lambda self, p: {"invoiceNumber": "7000007DI123", **valid}
+    )
+    svc = DocumentService(db)
+    inv = _make_invoice(db, org, party_id, pid)
+    svc.finalize(org.id, inv.id)
+    cn = svc.convert(org.id, inv.id, DocumentType.INVOICE, DocumentType.CREDIT_NOTE)
+    cn.fbr_reason = None
+    db.flush()
+    with pytest.raises(BadRequestError):
+        FbrService(db).submit_invoice(org.id, cn)
+    crypto._cipher.cache_clear()

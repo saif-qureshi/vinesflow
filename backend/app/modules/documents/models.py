@@ -14,9 +14,10 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    and_,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, foreign, mapped_column, relationship, remote
 
 from app.db.base_class import AuditMixin, Base, TimestampMixin
 from app.modules.documents.enums import (
@@ -85,6 +86,8 @@ class Document(Base, TimestampMixin, AuditMixin):
     fbr_sale_origin: Mapped[str | None] = mapped_column(String(50), nullable=True)
     fbr_sale_destination: Mapped[str | None] = mapped_column(String(50), nullable=True)
     fbr_scenario_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    fbr_reason: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    fbr_reason_remarks: Mapped[str | None] = mapped_column(String(255), nullable=True)
     fbr_invoice_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
     fbr_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     fbr_response: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
@@ -117,6 +120,16 @@ class Document(Base, TimestampMixin, AuditMixin):
         lazy="selectin",
     )
     party: Mapped[Party | None] = relationship(lazy="selectin")
+    credit_notes: Mapped[list[Document]] = relationship(
+        "Document",
+        primaryjoin=lambda: and_(
+            Document.id == foreign(remote(Document.source_document_id)),
+            remote(Document.type) == "credit_note",
+        ),
+        viewonly=True,
+        order_by="Document.id",
+        lazy="selectin",
+    )
 
     __mapper_args__ = {"polymorphic_on": "type"}
 
@@ -126,6 +139,10 @@ class Document(Base, TimestampMixin, AuditMixin):
     @property
     def balance_due(self) -> Decimal:
         return self.total - self.amount_paid
+
+    @property
+    def buyer_registered(self) -> bool:
+        return bool(self.party and self.party.strn)
 
 
 class Invoice(Document):

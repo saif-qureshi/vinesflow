@@ -14,6 +14,7 @@ from app.modules.fbr.enums import FbrEnvironment, FbrProvince
 from app.modules.fbr.invoice import FbrInvoiceBuilder
 from app.modules.fbr.models import NONE_MARK, FbrReferenceData
 from app.modules.fbr.schemas import FbrOption, FbrReferenceRead
+from app.modules.documents.enums import DocumentType
 from app.modules.documents.models import Document
 from app.modules.orgs.models import Organization
 
@@ -155,12 +156,22 @@ class FbrService:
                 errors.append({"item": item.get("itemSNo"), "msg": str(item["error"])})
         return errors or [{"item": None, "msg": "FBR marked the invoice as invalid"}]
 
+    @staticmethod
+    def _guard_credit_note_reason(doc: Document) -> None:
+        if doc.type != DocumentType.CREDIT_NOTE:
+            return
+        if not doc.fbr_reason:
+            raise BadRequestError("Select an FBR reason before filing this credit note")
+        if doc.fbr_reason == "Others" and not (doc.fbr_reason_remarks or "").strip():
+            raise BadRequestError("Add remarks for the 'Others' reason before filing")
+
     def submit_invoice(self, org_id: int, doc: Document) -> dict | None:
         from app.modules.settings.service import SettingsService
 
         org = self.db.get(Organization, org_id)
         if org is None or not org.fbr_enabled:
             return None
+        self._guard_credit_note_reason(doc)
         require_validate = bool(
             SettingsService(self.db).get(org_id, "fbr", "validate_before_submit", True)
         )

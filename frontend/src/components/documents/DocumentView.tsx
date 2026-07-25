@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, type ReactNode, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Descriptions, Spin, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
@@ -18,7 +18,7 @@ import {
   Wallet,
 } from "lucide-react";
 
-import { App, Button, Card, Dropdown, Modal, Popconfirm, Tag, Typography } from "@/components/ui";
+import { App, Button, Card, Dropdown, Modal, Popconfirm, Tag, Tooltip, Typography } from "@/components/ui";
 import { PaymentModal } from "@/components/payments/PaymentModal";
 import { useCurrency } from "@/hooks/useCurrency";
 import {
@@ -45,6 +45,9 @@ const CONVERT_TARGET_PATH: Record<string, string> = {
   goods_receipt: "/purchases/receipts",
   bill: "/purchases/bills",
 };
+
+const FBR_CREDIT_NOTE_DOC_URL =
+  "https://download1.fbr.gov.pk/Docs/2017831184658713SALESTAXACT,1990Amededupto01.07.2017.pdf";
 
 function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
@@ -73,9 +76,9 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
   const [printing, setPrinting] = useState(false);
   const [validation, setValidation] = useState<FbrError[] | null>(null);
 
+  const fbrEnabled = !!currentMembership?.organization.fbr_enabled;
   const showFbrValidate =
-    !!currentMembership?.organization.fbr_enabled &&
-    (config.kind === "invoice" || config.kind === "credit_note");
+    fbrEnabled && (config.kind === "invoice" || config.kind === "credit_note");
 
   if (isLoading || !doc) {
     return (
@@ -89,6 +92,26 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
   const isDraft = doc.status === "draft";
   const life = lifecycleMeta(doc.status, config);
   const paidMeta = PAYMENT_META[doc.payment_status];
+
+  const creditNoteUnregistered =
+    fbrEnabled && config.kind === "credit_note" && !doc.buyer_registered;
+  const fbrUnregisteredTitle = (
+    <span>
+      FBR credit notes require a sales-tax-registered buyer (with STRN); this customer is
+      unregistered.{" "}
+      <a href={FBR_CREDIT_NOTE_DOC_URL} target="_blank" rel="noreferrer" className="underline">
+        Learn more
+      </a>
+    </span>
+  );
+  const blockTip = (node: ReactNode, blocked: boolean) =>
+    blocked ? (
+      <Tooltip title={fbrUnregisteredTitle}>
+        <span className="inline-block cursor-not-allowed">{node}</span>
+      </Tooltip>
+    ) : (
+      node
+    );
 
   const downloadPdf = async () => {
     setPrinting(true);
@@ -173,47 +196,57 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
         <div className="flex items-center gap-2">
           {doc.status === "sent" &&
             can(`${config.permission}:update`) &&
-            (config.conversions ?? []).map((conversion) => (
+            (config.conversions ?? []).map((conversion) => {
+              const isCredit = conversion.target === "credit_note";
+              if (isCredit && fbrEnabled && doc.credit_notes.length > 0) return null;
+              const blocked = isCredit && fbrEnabled && !doc.buyer_registered;
+              const button = (
+                <Button
+                  icon={<ArrowRightLeft size={16} />}
+                  loading={convert.isPending}
+                  disabled={blocked}
+                  onClick={async () => {
+                    try {
+                      const created = await convert.mutateAsync({
+                        id: doc.id,
+                        target: conversion.target,
+                      });
+                      message.success(`Created ${created.number}`);
+                      router.push(`${CONVERT_TARGET_PATH[conversion.target]}/${created.id}`);
+                    } catch (err) {
+                      message.error(apiErrorMessage(err));
+                    }
+                  }}
+                >
+                  {conversion.label}
+                </Button>
+              );
+              return <Fragment key={conversion.target}>{blockTip(button, blocked)}</Fragment>;
+            })}
+          {showFbrValidate &&
+            !doc.fbr_invoice_number &&
+            blockTip(
               <Button
-                key={conversion.target}
-                icon={<ArrowRightLeft size={16} />}
-                loading={convert.isPending}
+                icon={<ShieldCheck size={16} />}
+                loading={validate.isPending}
+                disabled={creditNoteUnregistered}
                 onClick={async () => {
                   try {
-                    const created = await convert.mutateAsync({
-                      id: doc.id,
-                      target: conversion.target,
-                    });
-                    message.success(`Created ${created.number}`);
-                    router.push(`${CONVERT_TARGET_PATH[conversion.target]}/${created.id}`);
+                    const res = await validate.mutateAsync(doc.id);
+                    if (res.valid) {
+                      message.success("FBR validation passed");
+                    } else {
+                      setValidation(res.errors);
+                    }
                   } catch (err) {
                     message.error(apiErrorMessage(err));
                   }
                 }}
               >
-                {conversion.label}
-              </Button>
-            ))}
-          {showFbrValidate && !doc.fbr_invoice_number && (
-            <Button
-              icon={<ShieldCheck size={16} />}
-              loading={validate.isPending}
-              onClick={async () => {
-                try {
-                  const res = await validate.mutateAsync(doc.id);
-                  if (res.valid) {
-                    message.success("FBR validation passed");
-                  } else {
-                    setValidation(res.errors);
-                  }
-                } catch (err) {
-                  message.error(apiErrorMessage(err));
-                }
-              }}
-            >
-              Validate with FBR
-            </Button>
-          )}
+                Validate with FBR
+              </Button>,
+              creditNoteUnregistered,
+            )}
           {isDraft && can(`${config.permission}:update`) && (
             <>
               <Button
@@ -222,16 +255,20 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
               >
                 Edit
               </Button>
-              <Button
-                type="primary"
-                icon={<CheckCircle2 size={16} />}
-                loading={finalize.isPending}
-                onClick={() =>
-                  run(() => finalize.mutateAsync(doc.id), `${config.labels.singular} finalized`)
-                }
-              >
-                Finalize
-              </Button>
+              {blockTip(
+                <Button
+                  type="primary"
+                  icon={<CheckCircle2 size={16} />}
+                  loading={finalize.isPending}
+                  disabled={creditNoteUnregistered}
+                  onClick={() =>
+                    run(() => finalize.mutateAsync(doc.id), `${config.labels.singular} finalized`)
+                  }
+                >
+                  Finalize
+                </Button>,
+                creditNoteUnregistered,
+              )}
             </>
           )}
           {config.tracksPayment &&
@@ -279,7 +316,7 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
                 {
                   key: "download",
                   icon: <Download size={14} />,
-                  label: `Download ${config.labels.singular}`,
+                  label: "Download",
                   onClick: downloadPdf,
                 },
               ],
@@ -312,6 +349,30 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
           {config.tracksPayment && (
             <Descriptions.Item label="Balance due">
               <span className="tabular-nums font-medium">{money(Number(doc.balance_due))}</span>
+            </Descriptions.Item>
+          )}
+          {doc.fbr_reason && (
+            <Descriptions.Item label="FBR reason">
+              {doc.fbr_reason}
+              {doc.fbr_reason_remarks ? ` — ${doc.fbr_reason_remarks}` : ""}
+            </Descriptions.Item>
+          )}
+          {doc.credit_notes.length > 0 && (
+            <Descriptions.Item label="Credit notes">
+              <span className="flex flex-wrap gap-x-3 gap-y-1">
+                {doc.credit_notes.map((cn) => (
+                  <Button
+                    key={cn.id}
+                    type="link"
+                    size="small"
+                    className="!h-auto !px-0"
+                    onClick={() => router.push(`/sales/credit-notes/${cn.id}`)}
+                  >
+                    {cn.number}
+                    <span className="ml-1 text-xs text-gray-400">({cn.status})</span>
+                  </Button>
+                ))}
+              </span>
             </Descriptions.Item>
           )}
         </Descriptions>

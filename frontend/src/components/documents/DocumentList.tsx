@@ -62,7 +62,7 @@ export function DocumentList({ config }: { config: DocumentKindConfig }) {
     {
       key: "download",
       icon: <Download size={14} />,
-      label: `Download ${config.labels.singular}`,
+      label: "Download",
       onClick: async () => {
         try {
           await downloadDocumentPdf(config.apiPath, doc.id, doc.number);
