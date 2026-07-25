@@ -13,7 +13,6 @@ from app.modules.inventory.schemas import (
     InventoryListQuery,
     ItemStockRead,
     OnHandRead,
-    OpeningStockInput,
     ReasonCreate,
     ReasonRead,
     StockAdjustInput,
@@ -70,15 +69,6 @@ def adjust_stock(
     svc: InventoryService = Svc,
 ) -> None:
     svc.adjust(membership.org_id, payload)
-
-
-@router.post("/opening", status_code=status.HTTP_204_NO_CONTENT)
-def set_opening_stock(
-    payload: OpeningStockInput,
-    membership: Membership = Depends(require_permission("inventory:create")),
-    svc: InventoryService = Svc,
-) -> None:
-    svc.set_opening(membership.org_id, payload)
 
 
 @router.post("/transfer", status_code=status.HTTP_204_NO_CONTENT)
