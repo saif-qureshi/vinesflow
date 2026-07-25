@@ -74,21 +74,21 @@ class FbrInvoiceBuilder:
             sales_tax = _num(line.tax_amount)
             further_tax = _num(line.further_tax)
             items.append({
-                "hsCode": (product.hs_code if product else "") or "",
+                "hsCode": (product.fbr("hs_code") if product else "") or "",
                 "productDescription": line.description,
-                "rate": self._desc("tax_rate", product.tax_rate_code) if product else "",
-                "uoM": self._desc("uom", product.uom_code) if product else "",
+                "rate": self._desc("tax_rate", product.fbr("tax_rate_code")) if product else "",
+                "uoM": self._desc("uom", product.fbr("uom_code")) if product else "",
                 "quantity": _num(line.quantity),
                 "valueSalesExcludingST": base,
                 "salesTaxApplicable": sales_tax,
                 "salesTaxWithheldAtSource": 0,
                 "extraTax": "",
                 "furtherTax": further_tax,
-                "sroScheduleNo": self._desc("sro_schedule", product.sro_schedule_code) if product else "",
+                "sroScheduleNo": self._desc("sro_schedule", product.fbr("sro_schedule_code")) if product else "",
                 "fedPayable": 0,
                 "discount": _num(line.discount),
-                "saleType": self._desc("sale_type", product.sale_type_code) if product else "",
-                "sroItemSerialNo": (product.sro_item_serial if product else "") or "",
+                "saleType": self._desc("sale_type", product.fbr("sale_type_code")) if product else "",
+                "sroItemSerialNo": (product.fbr("sro_item_serial") if product else "") or "",
                 "totalValues": round(base + sales_tax + further_tax, 2),
             })
 

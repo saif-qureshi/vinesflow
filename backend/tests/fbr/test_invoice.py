@@ -279,3 +279,40 @@ def test_cannot_void_filed_fbr_invoice(db, monkeypatch):
     with pytest.raises(BadRequestError):
         svc.void(org.id, inv.id)
     crypto._cipher.cache_clear()
+
+
+def test_variant_inherits_parent_fbr_fields(db):
+    from app.modules.products.schemas import ProductCreate, VariantAttributeInput, VariantInput
+    from app.modules.products.service import ProductService
+    from app.modules.uoms.models import Uom
+
+    _seed_refs(db)
+    org, party_id, _pid = _setup(db)
+    uom_id = db.scalar(select(Uom.id).where(Uom.org_id == org.id).order_by(Uom.id))
+    parent = ProductService(db).create(
+        org.id,
+        ProductCreate(
+            name="Shirt", nature="good", type="variable", uom_id=uom_id,
+            hs_code="6109.1000", uom_code="69", sale_type_code="75", tax_rate_code="728",
+            variant_attributes=[VariantAttributeInput(name="Size", options=["S", "M"])],
+            variants=[VariantInput(options={"Size": "S"}), VariantInput(options={"Size": "M"})],
+        ),
+    )
+    child = parent.variants[0]
+    assert child.hs_code is None
+    assert child.fbr("hs_code") == "6109.1000"
+
+    tax = db.scalar(select(TaxRate).where(TaxRate.org_id == org.id, TaxRate.name == "GST 18%"))
+    inv = DocumentService(db).create(
+        org.id,
+        DocumentType.INVOICE,
+        DocumentCreate(
+            party_id=party_id,
+            lines=[DocumentLineInput(product_id=child.id, description=child.name,
+                                     quantity=Decimal("2"), unit_price=Decimal("100"), tax_rate_id=tax.id)],
+        ),
+    )
+    assert inv.lines[0].tax_amount == Decimal("36")
+    payload = FbrInvoiceBuilder(db).build(inv, org)
+    assert payload["items"][0]["hsCode"] == "6109.1000"
+    assert payload["items"][0]["salesTaxApplicable"] == 36.0

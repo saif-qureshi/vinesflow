@@ -113,6 +113,10 @@ class Product(Base, TimestampMixin, AuditMixin):
         lazy="selectin",
     )
 
+    def fbr(self, name: str) -> str | None:
+        value = getattr(self, name)
+        return value if value or self.parent is None else getattr(self.parent, name)
+
     @property
     def variant_attributes(self) -> list[dict]:
         """Group the product's linked values back into {name, options} form."""

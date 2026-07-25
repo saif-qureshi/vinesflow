@@ -145,7 +145,7 @@ class DocumentService:
             like = f"%{search.strip()}%"
             stmt = stmt.where(or_(Product.name.ilike(like), Product.sku.ilike(like)))
         products = list(self.db.scalars(stmt.order_by(Product.name).limit(limit)))
-        rate_rows = self._fbr_rate_rows(p.tax_rate_code for p in products)
+        rate_rows = self._fbr_rate_rows(p.fbr("tax_rate_code") for p in products)
         stock = self._stock_levels(org_id, [p.id for p in products], warehouse_id)
         return [
             SellableItemRead(
@@ -157,7 +157,11 @@ class DocumentService:
                 uom_symbol=p.uom.symbol if p.uom else None,
                 sale_price=p.sale_price,
                 purchase_price=p.purchase_price,
-                fbr_rate=rate_rows[p.tax_rate_code].description if p.tax_rate_code in rate_rows else None,
+                fbr_rate=(
+                    rate_rows[p.fbr("tax_rate_code")].description
+                    if p.fbr("tax_rate_code") in rate_rows
+                    else None
+                ),
                 track_inventory=p.track_inventory,
                 stock=stock.get(p.id, _ZERO) if p.track_inventory else None,
             )
@@ -329,13 +333,13 @@ class DocumentService:
         products = {
             p.id: p for p in self.db.scalars(select(Product).where(Product.id.in_(product_ids)))
         } if product_ids else {}
-        rate_rows = self._fbr_rate_rows(p.tax_rate_code for p in products.values())
+        rate_rows = self._fbr_rate_rows(p.fbr("tax_rate_code") for p in products.values())
 
         tax_total = further_total = _ZERO
         for line in lines:
             product = products.get(line.product_id)
             taxable = _q(line.quantity * line.unit_price) - line.discount
-            rate = rate_rows.get(product.tax_rate_code) if product else None
+            rate = rate_rows.get(product.fbr("tax_rate_code")) if product else None
             sales_tax = (
                 _fbr_line_tax(rate.description, rate.value or _ZERO, taxable, line.quantity)
                 if rate
