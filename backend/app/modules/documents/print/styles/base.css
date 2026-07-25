@@ -38,9 +38,9 @@ table.items tbody tr:nth-child(even) td{background:#fafbfc}
 .block .label{font-size:9px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#8a94a1}
 .block .body{margin-top:3px;color:#414b56;white-space:pre-wrap}
 .stamp{margin-top:14px;text-align:right}
-.stamp .wrap{position:relative;display:inline-block}
+.stamp .wrap{display:inline-flex;align-items:center;gap:10px}
 .stamp img.qr{width:96px;height:96px}
-.stamp img.overlay{position:absolute;top:50%;left:50%;width:26px;height:26px;transform:translate(-50%,-50%);background:#fff;padding:2px;border-radius:3px}
+.stamp img.fbr-logo{width:60px;height:60px;object-fit:contain}
 .stamp .caption{margin-top:3px;font-size:9px;color:#8a94a1}
 .contact{margin-top:18px;padding-top:10px;border-top:1px solid #edf0f3;display:flex;flex-wrap:wrap;gap:14px;color:#5b6673;font-size:10px}
 .credit{margin-top:12px;text-align:center;font-style:italic;color:#9aa3ad;font-size:9px}

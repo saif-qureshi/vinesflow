@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Descriptions, Spin, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowRightLeft,
   Ban,
@@ -27,7 +28,7 @@ import {
   useFinalizeDocument,
   useVoidDocument,
 } from "@/hooks/useDocuments";
-import { useValidateInvoice, type FbrValidationResponse } from "@/hooks/useFbr";
+import { useValidateInvoice, type FbrError } from "@/hooks/useFbr";
 import { useCan, useSession } from "@/hooks/useSession";
 import { apiErrorMessage } from "@/lib/api";
 import { downloadDocumentPdf } from "@/lib/documentPdf";
@@ -70,7 +71,7 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
   const validate = useValidateInvoice();
   const [payOpen, setPayOpen] = useState(false);
   const [printing, setPrinting] = useState(false);
-  const [validation, setValidation] = useState<FbrValidationResponse | null>(null);
+  const [validation, setValidation] = useState<FbrError[] | null>(null);
 
   const showFbrValidate =
     !!currentMembership?.organization.fbr_enabled &&
@@ -165,11 +166,6 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
               {config.tracksPayment && doc.status === "sent" && (
                 <Tag color={paidMeta.color}>{paidMeta.label}</Tag>
               )}
-              {doc.fbr_invoice_number && (
-                <Tag color="cyan" icon={<ShieldCheck size={12} />}>
-                  FBR IRN: {doc.fbr_invoice_number}
-                </Tag>
-              )}
               <Typography.Text type="secondary">{doc.party?.name}</Typography.Text>
             </div>
           </div>
@@ -205,10 +201,10 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
               onClick={async () => {
                 try {
                   const res = await validate.mutateAsync(doc.id);
-                  const vr = res.response?.validationResponse ?? {};
-                  setValidation(vr);
-                  if (vr.status === "Valid" || vr.statusCode === "00") {
+                  if (res.valid) {
                     message.success("FBR validation passed");
+                  } else {
+                    setValidation(res.errors);
                   }
                 } catch (err) {
                   message.error(apiErrorMessage(err));
@@ -321,6 +317,38 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
         </Descriptions>
       </Card>
 
+      {doc.fbr_invoice_number && (
+        <Card className="border-gray-100">
+          <div className="flex items-center gap-5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/fbr-logo.png"
+              alt="FBR Digital Invoicing System"
+              className="h-20 w-20 shrink-0 object-contain"
+            />
+            {doc.fbr_qr && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={doc.fbr_qr}
+                alt="FBR e-invoice QR code"
+                className="h-24 w-24 shrink-0 rounded ring-1 ring-gray-100"
+              />
+            )}
+            <div className="min-w-0">
+              <div className="text-xs text-gray-400">FBR Invoice Reference Number (IRN)</div>
+              <div className="font-mono text-sm break-all text-gray-800">
+                {doc.fbr_invoice_number}
+              </div>
+              {doc.fbr_submitted_at && (
+                <div className="mt-1 text-xs text-gray-400">
+                  Filed {formatDate(doc.fbr_submitted_at)}
+                </div>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
+
       <Card title="Items" className="border-gray-100">
         <Table<DocumentLine>
           size="small"
@@ -383,24 +411,52 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
         onOk={() => setValidation(null)}
         title="FBR validation"
         footer={null}
+        width={560}
       >
-        {validation && (
-          <div className="space-y-3">
-            <Tag color={validation.status === "Valid" || validation.statusCode === "00" ? "green" : "red"}>
-              {validation.status ?? validation.statusCode ?? "Result"}
-            </Tag>
-            {validation.error && <div className="text-sm text-rose-600">{validation.error}</div>}
-            {(validation.invoiceStatuses ?? [])
-              .filter((s) => s.error)
-              .map((s, i) => (
-                <div key={i} className="text-sm">
-                  <span className="text-gray-500">Item {s.itemSNo}: </span>
-                  <span className="text-rose-600">{s.error}</span>
-                </div>
-              ))}
-          </div>
-        )}
+        {validation && <FbrValidationResult errors={validation} />}
       </Modal>
+    </div>
+  );
+}
+
+function FbrValidationResult({ errors }: { errors: FbrError[] }) {
+  const groups: { message: string; items: string[] }[] = [];
+  const seen = new Map<string, number>();
+  for (const e of errors) {
+    let idx = seen.get(e.msg);
+    if (idx === undefined) {
+      idx = groups.length;
+      seen.set(e.msg, idx);
+      groups.push({ message: e.msg, items: [] });
+    }
+    if (e.item) groups[idx].items.push(e.item);
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2 text-rose-700">
+        <AlertTriangle size={18} className="shrink-0" />
+        <span className="text-sm font-medium">
+          FBR rejected this invoice — {groups.length} issue{groups.length === 1 ? "" : "s"} to fix
+        </span>
+      </div>
+
+      <div className="max-h-[45vh] space-y-2 overflow-y-auto">
+        {groups.map((g, i) => (
+          <div key={i} className="rounded-lg border border-rose-100 bg-white px-3 py-2.5">
+            {g.items.length > 0 && (
+              <div className="mb-1.5 flex flex-wrap gap-1">
+                {g.items.map((n) => (
+                  <Tag key={n} color="red" className="!m-0">
+                    Item {n}
+                  </Tag>
+                ))}
+              </div>
+            )}
+            <div className="text-sm text-gray-700">{g.message}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

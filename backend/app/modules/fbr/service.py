@@ -143,17 +143,17 @@ class FbrService:
         return FbrClient(decrypt_secret(encrypted), FbrEnvironment(environment))
 
     @staticmethod
-    def _fbr_error(response: dict | None, phase: str) -> str | None:
+    def _fbr_errors(response: dict | None) -> list[dict]:
         vr = (response or {}).get("validationResponse", {}) or {}
         if vr.get("statusCode") == "00" or vr.get("status") == "Valid":
-            return None
-        parts = []
+            return []
+        errors: list[dict] = []
         if vr.get("error"):
-            parts.append(str(vr["error"]))
+            errors.append({"item": None, "msg": str(vr["error"])})
         for item in vr.get("invoiceStatuses", []) or []:
             if item.get("error"):
-                parts.append(f"item {item.get('itemSNo')}: {item['error']}")
-        return f"FBR {phase} failed: {'; '.join(parts) or 'invalid invoice'}"
+                errors.append({"item": item.get("itemSNo"), "msg": str(item["error"])})
+        return errors or [{"item": None, "msg": "FBR marked the invoice as invalid"}]
 
     def submit_invoice(self, org_id: int, doc: Document) -> dict | None:
         from app.modules.settings.service import SettingsService
@@ -167,13 +167,13 @@ class FbrService:
         payload = FbrInvoiceBuilder(self.db).build(doc, org)
         client = self._org_client(org)
         if require_validate:
-            error = self._fbr_error(client.validate_invoice(payload), "validation")
-            if error:
-                raise BadRequestError(error)
+            errors = self._fbr_errors(client.validate_invoice(payload))
+            if errors:
+                raise BadRequestError("FBR validation failed", code="fbr_validation", details=errors)
         result = client.post_invoice(payload)
-        error = self._fbr_error(result, "submission")
-        if error:
-            raise BadRequestError(error)
+        errors = self._fbr_errors(result)
+        if errors:
+            raise BadRequestError("FBR submission failed", code="fbr_submission", details=errors)
         return {"invoice_number": result.get("invoiceNumber"), "response": result}
 
     def validate_document(
@@ -187,4 +187,5 @@ class FbrService:
             raise NotFoundError("Document not found")
         payload = FbrInvoiceBuilder(self.db).build(doc, org, scenario_id)
         response = self._org_client(org).validate_invoice(payload)
-        return {"payload": payload, "response": response}
+        errors = self._fbr_errors(response)
+        return {"valid": not errors, "errors": errors, "payload": payload, "response": response}

@@ -49,6 +49,7 @@ export interface DocumentRecord {
   fbr_scenario_id: string | null;
   fbr_invoice_number: string | null;
   fbr_submitted_at: string | null;
+  fbr_qr: string | null;
   subtotal: string;
   discount_total: string;
   tax_total: string;

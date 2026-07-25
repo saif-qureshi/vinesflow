@@ -5,23 +5,16 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useSessionStore } from "@/stores/session";
 
-export interface FbrItemStatus {
-  itemSNo?: string;
-  statusCode?: string;
-  status?: string;
-  error?: string;
-}
-
-export interface FbrValidationResponse {
-  statusCode?: string;
-  status?: string;
-  error?: string;
-  invoiceStatuses?: FbrItemStatus[];
+export interface FbrError {
+  item?: string | null;
+  msg: string;
 }
 
 export interface FbrValidateResult {
+  valid: boolean;
+  errors: FbrError[];
   payload: Record<string, unknown>;
-  response: { validationResponse?: FbrValidationResponse };
+  response: Record<string, unknown>;
 }
 
 export function useValidateInvoice() {

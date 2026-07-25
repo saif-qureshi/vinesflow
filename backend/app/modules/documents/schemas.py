@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from app.core.pagination import ListQuery
 
@@ -123,6 +123,15 @@ class DocumentRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     lines: list[DocumentLineRead]
+
+    @computed_field
+    @property
+    def fbr_qr(self) -> str | None:
+        if not self.fbr_invoice_number:
+            return None
+        from app.modules.fbr.qr import qr_data_uri
+
+        return qr_data_uri(self.fbr_invoice_number)
 
 
 class DocumentListItem(BaseModel):

@@ -6,12 +6,12 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-import segno
 from num2words import num2words
 
 from app.core.config import settings
 from app.modules.documents.enums import DocumentType
 from app.modules.documents.models import Document
+from app.modules.fbr.qr import qr_data_uri
 from app.modules.documents.print.print_document import (
     PrintBranding,
     PrintCompany,
@@ -103,7 +103,7 @@ _FBR_LOGO_PATH = Path(__file__).parent / "assets" / "fbr-logo.png"
 
 
 def _fbr_qr(content: str) -> str:
-    return segno.make(content, error="m").png_data_uri(scale=10, border=2)
+    return qr_data_uri(content)
 
 
 def _fbr_logo() -> str | None:

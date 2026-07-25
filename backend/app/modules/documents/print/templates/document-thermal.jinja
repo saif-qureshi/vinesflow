@@ -51,8 +51,8 @@
   {% if stamp.image %}
   <div class="stamp">
     <div class="wrap">
+      {% if stamp.overlay %}<img class="fbr-logo" src="{{ stamp.overlay }}" alt="FBR Digital Invoicing System">{% endif %}
       <img class="qr" src="{{ stamp.image }}" alt="">
-      {% if stamp.overlay %}<img class="overlay" src="{{ stamp.overlay }}" alt="">{% endif %}
     </div>
     {% if stamp.caption %}<div class="caption">{{ stamp.caption }}</div>{% endif %}
   </div>
