@@ -238,9 +238,8 @@ class RealLedgerPoster:
         return lines
 
     def _purchase_target(self, db: Session, doc) -> str:
-        # Where the pre-tax bill amount lands: inventory if the bill itself
-        # received the goods, GRNI if a goods receipt already did, else expense.
-        if doc.stock_posted:
+        # Test actual movement, not stock_posted (a service bill sets the flag but moves nothing).
+        if self._stock_value(db, doc) != _ZERO:
             return "inventory"
         if self._source_moved_stock(db, doc):
             return "grni"
