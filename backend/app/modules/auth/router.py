@@ -7,6 +7,7 @@ from app.api.deps import CurrentUser
 from app.core.config import settings
 from app.core.container import Provide
 from app.core.exceptions import AuthError
+from app.core.ratelimit import limiter
 from app.core.responses import EnvelopeRoute, error_body
 from app.core.security import create_access_token
 from app.modules.auth.cookies import clear_refresh_cookie, set_refresh_cookie
@@ -33,6 +34,7 @@ def _refresh_error(message: str) -> JSONResponse:
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("5/minute")
 def register(payload: RegisterRequest, request: Request, response: Response, auth: AuthService = AuthSvc):
     user, raw = auth.register_user(
         email=payload.email,
@@ -46,6 +48,7 @@ def register(payload: RegisterRequest, request: Request, response: Response, aut
 
 
 @router.post("/login", response_model=TokenResponse)
+@limiter.limit("10/minute")
 def login(payload: LoginRequest, request: Request, response: Response, auth: AuthService = AuthSvc):
     user, raw = auth.authenticate(
         email=payload.email,
@@ -57,6 +60,7 @@ def login(payload: LoginRequest, request: Request, response: Response, auth: Aut
 
 
 @router.post("/refresh", response_model=TokenResponse)
+@limiter.limit("60/minute")
 def refresh(request: Request, response: Response, auth: AuthService = AuthSvc):
     raw = request.cookies.get(settings.REFRESH_COOKIE_NAME)
     if not raw:

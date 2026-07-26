@@ -22,6 +22,7 @@ dependencies = [
     "cryptography>=44.0",
     "segno>=1.6",
     "celery>=5.4",
+    "slowapi>=0.1.9",
 ]
 
 [project.scripts]

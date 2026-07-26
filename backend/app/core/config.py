@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Annotated
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -56,6 +56,16 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",") if origin.strip()]
         return v
+
+    @model_validator(mode="after")
+    def _enforce_prod_security(self) -> "Settings":
+        if self.ENVIRONMENT != "production":
+            return self
+        if self.JWT_SECRET == "change-me-to-a-long-random-string" or len(self.JWT_SECRET) < 32:
+            raise ValueError("JWT_SECRET must be a strong (>= 32 char) secret in production")
+        if not self.REFRESH_COOKIE_SECURE:
+            raise ValueError("REFRESH_COOKIE_SECURE must be true in production")
+        return self
 
 
 @lru_cache

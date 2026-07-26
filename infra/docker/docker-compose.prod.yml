@@ -23,7 +23,7 @@ services:
       - gotenberg
     mem_limit: 900m
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/v1/openapi.json"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -51,14 +51,33 @@ services:
       retries: 3
       start_period: 20s
 
-  # Restarts any container that goes UNHEALTHY (not just crashed).
+  # Restarts any container that goes UNHEALTHY (not just crashed). Reaches Docker
+  # only through the scoped proxy below — never the raw host socket.
   autoheal:
-    image: willfarrell/autoheal
+    image: willfarrell/autoheal:1.2.0
     restart: always
+    depends_on:
+      - dockerproxy
     environment:
       AUTOHEAL_CONTAINER_LABEL: all
+      DOCKER_SOCK: tcp://dockerproxy:2375
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 64m
+
+  # Read-mostly Docker API gateway: exposes only container list/inspect + restart,
+  # so a compromised autoheal cannot become root on the host.
+  dockerproxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    restart: always
+    environment:
+      CONTAINERS: 1
+      POST: 1
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 64m
 
   worker:
     image: ${ECR_BACKEND}:${IMAGE_TAG}
