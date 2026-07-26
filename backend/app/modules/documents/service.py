@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
-from app.core.ledger import ledger_poster
+from app.core import ledger as _ledger
 from app.core.pagination import paginate_cursor
 from app.modules.activities.service import ActivityService
 from app.modules.documents.enums import (
@@ -98,7 +98,7 @@ class DocumentService:
         self.db = db
         self.activity = ActivityService(db)
         self.inventory = InventoryService(db)
-        self.ledger = ledger_poster
+        self.ledger = _ledger.ledger_poster
 
     # --- Seeding ----------------------------------------------------------
 

@@ -27,3 +27,9 @@ class NullLedgerPoster:
 
 
 ledger_poster: LedgerPoster = NullLedgerPoster()
+
+
+def set_ledger_poster(poster: LedgerPoster) -> None:
+    """Swap the active poster (called once at app startup to bind the real GL)."""
+    global ledger_poster
+    ledger_poster = poster

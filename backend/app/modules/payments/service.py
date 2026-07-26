@@ -7,7 +7,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.exceptions import BadRequestError, NotFoundError
-from app.core.ledger import ledger_poster
+from app.core import ledger as _ledger
 from app.core.pagination import paginate_cursor
 from app.modules.activities.service import ActivityService
 from app.modules.documents.enums import (
@@ -51,7 +51,7 @@ class PaymentService:
         self.db = db
         self.activity = ActivityService(db)
         self.documents = DocumentService(db)
-        self.ledger = ledger_poster
+        self.ledger = _ledger.ledger_poster
 
     def _get_party(self, org_id: int, party_id: int, direction: PaymentDirection) -> Party:
         party = self.db.scalar(select(Party).where(Party.id == party_id, Party.org_id == org_id))
