@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date as date_cls
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -12,12 +13,14 @@ from app.core.pagination import ListQuery
 class StockAdjustInput(BaseModel):
     product_id: int
     location_id: int
-    qty_delta: Decimal
-    reason: str | None = Field(default=None, max_length=100)
-    note: str | None = Field(default=None, max_length=255)
+    mode: Literal["quantity", "value"] = "quantity"
+    qty_delta: Decimal = Decimal("0")
+    value_delta: Decimal | None = None
     unit_cost: Decimal | None = None
     account_id: int | None = None
     date: date_cls | None = None
+    reason: str | None = Field(default=None, max_length=100)
+    note: str | None = Field(default=None, max_length=255)
 
 
 class StockTransferInput(BaseModel):

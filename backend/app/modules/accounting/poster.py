@@ -329,15 +329,13 @@ class RealLedgerPoster:
 
     # --- inventory --------------------------------------------------------
 
-    def post_inventory_adjustment(self, db: Session, *, movement, account_id, posting_date) -> None:
-        if movement.unit_cost is None:
-            return
-        value = movement.unit_cost * movement.qty_delta  # signed: +gain, -loss
+    def post_inventory_adjustment(
+        self, db: Session, *, org_id, value, account_id, posting_date, source_id
+    ) -> None:
         if value == _ZERO:
             return
-        org_id = movement.org_id
         source_type = "stock_adjustment"
-        if self._already_posted(db, org_id, source_type, movement.id):
+        if self._already_posted(db, org_id, source_type, source_id):
             return
         inventory = self._account(db, org_id, "inventory")
         offset = account_id or self._account(db, org_id, "inventory_adjustment")
@@ -358,7 +356,7 @@ class RealLedgerPoster:
             voucher_type=VoucherType.STOCK_ADJUSTMENT,
             posting_date=posting_date,
             lines=lines,
-            description=f"Stock adjustment #{movement.id}",
+            description=f"Stock adjustment #{source_id}",
             source_type=source_type,
-            source_id=movement.id,
+            source_id=source_id,
         )

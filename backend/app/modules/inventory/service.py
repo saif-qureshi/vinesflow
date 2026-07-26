@@ -132,7 +132,16 @@ class InventoryService:
         return qty if qty is not None else _ZERO
 
     def _apply(
-        self, org_id, product_id, location_id, qty_delta, type_, note, reason=None, unit_cost=None
+        self,
+        org_id,
+        product_id,
+        location_id,
+        qty_delta,
+        type_,
+        note,
+        reason=None,
+        unit_cost=None,
+        value_delta=None,
     ) -> StockMovement:
         movement = StockMovement(
             org_id=org_id,
@@ -143,6 +152,7 @@ class InventoryService:
             note=note,
             reason=reason,
             unit_cost=unit_cost,
+            value_delta=value_delta,
         )
         self.db.add(movement)
         level = self._level(org_id, product_id, location_id)
@@ -187,24 +197,46 @@ class InventoryService:
 
     def adjust(self, org_id: int, payload: StockAdjustInput) -> None:
         product = self._validate(org_id, payload.product_id, payload.location_id)
-        unit_cost = payload.unit_cost if payload.unit_cost is not None else product.purchase_price
-        movement = self._apply(
-            org_id,
-            payload.product_id,
-            payload.location_id,
-            payload.qty_delta,
-            "adjustment",
-            payload.note,
-            reason=payload.reason,
-            unit_cost=unit_cost,
-        )
+        if payload.mode == "value":
+            value = payload.value_delta or _ZERO
+            if value == _ZERO:
+                raise BadRequestError("Enter a value adjustment")
+            movement = self._apply(
+                org_id,
+                payload.product_id,
+                payload.location_id,
+                _ZERO,
+                "revaluation",
+                payload.note,
+                reason=payload.reason,
+                value_delta=value,
+            )
+        else:
+            if payload.qty_delta == _ZERO:
+                raise BadRequestError("Enter a quantity to adjust")
+            unit_cost = (
+                payload.unit_cost if payload.unit_cost is not None else product.purchase_price
+            )
+            movement = self._apply(
+                org_id,
+                payload.product_id,
+                payload.location_id,
+                payload.qty_delta,
+                "adjustment",
+                payload.note,
+                reason=payload.reason,
+                unit_cost=unit_cost,
+            )
+            value = (unit_cost or _ZERO) * payload.qty_delta
         self.db.flush()
         self._record(org_id, "adjusted", product, payload.qty_delta, payload.location_id)
         self.ledger.post_inventory_adjustment(
             self.db,
-            movement=movement,
+            org_id=org_id,
+            value=value,
             account_id=payload.account_id,
             posting_date=payload.date or date.today(),
+            source_id=movement.id,
         )
         self.db.commit()
 

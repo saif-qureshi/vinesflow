@@ -79,9 +79,14 @@ export function useItemMovements(productId: number | null, limit = 50) {
 interface AdjustInput {
   product_id: number;
   location_id: number;
-  qty_delta: number;
+  mode?: "quantity" | "value";
+  qty_delta?: number;
+  value_delta?: number | null;
   reason?: string | null;
   note?: string | null;
+  unit_cost?: number | null;
+  account_id?: number | null;
+  date?: string | null;
 }
 
 interface TransferInput {

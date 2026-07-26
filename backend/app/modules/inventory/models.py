@@ -43,6 +43,7 @@ class StockMovement(Base, TimestampMixin, AuditMixin):
     reference_id: Mapped[int | None] = mapped_column(nullable=True)
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
+    value_delta: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
 
 
 class StockLevel(Base, TimestampMixin):

@@ -198,6 +198,30 @@ def test_stock_gain_posts_to_chosen_account_at_given_cost(db):
     assert _tb_balances(db, org_id)
 
 
+def test_value_adjustment_revalues_inventory_without_changing_quantity(db):
+    from app.modules.inventory.models import StockLevel
+
+    org_id, cust_id, pid = _setup(db)
+    loc_id = db.scalar(select(Location.id).where(Location.org_id == org_id))
+    InventoryService(db).adjust(
+        org_id,
+        StockAdjustInput(
+            product_id=pid,
+            location_id=loc_id,
+            mode="value",
+            value_delta=Decimal("-250"),
+            reason="Inventory Revaluation",
+        ),
+    )
+    assert _bal(db, org_id, "inventory") == Decimal("-250")  # written down
+    assert _bal(db, org_id, "inventory_adjustment") == Decimal("250")  # the loss
+    qty = db.scalar(
+        select(StockLevel.quantity).where(StockLevel.org_id == org_id, StockLevel.product_id == pid)
+    )
+    assert (qty or Decimal("0")) == Decimal("0")  # quantity untouched
+    assert _tb_balances(db, org_id)
+
+
 def test_overpayment_parks_excess_in_customer_advances(db):
     org_id, cust_id, pid = _setup(db)
     doc = _invoice(db, org_id, cust_id, pid)  # total 236 (200 + 18% tax)
