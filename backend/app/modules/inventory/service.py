@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
+from app.core import ledger as _ledger
 from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.core.pagination import decode_cursor, encode_cursor, paginate_cursor
 from app.modules.activities.service import ActivityService
+from app.modules.documents.enums import DocumentStatus, DocumentType
+from app.modules.documents.models import Document, DocumentLine
 from app.modules.inventory.models import Reason, StockLevel, StockMovement
 from app.modules.inventory.schemas import (
     InventoryItemRead,
@@ -18,8 +22,6 @@ from app.modules.inventory.schemas import (
     StockByLocation,
     StockTransferInput,
 )
-from app.modules.documents.enums import DocumentStatus, DocumentType
-from app.modules.documents.models import Document, DocumentLine
 from app.modules.locations.models import Location
 from app.modules.products.models import Product
 
@@ -39,6 +41,7 @@ class InventoryService:
     def __init__(self, db: Session) -> None:
         self.db = db
         self.activity = ActivityService(db)
+        self.ledger = _ledger.ledger_poster
 
     def seed_reasons(self, org_id: int) -> None:
         existing = set(self.db.scalars(select(Reason.name).where(Reason.org_id == org_id)))
@@ -84,16 +87,22 @@ class InventoryService:
             raise NotFoundError("Item not found")
         if product.type == "variable":
             raise BadRequestError("Stock is tracked on the individual variants, not the group")
-        if self.db.scalar(
-            select(Location.id).where(Location.id == location_id, Location.org_id == org_id)
-        ) is None:
+        if (
+            self.db.scalar(
+                select(Location.id).where(Location.id == location_id, Location.org_id == org_id)
+            )
+            is None
+        ):
             raise NotFoundError("Location not found")
         return product
 
     def _validate_location(self, org_id: int, location_id: int) -> None:
-        if self.db.scalar(
-            select(Location.id).where(Location.id == location_id, Location.org_id == org_id)
-        ) is None:
+        if (
+            self.db.scalar(
+                select(Location.id).where(Location.id == location_id, Location.org_id == org_id)
+            )
+            is None
+        ):
             raise NotFoundError("Location not found")
 
     def _level(self, org_id: int, product_id: int, location_id: int) -> StockLevel:
@@ -122,24 +131,45 @@ class InventoryService:
         )
         return qty if qty is not None else _ZERO
 
-    def _apply(self, org_id, product_id, location_id, qty_delta, type_, note, reason=None) -> None:
-        self.db.add(
-            StockMovement(
-                org_id=org_id, product_id=product_id, location_id=location_id,
-                qty_delta=qty_delta, type=type_, note=note, reason=reason,
-            )
+    def _apply(
+        self, org_id, product_id, location_id, qty_delta, type_, note, reason=None, unit_cost=None
+    ) -> StockMovement:
+        movement = StockMovement(
+            org_id=org_id,
+            product_id=product_id,
+            location_id=location_id,
+            qty_delta=qty_delta,
+            type=type_,
+            note=note,
+            reason=reason,
+            unit_cost=unit_cost,
         )
+        self.db.add(movement)
         level = self._level(org_id, product_id, location_id)
         level.quantity = level.quantity + qty_delta
+        return movement
 
     def post_document_movement(
-        self, org_id, product_id, location_id, qty_delta, type_, reference_type, reference_id, unit_cost=None
+        self,
+        org_id,
+        product_id,
+        location_id,
+        qty_delta,
+        type_,
+        reference_type,
+        reference_id,
+        unit_cost=None,
     ) -> None:
         self.db.add(
             StockMovement(
-                org_id=org_id, product_id=product_id, location_id=location_id,
-                qty_delta=qty_delta, type=type_, reference_type=reference_type,
-                reference_id=reference_id, unit_cost=unit_cost,
+                org_id=org_id,
+                product_id=product_id,
+                location_id=location_id,
+                qty_delta=qty_delta,
+                type=type_,
+                reference_type=reference_type,
+                reference_id=reference_id,
+                unit_cost=unit_cost,
             )
         )
         level = self._level(org_id, product_id, location_id)
@@ -147,17 +177,35 @@ class InventoryService:
 
     def _record(self, org_id, action, product, delta, location_id) -> None:
         self.activity.record(
-            org_id, action, "stock", product.name, entity_id=product.id,
+            org_id,
+            action,
+            "stock",
+            product.name,
+            entity_id=product.id,
             context={"qty": str(delta), "location_id": location_id},
         )
 
     def adjust(self, org_id: int, payload: StockAdjustInput) -> None:
         product = self._validate(org_id, payload.product_id, payload.location_id)
-        self._apply(
-            org_id, payload.product_id, payload.location_id,
-            payload.qty_delta, "adjustment", payload.note, reason=payload.reason,
+        unit_cost = payload.unit_cost if payload.unit_cost is not None else product.purchase_price
+        movement = self._apply(
+            org_id,
+            payload.product_id,
+            payload.location_id,
+            payload.qty_delta,
+            "adjustment",
+            payload.note,
+            reason=payload.reason,
+            unit_cost=unit_cost,
         )
+        self.db.flush()
         self._record(org_id, "adjusted", product, payload.qty_delta, payload.location_id)
+        self.ledger.post_inventory_adjustment(
+            self.db,
+            movement=movement,
+            account_id=payload.account_id,
+            posting_date=payload.date or date.today(),
+        )
         self.db.commit()
 
     def transfer(self, org_id: int, payload: StockTransferInput) -> None:
@@ -168,8 +216,22 @@ class InventoryService:
         available = self._on_hand_at(org_id, payload.product_id, payload.from_location_id)
         if available < payload.quantity:
             raise BadRequestError("Not enough stock at the source location")
-        self._apply(org_id, payload.product_id, payload.from_location_id, -payload.quantity, "transfer", payload.note)
-        self._apply(org_id, payload.product_id, payload.to_location_id, payload.quantity, "transfer", payload.note)
+        self._apply(
+            org_id,
+            payload.product_id,
+            payload.from_location_id,
+            -payload.quantity,
+            "transfer",
+            payload.note,
+        )
+        self._apply(
+            org_id,
+            payload.product_id,
+            payload.to_location_id,
+            payload.quantity,
+            "transfer",
+            payload.note,
+        )
         self._record(org_id, "transferred", product, payload.quantity, payload.to_location_id)
         self.db.commit()
 
@@ -200,7 +262,9 @@ class InventoryService:
             available=total - committed,
             to_be_shipped=committed,
             to_be_received=incoming,
-            by_location=[StockByLocation(location_id=k, quantity=v) for k, v in by_location.items()],
+            by_location=[
+                StockByLocation(location_id=k, quantity=v) for k, v in by_location.items()
+            ],
         )
 
     def _open_order_qty(self, org_id: int, product_id: int, doc_type: DocumentType) -> Decimal:
@@ -223,13 +287,17 @@ class InventoryService:
         self._validate_location(org_id, location_id)
         return self._on_hand_at(org_id, product_id, location_id)
 
-    def movements(self, org_id: int, product_id: int, query) -> tuple[list[StockMovement], str | None, bool]:
+    def movements(
+        self, org_id: int, product_id: int, query
+    ) -> tuple[list[StockMovement], str | None, bool]:
         stmt = select(StockMovement).where(
             StockMovement.org_id == org_id, StockMovement.product_id == product_id
         )
         return paginate_cursor(self.db, stmt, StockMovement.id, query)
 
-    def list(self, org_id: int, query: InventoryListQuery) -> tuple[list[InventoryItemRead], str | None, bool]:
+    def list(
+        self, org_id: int, query: InventoryListQuery
+    ) -> tuple[list[InventoryItemRead], str | None, bool]:
         levels = select(
             StockLevel.product_id,
             func.coalesce(func.sum(StockLevel.quantity), 0).label("qty"),

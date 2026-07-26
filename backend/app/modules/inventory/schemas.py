@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date as date_cls
 from datetime import datetime
 from decimal import Decimal
 
@@ -14,6 +15,9 @@ class StockAdjustInput(BaseModel):
     qty_delta: Decimal
     reason: str | None = Field(default=None, max_length=100)
     note: str | None = Field(default=None, max_length=255)
+    unit_cost: Decimal | None = None
+    account_id: int | None = None
+    date: date_cls | None = None
 
 
 class StockTransferInput(BaseModel):

@@ -10,6 +10,7 @@ class LedgerPoster(Protocol):
     def reverse_document(self, db: Session, document) -> None: ...
     def post_payment(self, db: Session, payment) -> None: ...
     def reverse_payment(self, db: Session, payment) -> None: ...
+    def post_inventory_adjustment(self, db: Session, *, movement, account_id, posting_date) -> None: ...
 
 
 class NullLedgerPoster:
@@ -23,6 +24,9 @@ class NullLedgerPoster:
         return None
 
     def reverse_payment(self, db: Session, payment) -> None:
+        return None
+
+    def post_inventory_adjustment(self, db: Session, *, movement, account_id, posting_date) -> None:
         return None
 
 

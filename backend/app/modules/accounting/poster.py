@@ -326,3 +326,39 @@ class RealLedgerPoster:
         self._reverse(
             db, payment.org_id, f"payment_{payment.direction}", payment.id, payment.posting_date
         )
+
+    # --- inventory --------------------------------------------------------
+
+    def post_inventory_adjustment(self, db: Session, *, movement, account_id, posting_date) -> None:
+        if movement.unit_cost is None:
+            return
+        value = movement.unit_cost * movement.qty_delta  # signed: +gain, -loss
+        if value == _ZERO:
+            return
+        org_id = movement.org_id
+        source_type = "stock_adjustment"
+        if self._already_posted(db, org_id, source_type, movement.id):
+            return
+        inventory = self._account(db, org_id, "inventory")
+        offset = account_id or self._account(db, org_id, "inventory_adjustment")
+        if value > _ZERO:
+            lines = [
+                JournalLine(account_id=inventory, debit=value),
+                JournalLine(account_id=offset, credit=value),
+            ]
+        else:
+            loss = -value
+            lines = [
+                JournalLine(account_id=offset, debit=loss),
+                JournalLine(account_id=inventory, credit=loss),
+            ]
+        self._post(
+            db,
+            org_id,
+            voucher_type=VoucherType.STOCK_ADJUSTMENT,
+            posting_date=posting_date,
+            lines=lines,
+            description=f"Stock adjustment #{movement.id}",
+            source_type=source_type,
+            source_id=movement.id,
+        )

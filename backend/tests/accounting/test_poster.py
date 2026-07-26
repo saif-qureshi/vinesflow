@@ -12,6 +12,8 @@ from app.modules.documents.enums import DocumentType, PaymentDirection
 from app.modules.documents.models import TaxRate
 from app.modules.documents.schemas import DocumentCreate, DocumentLineInput
 from app.modules.documents.service import DocumentService
+from app.modules.inventory.schemas import StockAdjustInput
+from app.modules.inventory.service import InventoryService
 from app.modules.locations.models import Location
 from app.modules.orgs.service import OrgService
 from app.modules.parties.models import Party
@@ -159,6 +161,40 @@ def test_payment_received_posts_cash_and_clears_ar(db):
     assert voucher.voucher_type == VoucherType.CUSTOMER_RECEIPT
     assert _bal(db, org_id, "cash") == doc.total
     assert _bal(db, org_id, "accounts_receivable") == 0  # invoice raised it, receipt cleared it
+    assert _tb_balances(db, org_id)
+
+
+def test_stock_write_off_posts_loss_against_inventory_adjustments(db):
+    org_id, cust_id, pid = _setup(db)
+    loc_id = db.scalar(select(Location.id).where(Location.org_id == org_id))
+    InventoryService(db).adjust(
+        org_id,
+        StockAdjustInput(
+            product_id=pid, location_id=loc_id, qty_delta=Decimal("-5"), reason="Damaged goods"
+        ),
+    )
+    assert _bal(db, org_id, "inventory") == Decimal("-300")  # 5 units * cost 60, credited
+    assert _bal(db, org_id, "inventory_adjustment") == Decimal("300")  # the loss, debited
+    assert _tb_balances(db, org_id)
+
+
+def test_stock_gain_posts_to_chosen_account_at_given_cost(db):
+    org_id, cust_id, pid = _setup(db)
+    loc_id = db.scalar(select(Location.id).where(Location.org_id == org_id))
+    cogs_id = _acct(db, org_id, "cogs")
+    InventoryService(db).adjust(
+        org_id,
+        StockAdjustInput(
+            product_id=pid,
+            location_id=loc_id,
+            qty_delta=Decimal("4"),
+            unit_cost=Decimal("50"),
+            account_id=cogs_id,
+            reason="Stocktaking results",
+        ),
+    )
+    assert _bal(db, org_id, "inventory") == Decimal("200")  # 4 * 50, debited
+    assert _bal(db, org_id, "cogs") == Decimal("-200")  # credited to the chosen account
     assert _tb_balances(db, org_id)
 
 
