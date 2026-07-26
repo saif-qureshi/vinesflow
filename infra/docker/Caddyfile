@@ -1,0 +1,13 @@
+# Reference copy. In production the instance writes this file with your real domain
+# (see infra/terraform/templates/user_data.sh.tftpl). Caddy auto-provisions Let's Encrypt TLS.
+{$APP_DOMAIN:app.localhost} {
+    encode gzip zstd
+
+    handle_path /api/* {
+        reverse_proxy backend:8000
+    }
+
+    handle {
+        reverse_proxy frontend:3000
+    }
+}

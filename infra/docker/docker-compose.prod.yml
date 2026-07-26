@@ -1,0 +1,72 @@
+# Runs on the EC2 instance. Image URIs + tag come from deploy.env; secrets from backend.env.
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
+  backend:
+    image: ${ECR_BACKEND}:${IMAGE_TAG}
+    restart: always
+    env_file:
+      - backend.env
+    depends_on:
+      - gotenberg
+    mem_limit: 900m
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/v1/openapi.json"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+
+  frontend:
+    image: ${ECR_FRONTEND}:${IMAGE_TAG}
+    restart: always
+    mem_limit: 500m
+
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    restart: always
+    mem_limit: 700m
+
+  # Restarts any container that goes UNHEALTHY (not just crashed).
+  autoheal:
+    image: willfarrell/autoheal
+    restart: always
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: all
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  # ---- Background jobs — uncomment when you add a worker (bump instance to t4g.medium) ----
+  # redis:
+  #   image: redis:7-alpine
+  #   restart: always
+  #   mem_limit: 150m
+  #   volumes:
+  #     - redis_data:/data
+  #
+  # worker:
+  #   image: ${ECR_BACKEND}:${IMAGE_TAG}
+  #   restart: always
+  #   env_file:
+  #     - backend.env
+  #   command: ["python", "-m", "app.worker"]   # replace with your worker entrypoint
+  #   depends_on:
+  #     - redis
+  #   mem_limit: 400m
+
+volumes:
+  caddy_data:
+  caddy_config:
+  # redis_data:

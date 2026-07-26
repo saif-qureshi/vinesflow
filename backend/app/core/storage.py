@@ -25,12 +25,15 @@ class StoredFile:
 
 def _object_key(org_id: int, filename: str) -> str:
     ext = Path(filename).suffix.lower()
-    return f"org-{org_id}/{uuid.uuid4().hex}{ext}"
+    return f"{settings.MEDIA_KEY_PREFIX}org-{org_id}/{uuid.uuid4().hex}{ext}"
 
 
 def _key_from_url(url: str) -> str | None:
-    # Keys always start with the org partition, so recover them base-independently.
-    idx = url.find("org-")
+    # Keys are "<prefix>org-<id>/…"; recover them base-independently.
+    marker = f"{settings.MEDIA_KEY_PREFIX}org-"
+    idx = url.find(marker)
+    if idx == -1 and settings.MEDIA_KEY_PREFIX:
+        idx = url.find("org-")
     return url[idx:] if idx != -1 else None
 
 

@@ -1,0 +1,125 @@
+#!/bin/bash
+set -euxo pipefail
+
+# ---------------------------------------------------------------- swap (Gotenberg safety net)
+%{ if swap_gb > 0 ~}
+if [ ! -f /swapfile ]; then
+  dd if=/dev/zero of=/swapfile bs=1M count=${swap_gb * 1024}
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  sysctl -w vm.swappiness=10
+fi
+%{ endif ~}
+
+# ---------------------------------------------------------------- docker + compose
+dnf update -y
+dnf install -y docker
+systemctl enable --now docker
+mkdir -p /usr/libexec/docker/cli-plugins
+curl -sSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-aarch64" \
+  -o /usr/libexec/docker/cli-plugins/docker-compose
+chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+
+mkdir -p /opt/vineflow
+cd /opt/vineflow
+
+# ---------------------------------------------------------------- config files
+cat > /opt/vineflow/docker-compose.yml <<'COMPOSE_EOF'
+${compose_content}
+COMPOSE_EOF
+
+cat > /opt/vineflow/Caddyfile <<CADDY_EOF
+${app_domain} {
+    encode gzip zstd
+    handle_path /api/* {
+        reverse_proxy backend:8000
+    }
+    handle {
+        reverse_proxy frontend:3000
+    }
+}
+CADDY_EOF
+
+cat > /opt/vineflow/deploy.env <<DEPLOY_EOF
+ECR_BACKEND=${ecr_backend}
+ECR_FRONTEND=${ecr_frontend}
+IMAGE_TAG=latest
+APP_DOMAIN=${app_domain}
+AWS_REGION=${region}
+DEPLOY_EOF
+
+# backend secrets/config from SSM
+aws ssm get-parameter --with-decryption --region ${region} \
+  --name "${ssm_env_param}" --query 'Parameter.Value' --output text > /opt/vineflow/backend.env
+chmod 600 /opt/vineflow/backend.env
+
+# ---------------------------------------------------------------- ECR login (refreshes hourly via timer)
+cat > /opt/vineflow/ecr-login.sh <<'LOGIN_EOF'
+#!/bin/bash
+set -e
+ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+aws ecr get-login-password --region ${region} | \
+  docker login --username AWS --password-stdin "$ACCOUNT.dkr.ecr.${region}.amazonaws.com"
+LOGIN_EOF
+chmod +x /opt/vineflow/ecr-login.sh
+/opt/vineflow/ecr-login.sh || true
+
+# ---------------------------------------------------------------- systemd unit (boot + auto-recovery)
+cat > /etc/systemd/system/vineflow.service <<'UNIT_EOF'
+[Unit]
+Description=Vineflow stack
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/vineflow
+ExecStartPre=/opt/vineflow/ecr-login.sh
+ExecStart=/usr/bin/docker compose --env-file deploy.env pull
+ExecStartPost=/usr/bin/docker compose --env-file deploy.env up -d --remove-orphans
+ExecStop=/usr/bin/docker compose --env-file deploy.env down
+
+[Install]
+WantedBy=multi-user.target
+UNIT_EOF
+
+systemctl daemon-reload
+systemctl enable --now vineflow.service
+
+# ---------------------------------------------------------------- nightly logical DB dump -> S3 (belt & suspenders; RDS also has automated backups)
+cat > /opt/vineflow/backup.sh <<'BACKUP_EOF'
+#!/bin/bash
+set -euo pipefail
+PGPASS=$(grep '^DATABASE_URL=' /opt/vineflow/backend.env | sed -E 's#.*://[^:]+:([^@]+)@.*#\1#')
+STAMP=$(date +%Y%m%d-%H%M%S)
+FILE=/tmp/${db_name}-$STAMP.sql.gz
+docker run --rm -e PGPASSWORD="$PGPASS" postgres:16-alpine \
+  pg_dump -h ${db_host} -U ${db_user} -d ${db_name} | gzip > "$FILE"
+aws s3 cp "$FILE" "s3://${backups_bucket}/db/${db_name}-$STAMP.sql.gz" --region ${region}
+rm -f "$FILE"
+BACKUP_EOF
+chmod +x /opt/vineflow/backup.sh
+
+cat > /etc/systemd/system/vineflow-backup.service <<'BSVC_EOF'
+[Unit]
+Description=Vineflow nightly DB dump
+[Service]
+Type=oneshot
+ExecStart=/opt/vineflow/backup.sh
+BSVC_EOF
+
+cat > /etc/systemd/system/vineflow-backup.timer <<'BTIMER_EOF'
+[Unit]
+Description=Run Vineflow DB dump nightly
+[Timer]
+OnCalendar=*-*-* 20:00:00 UTC
+Persistent=true
+[Install]
+WantedBy=timers.target
+BTIMER_EOF
+
+systemctl daemon-reload
+systemctl enable --now vineflow-backup.timer

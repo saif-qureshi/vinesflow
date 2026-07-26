@@ -1,0 +1,24 @@
+# Copy to terraform.tfvars and fill in. Only domain_name is required.
+
+domain_name = "yourdomain.com"
+
+# If your domain is in Route53, set the hosted zone id for full DNS + TLS automation.
+# Leave empty to manage DNS at your registrar (records are printed as outputs; you'll
+# also need to validate the CloudFront ACM cert manually).
+route53_zone_id = "" # e.g. "Z0123456789ABCDEFGHIJ"
+
+# Comfortable tier defaults (change to t4g.small to trim ~$12/mo):
+# instance_type     = "t4g.medium"
+# db_instance_class = "db.t4g.micro"
+
+# SSH is closed by default (use SSM Session Manager). To allow SSH, set both:
+# ssh_ingress_cidr = "203.0.113.4/32"
+# key_pair_name    = "my-keypair"
+
+# Get alerted when the box/DB is unhealthy:
+# alarm_email = "ops@yourdomain.com"
+
+# Enable GitHub Actions CI/CD (OIDC, no static keys). Set to owner/repo:
+# github_repo = "saif-qureshi/vinesflow-inventory"
+# If your account already has a GitHub OIDC provider, pass its ARN to reuse it:
+# github_oidc_provider_arn = "arn:aws:iam::730335575446:oidc-provider/token.actions.githubusercontent.com"

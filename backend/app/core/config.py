@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     S3_REGION: str | None = None
     S3_ENDPOINT_URL: str | None = None
     S3_PUBLIC_URL: str | None = None
+    # Object-key prefix, e.g. "local/" so dev uploads are isolated from prod ("").
+    MEDIA_KEY_PREFIX: str = ""
 
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
