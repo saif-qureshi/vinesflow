@@ -1,4 +1,12 @@
 from app.db.base_class import Base
+from app.modules.accounting.models import (
+    Account,
+    AccountingPeriod,
+    AccountingVoucher,
+    FiscalYear,
+    LedgerEntry,
+    VoucherLine,
+)
 from app.modules.activities.models import Activity
 from app.modules.attributes.models import Attribute, AttributeValue
 from app.modules.auth.models import RefreshSession
