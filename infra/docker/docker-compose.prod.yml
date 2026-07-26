@@ -21,6 +21,9 @@ services:
       - backend.env
     depends_on:
       - gotenberg
+    networks:
+      - default
+      - internal
     mem_limit: 900m
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
@@ -43,6 +46,8 @@ services:
   gotenberg:
     image: gotenberg/gotenberg:8
     restart: always
+    networks:
+      - internal
     mem_limit: 700m
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:3000/health"]
@@ -88,6 +93,9 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    networks:
+      - default
+      - internal
     mem_limit: 500m
 
   # Scheduler for periodic tasks (e.g. FBR reference sync). Enable once such tasks exist.
@@ -101,6 +109,10 @@ services:
   #     backend:
   #       condition: service_healthy
   #   mem_limit: 200m
+
+networks:
+  internal:
+    internal: true
 
 volumes:
   caddy_data:

@@ -9,6 +9,19 @@ resource "aws_db_subnet_group" "main" {
   tags       = { Name = local.name }
 }
 
+# Forces every client connection over TLS (rds.force_ssl is a dynamic parameter).
+resource "aws_db_parameter_group" "main" {
+  name   = local.name
+  family = "postgres16"
+
+  parameter {
+    name  = "rds.force_ssl"
+    value = "1"
+  }
+
+  tags = { Name = local.name }
+}
+
 resource "aws_db_instance" "main" {
   identifier     = local.name
   engine         = "postgres"
@@ -25,6 +38,7 @@ resource "aws_db_instance" "main" {
   password = random_password.db.result
 
   db_subnet_group_name   = aws_db_subnet_group.main.name
+  parameter_group_name   = aws_db_parameter_group.main.name
   vpc_security_group_ids = [aws_security_group.db.id]
   multi_az               = var.db_multi_az
   publicly_accessible    = false
@@ -43,5 +57,5 @@ resource "aws_db_instance" "main" {
 }
 
 locals {
-  database_url = "postgresql+psycopg://${var.db_username}:${random_password.db.result}@${aws_db_instance.main.address}:5432/${var.db_name}"
+  database_url = "postgresql+psycopg://${var.db_username}:${random_password.db.result}@${aws_db_instance.main.address}:5432/${var.db_name}?sslmode=require"
 }

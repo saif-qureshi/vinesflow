@@ -83,8 +83,9 @@ def _logo_data_url(org: Organization) -> str | None:
     if marker not in org.logo_url:
         return None
     key = org.logo_url.split(marker, 1)[1]
-    path = Path(settings.MEDIA_LOCAL_DIR) / key
-    if not path.is_file():
+    root = Path(settings.MEDIA_LOCAL_DIR).resolve()
+    path = (root / key).resolve()
+    if not path.is_relative_to(root) or not path.is_file():
         return None
     mime = mimetypes.guess_type(path.name)[0] or "image/png"
     return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode()}"
