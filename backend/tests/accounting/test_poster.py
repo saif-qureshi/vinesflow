@@ -162,6 +162,30 @@ def test_payment_received_posts_cash_and_clears_ar(db):
     assert _tb_balances(db, org_id)
 
 
+def test_overpayment_parks_excess_in_customer_advances(db):
+    org_id, cust_id, pid = _setup(db)
+    doc = _invoice(db, org_id, cust_id, pid)  # total 236 (200 + 18% tax)
+
+    pay_svc = PaymentService(db)
+    pay = pay_svc.create(
+        org_id,
+        PaymentDirection.RECEIVED,
+        PaymentCreate(
+            party_id=cust_id,
+            amount=Decimal("300"),  # pays 64 more than the invoice
+            allocations=[PaymentAllocationInput(document_id=doc.id, amount=doc.total)],
+        ),
+    )
+    pay_svc.submit(org_id, PaymentDirection.RECEIVED, pay.id)
+
+    assert _bal(db, org_id, "cash") == Decimal("300")
+    # AR is cleared exactly, NOT pushed negative...
+    assert _bal(db, org_id, "accounts_receivable") == 0
+    # ...the unapplied 64 sits in Customer Advances (a liability → credit balance)
+    assert _bal(db, org_id, "customer_advances") == -(Decimal("300") - doc.total)
+    assert _tb_balances(db, org_id)
+
+
 def test_challan_records_cogs_and_sourced_invoice_records_revenue_only(db):
     org_id, cust_id, pid = _setup(db)
     loc_id = db.scalar(select(Location.id).where(Location.org_id == org_id))

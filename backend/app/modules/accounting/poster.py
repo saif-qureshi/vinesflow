@@ -263,31 +263,52 @@ class RealLedgerPoster:
         source_type = f"payment_{payment.direction}"
         if self._already_posted(db, payment.org_id, source_type, payment.id):
             return
-        deposit = "cash" if payment.method == PaymentMethod.CASH else "bank"
+        org_id = payment.org_id
+        deposit = self._account(
+            db, org_id, "cash" if payment.method == PaymentMethod.CASH else "bank"
+        )
+        applied = payment.allocated_amount
+        advance = payment.unapplied_amount
+        party = payment.party_id
         if payment.direction == PaymentDirection.RECEIVED:
-            lines = [
-                JournalLine(
-                    account_id=self._account(db, payment.org_id, deposit), debit=payment.amount
-                ),
-                JournalLine(
-                    account_id=self._account(db, payment.org_id, "accounts_receivable"),
-                    credit=payment.amount,
-                    party_id=payment.party_id,
-                ),
-            ]
+            # Dr Cash/Bank; Cr AR for what settles invoices, Cr Customer Advances for the rest.
+            lines = [JournalLine(account_id=deposit, debit=payment.amount)]
+            if applied != _ZERO:
+                lines.append(
+                    JournalLine(
+                        account_id=self._account(db, org_id, "accounts_receivable"),
+                        credit=applied,
+                        party_id=party,
+                    )
+                )
+            if advance != _ZERO:
+                lines.append(
+                    JournalLine(
+                        account_id=self._account(db, org_id, "customer_advances"),
+                        credit=advance,
+                        party_id=party,
+                    )
+                )
             voucher_type = VoucherType.CUSTOMER_RECEIPT
             description = f"Receipt {payment.number}"
         else:
-            lines = [
-                JournalLine(
-                    account_id=self._account(db, payment.org_id, "accounts_payable"),
-                    debit=payment.amount,
-                    party_id=payment.party_id,
-                ),
-                JournalLine(
-                    account_id=self._account(db, payment.org_id, deposit), credit=payment.amount
-                ),
-            ]
+            lines = [JournalLine(account_id=deposit, credit=payment.amount)]
+            if applied != _ZERO:
+                lines.append(
+                    JournalLine(
+                        account_id=self._account(db, org_id, "accounts_payable"),
+                        debit=applied,
+                        party_id=party,
+                    )
+                )
+            if advance != _ZERO:
+                lines.append(
+                    JournalLine(
+                        account_id=self._account(db, org_id, "vendor_advances"),
+                        debit=advance,
+                        party_id=party,
+                    )
+                )
             voucher_type = VoucherType.VENDOR_PAYMENT
             description = f"Payment {payment.number}"
         self._post(
