@@ -13,6 +13,8 @@ from typing import Protocol
 
 from app.core.config import settings
 
+_MEDIA_CACHE_CONTROL = "public, max-age=31536000, immutable"
+
 
 @dataclass
 class StoredFile:
@@ -43,6 +45,9 @@ class Storage(Protocol):
 
     def key_from_url(self, url: str) -> str | None: ...
 
+    def get_bytes(self, key: str) -> bytes | None: ...
+    def put_bytes(self, key: str, data: bytes, *, content_type: str) -> None: ...
+
 
 class LocalStorage:
     """Writes to a local directory served by the app at /media/files."""
@@ -64,6 +69,15 @@ class LocalStorage:
     def key_from_url(self, url: str) -> str | None:
         return _key_from_url(url)
 
+    def get_bytes(self, key: str) -> bytes | None:
+        path = self.root / key
+        return path.read_bytes() if path.exists() else None
+
+    def put_bytes(self, key: str, data: bytes, *, content_type: str) -> None:
+        path = self.root / key
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
 
 class S3Storage:
     def __init__(self) -> None:
@@ -81,6 +95,7 @@ class S3Storage:
             Key=key,
             Body=data,
             ContentType=content_type or "application/octet-stream",
+            CacheControl=_MEDIA_CACHE_CONTROL,
         )
         base = settings.S3_PUBLIC_URL or f"https://{self.bucket}.s3.{settings.S3_REGION}.amazonaws.com"
         return StoredFile(
@@ -92,6 +107,16 @@ class S3Storage:
 
     def key_from_url(self, url: str) -> str | None:
         return _key_from_url(url)
+
+    def get_bytes(self, key: str) -> bytes | None:
+        try:
+            response = self.client.get_object(Bucket=self.bucket, Key=key)
+        except self.client.exceptions.NoSuchKey:
+            return None
+        return response["Body"].read()
+
+    def put_bytes(self, key: str, data: bytes, *, content_type: str) -> None:
+        self.client.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type)
 
 
 def get_storage() -> Storage:

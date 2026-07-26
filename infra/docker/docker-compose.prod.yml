@@ -32,12 +32,24 @@ services:
   frontend:
     image: ${ECR_FRONTEND}:${IMAGE_TAG}
     restart: always
-    mem_limit: 500m
+    mem_limit: 300m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   gotenberg:
     image: gotenberg/gotenberg:8
     restart: always
     mem_limit: 700m
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   # Restarts any container that goes UNHEALTHY (not just crashed).
   autoheal:

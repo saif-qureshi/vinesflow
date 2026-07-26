@@ -46,9 +46,9 @@ variable "enable_media_domain" {
 
 # ---- Compute ----------------------------------------------------------------
 variable "instance_type" {
-  description = "Graviton (ARM) burstable. t4g.medium (4GB) is the Comfortable tier; t4g.small (2GB) is leaner."
+  description = "Graviton (ARM) burstable. t4g.small (2GB) fits the stack with the standalone frontend; t4g.medium (4GB) is the comfortable tier."
   type        = string
-  default     = "t4g.medium"
+  default     = "t4g.small"
 }
 
 variable "root_volume_gb" {
@@ -113,9 +113,15 @@ variable "fbr_base_url" {
 }
 
 variable "alarm_email" {
-  description = "Email subscribed to CloudWatch alarms (SNS). Empty disables alarm notifications."
+  description = "Email subscribed to CloudWatch alarms (SNS) and budget alerts. Empty disables notifications."
   type        = string
   default     = ""
+}
+
+variable "monthly_budget_usd" {
+  description = "Monthly cost budget; emails alarm_email at 80% actual and 100% forecasted spend."
+  type        = number
+  default     = 50
 }
 
 variable "backup_retention_days" {

@@ -7,16 +7,17 @@ domain_name = "yourdomain.com"
 # also need to validate the CloudFront ACM cert manually).
 route53_zone_id = "" # e.g. "Z0123456789ABCDEFGHIJ"
 
-# Comfortable tier defaults (change to t4g.small to trim ~$12/mo):
-# instance_type     = "t4g.medium"
+# Lean tier defaults (bump to t4g.medium for ~$12/mo more headroom):
+# instance_type     = "t4g.small"
 # db_instance_class = "db.t4g.micro"
 
 # SSH is closed by default (use SSM Session Manager). To allow SSH, set both:
 # ssh_ingress_cidr = "203.0.113.4/32"
 # key_pair_name    = "my-keypair"
 
-# Get alerted when the box/DB is unhealthy:
+# Get alerted when the box/DB is unhealthy or spend passes the budget:
 # alarm_email = "ops@yourdomain.com"
+# monthly_budget_usd = 50
 
 # Enable GitHub Actions CI/CD (OIDC, no static keys). Set to owner/repo:
 # github_repo = "saif-qureshi/vinesflow-inventory"

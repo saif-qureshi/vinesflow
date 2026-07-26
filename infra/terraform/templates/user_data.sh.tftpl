@@ -33,6 +33,12 @@ COMPOSE_EOF
 cat > /opt/vineflow/Caddyfile <<CADDY_EOF
 ${app_domain} {
     encode gzip zstd
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+    }
     handle_path /api/* {
         reverse_proxy backend:8000
     }
@@ -55,7 +61,7 @@ aws ssm get-parameter --with-decryption --region ${region} \
   --name "${ssm_env_param}" --query 'Parameter.Value' --output text > /opt/vineflow/backend.env
 chmod 600 /opt/vineflow/backend.env
 
-# ---------------------------------------------------------------- ECR login (refreshes hourly via timer)
+# ---------------------------------------------------------------- ECR login (runs at boot and before every deploy)
 cat > /opt/vineflow/ecr-login.sh <<'LOGIN_EOF'
 #!/bin/bash
 set -e

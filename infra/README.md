@@ -7,7 +7,7 @@ CloudFront. No ALB, no NAT gateway, no per-tenant IAM — the usual budget-kille
 **Region:** `ap-south-1` (Mumbai) — cheapest low-latency region for Pakistan (AWS has none in-country).
 
 ```
-Internet ── app.<domain> ─────────────► EC2 t4g.medium (ARM)
+Internet ── app.<domain> ─────────────► EC2 t4g.small (ARM)
                                           Docker Compose:
                                             Caddy (TLS, proxy) · frontend (Next.js)
                                             backend (FastAPI) · gotenberg · autoheal
@@ -17,19 +17,21 @@ Internet ── app.<domain> ─────────────► EC2 t4g.
                                           S3 backups · SSM params · ECR
 ```
 
-## Monthly cost (Comfortable tier, low traffic)
+## Monthly cost (Lean tier, low traffic)
 
 | Item | Spec | ~$/mo |
 |---|---|---|
-| EC2 | t4g.medium (4 GB, Graviton) | ~$24 |
+| EC2 | t4g.small (2 GB, Graviton) | ~$12 |
 | RDS | db.t4g.micro, single-AZ, 20 GB | ~$15 |
 | EBS | gp3 30 GB | ~$2.4 |
+| Public IPv4 | Elastic IP ($0.005/hr) | ~$3.7 |
 | S3 + CloudFront + transfer | low volume | ~$3–5 |
 | ECR | last 10 images | ~$0.20 |
-| **Total** | | **~$45–50** |
+| **Total** | | **~$37–40** |
 
-Trim to `t4g.small` (2 GB, `instance_type`) → ~$33. A 1-yr RDS Reserved Instance shaves ~$6/mo.
-With ~$1000 in credits this tier lasts ~18 months.
+More headroom: `t4g.medium` (4 GB) adds ~$12/mo. Once sizes are stable, a 1-yr no-upfront
+Compute Savings Plan (~40% off EC2) plus an RDS Reserved Instance (~35% off) lands around
+**$28–32/mo**. With ~$1000 in credits the Lean tier lasts ~2 years.
 
 ## What you get
 - **Auto-recovery:** every container is `restart: always`; a `vineflow.service` systemd unit
@@ -38,7 +40,13 @@ With ~$1000 in credits this tier lasts ~18 months.
 - **Backups:** RDS automated backups + PITR (14 days) **and** a nightly logical `pg_dump` → S3
   (14-day lifecycle).
 - **Secrets:** the whole backend `.env` lives in one SSM SecureString, pulled at boot. No keys on disk in git.
-- **Alerts:** CloudWatch alarms (EC2 status/CPU, RDS CPU/storage) → SNS email (`alarm_email`).
+  `.dockerignore` keeps `backend/.env` out of image layers.
+- **Alerts:** CloudWatch alarms (EC2 status/CPU, RDS CPU/storage) → SNS email (`alarm_email`), plus an
+  AWS Budgets alert at 80% actual / 100% forecasted of `monthly_budget_usd`.
+- **Self-healing:** system status-check failure auto-recovers the instance to healthy hardware;
+  instance status-check failure auto-reboots. Both free.
+- **Hardening:** IMDSv2-only, private RDS (TLS forced by default on Postgres 15+), non-root app
+  containers, HSTS/nosniff/frame headers at Caddy and CloudFront, OIDC deploys (no static AWS keys).
 
 ## Prerequisites
 - Terraform ≥ 1.6, AWS CLI, an AWS account, a registered domain.
@@ -111,7 +119,7 @@ touch **only** `local/*`.
   ```
 
 ## Scaling up (when traffic justifies it — additive, not a rebuild)
-1. **Background jobs:** uncomment `redis` + `worker` in `docker-compose.prod.yml`; bump `instance_type` to `t4g.medium`+ (already default).
+1. **Background jobs:** uncomment `redis` + `worker` in `docker-compose.prod.yml`; bump `instance_type` to `t4g.medium`+.
 2. **HA:** flip `db_multi_az = true`, add an ALB + a second instance behind it.
 3. **DB headroom:** `db_instance_class = "db.t4g.small"`.
 

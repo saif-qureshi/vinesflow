@@ -9,17 +9,31 @@ resource "aws_sns_topic_subscription" "email" {
   endpoint  = var.alarm_email
 }
 
-# EC2 hardware/host failure.
-resource "aws_cloudwatch_metric_alarm" "ec2_status" {
-  alarm_name          = "${local.name}-ec2-status-check"
+# Host/hardware failure -> auto-recover migrates the instance to healthy hardware (free).
+resource "aws_cloudwatch_metric_alarm" "ec2_system" {
+  alarm_name          = "${local.name}-ec2-system-check"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 2
-  metric_name         = "StatusCheckFailed"
+  metric_name         = "StatusCheckFailed_System"
   namespace           = "AWS/EC2"
   period              = 60
   statistic           = "Maximum"
   threshold           = 0
-  alarm_actions       = [aws_sns_topic.alarms.arn]
+  alarm_actions       = ["arn:aws:automate:${var.region}:ec2:recover", aws_sns_topic.alarms.arn]
+  dimensions          = { InstanceId = aws_instance.app.id }
+}
+
+# OS-level hang -> reboot.
+resource "aws_cloudwatch_metric_alarm" "ec2_instance" {
+  alarm_name          = "${local.name}-ec2-instance-check"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 3
+  metric_name         = "StatusCheckFailed_Instance"
+  namespace           = "AWS/EC2"
+  period              = 60
+  statistic           = "Maximum"
+  threshold           = 0
+  alarm_actions       = ["arn:aws:automate:${var.region}:ec2:reboot", aws_sns_topic.alarms.arn]
   dimensions          = { InstanceId = aws_instance.app.id }
 }
 
@@ -60,4 +74,30 @@ resource "aws_cloudwatch_metric_alarm" "rds_storage" {
   threshold           = 2000000000 # 2 GB
   alarm_actions       = [aws_sns_topic.alarms.arn]
   dimensions          = { DBInstanceIdentifier = aws_db_instance.main.identifier }
+}
+
+# Notification-only budgets are free.
+resource "aws_budgets_budget" "monthly" {
+  count        = var.alarm_email == "" ? 0 : 1
+  name         = "${local.name}-monthly"
+  budget_type  = "COST"
+  limit_amount = tostring(var.monthly_budget_usd)
+  limit_unit   = "USD"
+  time_unit    = "MONTHLY"
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 80
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "ACTUAL"
+    subscriber_email_addresses = [var.alarm_email]
+  }
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 100
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "FORECASTED"
+    subscriber_email_addresses = [var.alarm_email]
+  }
 }

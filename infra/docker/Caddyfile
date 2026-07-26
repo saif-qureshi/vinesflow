@@ -3,6 +3,13 @@
 {$APP_DOMAIN:app.localhost} {
     encode gzip zstd
 
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+
     handle_path /api/* {
         reverse_proxy backend:8000
     }

@@ -72,6 +72,8 @@ resource "aws_cloudfront_distribution" "media" {
     compress               = true
     # Managed "CachingOptimized" policy — long TTL (media keys are immutable UUIDs).
     cache_policy_id = "658327ea-f89d-4fab-a63d-7e88639e58f6"
+    # Managed "SecurityHeadersPolicy" — HSTS, nosniff, frame/referrer policies.
+    response_headers_policy_id = "67f7725c-6f97-4210-82d7-5512b31e9d03"
   }
 
   restrictions {

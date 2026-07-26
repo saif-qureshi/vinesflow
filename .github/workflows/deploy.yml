@@ -24,7 +24,9 @@ permissions:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    # Native ARM runner — no QEMU emulation. If unavailable on your plan,
+    # revert to ubuntu-latest and re-add docker/setup-qemu-action@v3.
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
 
@@ -37,7 +39,6 @@ jobs:
       - name: Log in to ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
       - name: Build & push backend (arm64)
