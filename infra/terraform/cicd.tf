@@ -100,13 +100,14 @@ resource "aws_iam_role_policy" "gha_deploy" {
 }
 
 # ---- Convenience: the exact GitHub Actions *variables* to set (from `terraform output`) ----
+# AWS_ROLE_ARN is null when github_repo is unset (CI/CD disabled).
 output "github_actions_setup" {
   description = "Set these as repo Variables (Settings -> Secrets and variables -> Actions -> Variables)."
-  value = local.enable_cicd ? {
-    AWS_ROLE_ARN  = aws_iam_role.gha_deploy[0].arn
-    AWS_REGION    = var.region
-    ECR_BACKEND   = aws_ecr_repository.backend.repository_url
-    ECR_FRONTEND  = aws_ecr_repository.frontend.repository_url
-    INSTANCE_ID   = aws_instance.app.id
-  } : "cicd disabled (set github_repo)"
+  value = {
+    AWS_ROLE_ARN = one(aws_iam_role.gha_deploy[*].arn)
+    AWS_REGION   = var.region
+    ECR_BACKEND  = aws_ecr_repository.backend.repository_url
+    ECR_FRONTEND = aws_ecr_repository.frontend.repository_url
+    INSTANCE_ID  = aws_instance.app.id
+  }
 }

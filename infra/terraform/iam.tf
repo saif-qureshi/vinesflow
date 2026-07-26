@@ -47,7 +47,7 @@ data "aws_iam_policy_document" "app" {
   }
 
   statement {
-    sid     = "EcrPull"
+    sid = "EcrPull"
     actions = [
       "ecr:GetAuthorizationToken",
       "ecr:BatchGetImage",

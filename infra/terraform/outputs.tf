@@ -45,12 +45,13 @@ output "manual_dns_records" {
 }
 
 # Add this CNAME at Cloudflare to validate the media ACM cert, THEN re-run `terraform apply`.
+# Empty map when using Route53 (auto-validated) or the media domain is disabled.
 output "acm_validation_record" {
-  description = "CNAME to add at Cloudflare for ACM validation (only when not using Route53)."
-  value = (local.use_custom_domain && !local.use_route53) ? {
-    for dvo in aws_acm_certificate.media[0].domain_validation_options :
+  description = "CNAME(s) to add at Cloudflare for ACM validation (empty when not applicable)."
+  value = {
+    for dvo in((local.use_custom_domain && !local.use_route53) ? aws_acm_certificate.media[0].domain_validation_options : []) :
     dvo.domain_name => "${dvo.resource_record_name} CNAME ${dvo.resource_record_value}"
-  } : "n/a (Route53 auto-validates, or media domain disabled)"
+  }
 }
 
 # ---- Local-dev S3 credentials (scoped to local/*) ---------------------------
