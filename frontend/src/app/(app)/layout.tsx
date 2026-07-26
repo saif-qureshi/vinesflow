@@ -23,6 +23,7 @@ import {
   BarChart3,
   Bell,
   FolderOpen,
+  Landmark,
   LayoutDashboard,
   LogOut,
   Menu as MenuIcon,
@@ -85,6 +86,15 @@ const NAV: MenuProps["items"] = [
       { key: "/purchases/payments-made", label: "Payments Made" },
     ],
   },
+  {
+    key: "accountant",
+    icon: <Landmark size={ICON} />,
+    label: "Accountant",
+    children: [
+      { key: "/accountant/chart-of-accounts", label: "Chart of Accounts" },
+      { key: "/accountant/periods", label: "Fiscal Periods" },
+    ],
+  },
   { key: "/reports", icon: <BarChart3 size={ICON} />, label: "Reports" },
   { key: "/documents", icon: <FolderOpen size={ICON} />, label: "Documents" },
 ];
@@ -117,6 +127,7 @@ function Shell({ children }: { children: React.ReactNode }) {
     if (pathname.startsWith("/inventory")) return ["inventory"];
     if (pathname.startsWith("/sales")) return ["sales"];
     if (pathname.startsWith("/purchases")) return ["purchases"];
+    if (pathname.startsWith("/accountant")) return ["accountant"];
     return [];
   }, [pathname]);
   const [openKeys, setOpenKeys] = useState<string[]>(derivedOpen);

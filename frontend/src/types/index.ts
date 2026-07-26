@@ -1,3 +1,14 @@
+export type {
+  Account,
+  AccountInput,
+  AccountType,
+  AccountUpdateInput,
+  AccountingPeriod,
+  FiscalYear,
+  FiscalYearStatus,
+  NormalBalance,
+  PeriodStatus,
+} from "./accounting";
 export type { Activity, ActivityActor } from "./activity";
 export type { ApiEnvelope, ApiError } from "./api";
 export type { AccessToken, Me } from "./auth";
