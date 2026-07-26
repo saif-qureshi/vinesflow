@@ -2,15 +2,15 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 
 from app.api.router import api_router
 from app.core.config import settings
+from app.core.exceptions import PayloadTooLargeError, RateLimitError
 from app.core.ledger import set_ledger_poster
 from app.core.ratelimit import limiter
-from app.core.responses import error_body, register_exception_handlers
+from app.core.responses import app_error_handler, register_exception_handlers
 from app.modules.accounting.poster import RealLedgerPoster
 
 _docs_enabled = settings.ENVIRONMENT != "production"
@@ -26,14 +26,25 @@ app = FastAPI(
 app.state.limiter = limiter
 
 
-async def _rate_limit_handler(request, exc: RateLimitExceeded) -> JSONResponse:
-    return JSONResponse(
-        error_body("rate_limited", "Too many requests. Please slow down and try again."),
-        status_code=429,
+async def _rate_limit_handler(request, exc: RateLimitExceeded):
+    return await app_error_handler(
+        request, RateLimitError("Too many requests. Please slow down and try again.")
     )
 
 
 app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+
+_MAX_BODY_BYTES = settings.MAX_UPLOAD_MB * 1024 * 1024 + 1024 * 1024
+
+
+@app.middleware("http")
+async def _limit_request_body(request, call_next):
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > _MAX_BODY_BYTES:
+        return await app_error_handler(
+            request, PayloadTooLargeError("Request body exceeds the allowed size.")
+        )
+    return await call_next(request)
 
 app.add_middleware(
     CORSMiddleware,

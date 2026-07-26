@@ -6,10 +6,11 @@ config change (STORAGE_BACKEND) — no code change at the call site.
 
 from __future__ import annotations
 
+import shutil
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import BinaryIO, Protocol
 
 from app.core.config import settings
 
@@ -40,7 +41,9 @@ def _key_from_url(url: str) -> str | None:
 
 
 class Storage(Protocol):
-    def save(self, *, org_id: int, filename: str, content_type: str | None, data: bytes) -> StoredFile: ...
+    def save_stream(
+        self, *, org_id: int, filename: str, content_type: str | None, fileobj: BinaryIO, size: int
+    ) -> StoredFile: ...
     def delete(self, key: str) -> None: ...
 
     def key_from_url(self, url: str) -> str | None: ...
@@ -55,13 +58,16 @@ class LocalStorage:
     def __init__(self) -> None:
         self.root = Path(settings.MEDIA_LOCAL_DIR)
 
-    def save(self, *, org_id: int, filename: str, content_type: str | None, data: bytes) -> StoredFile:
+    def save_stream(
+        self, *, org_id: int, filename: str, content_type: str | None, fileobj: BinaryIO, size: int
+    ) -> StoredFile:
         key = _object_key(org_id, filename)
         path = self.root / key
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
+        with path.open("wb") as dest:
+            shutil.copyfileobj(fileobj, dest)
         url = f"{settings.MEDIA_PUBLIC_URL.rstrip('/')}/media/files/{key}"
-        return StoredFile(url=url, key=key, filename=filename, content_type=content_type, size=len(data))
+        return StoredFile(url=url, key=key, filename=filename, content_type=content_type, size=size)
 
     def delete(self, key: str) -> None:
         (self.root / key).unlink(missing_ok=True)
@@ -88,18 +94,26 @@ class S3Storage:
         )
         self.bucket = settings.S3_BUCKET
 
-    def save(self, *, org_id: int, filename: str, content_type: str | None, data: bytes) -> StoredFile:
+    def save_stream(
+        self, *, org_id: int, filename: str, content_type: str | None, fileobj: BinaryIO, size: int
+    ) -> StoredFile:
         key = _object_key(org_id, filename)
-        self.client.put_object(
-            Bucket=self.bucket,
-            Key=key,
-            Body=data,
-            ContentType=content_type or "application/octet-stream",
-            CacheControl=_MEDIA_CACHE_CONTROL,
+        self.client.upload_fileobj(
+            fileobj,
+            self.bucket,
+            key,
+            ExtraArgs={
+                "ContentType": content_type or "application/octet-stream",
+                "CacheControl": _MEDIA_CACHE_CONTROL,
+            },
         )
         base = settings.S3_PUBLIC_URL or f"https://{self.bucket}.s3.{settings.S3_REGION}.amazonaws.com"
         return StoredFile(
-            url=f"{base.rstrip('/')}/{key}", key=key, filename=filename, content_type=content_type, size=len(data)
+            url=f"{base.rstrip('/')}/{key}",
+            key=key,
+            filename=filename,
+            content_type=content_type,
+            size=size,
         )
 
     def delete(self, key: str) -> None:

@@ -55,6 +55,16 @@ class ConflictError(AppError):
     code = "conflict"
 
 
+class PayloadTooLargeError(AppError):
+    status_code = 413
+    code = "payload_too_large"
+
+
+class RateLimitError(AppError):
+    status_code = 429
+    code = "rate_limited"
+
+
 class ServiceUnavailableError(AppError):
     status_code = 503
     code = "service_unavailable"
