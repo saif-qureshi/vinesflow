@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     # Object-key prefix, e.g. "local/" so dev uploads are isolated from prod ("").
     MEDIA_KEY_PREFIX: str = ""
 
+    CELERY_TASK_ALWAYS_EAGER: bool = True
+    SQS_QUEUE_NAME: str = "vineflow-jobs"
+    SQS_QUEUE_URL: str | None = None
+    SQS_REGION: str | None = None
+    CELERY_VISIBILITY_TIMEOUT: int = 3600
+
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
     def _split_cors(cls, v: str | list[str]) -> list[str]:

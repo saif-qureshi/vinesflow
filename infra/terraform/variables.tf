@@ -96,6 +96,12 @@ variable "db_backup_retention_days" {
   default = 14
 }
 
+variable "sqs_visibility_timeout" {
+  description = "SQS visibility timeout (s). Must exceed the longest Celery task; matches CELERY_VISIBILITY_TIMEOUT."
+  type        = number
+  default     = 3600
+}
+
 variable "db_name" {
   type    = string
   default = "vineflow"

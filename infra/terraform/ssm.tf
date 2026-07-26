@@ -27,6 +27,11 @@ locals {
     "S3_PUBLIC_URL=${local.media_url}",
     "MEDIA_KEY_PREFIX=",
     "MAX_UPLOAD_MB=10",
+    "CELERY_TASK_ALWAYS_EAGER=false",
+    "SQS_QUEUE_NAME=${aws_sqs_queue.jobs.name}",
+    "SQS_QUEUE_URL=${aws_sqs_queue.jobs.url}",
+    "SQS_REGION=${var.region}",
+    "CELERY_VISIBILITY_TIMEOUT=${var.sqs_visibility_timeout}",
   ])
 }
 

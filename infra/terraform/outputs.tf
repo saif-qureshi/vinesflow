@@ -36,6 +36,10 @@ output "rds_endpoint" {
   value = aws_db_instance.main.address
 }
 
+output "jobs_queue_url" {
+  value = aws_sqs_queue.jobs.url
+}
+
 output "manual_dns_records" {
   description = "Add these at Cloudflare (route53_zone_id empty). App must be DNS-only (grey cloud) so Caddy can get TLS."
   value = local.use_route53 ? "managed by Route53" : join("\n", concat(

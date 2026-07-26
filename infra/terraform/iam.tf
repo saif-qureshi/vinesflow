@@ -56,6 +56,18 @@ data "aws_iam_policy_document" "app" {
     ]
     resources = ["*"]
   }
+
+  statement {
+    sid = "JobQueue"
+    actions = [
+      "sqs:SendMessage",
+      "sqs:ReceiveMessage",
+      "sqs:DeleteMessage",
+      "sqs:ChangeMessageVisibility",
+      "sqs:GetQueueAttributes",
+    ]
+    resources = [aws_sqs_queue.jobs.arn, aws_sqs_queue.jobs_dlq.arn]
+  }
 }
 
 resource "aws_iam_role_policy" "app" {

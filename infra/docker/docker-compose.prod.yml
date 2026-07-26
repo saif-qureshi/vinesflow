@@ -60,25 +60,29 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
-  # ---- Background jobs — uncomment when you add a worker (bump instance to t4g.medium) ----
-  # redis:
-  #   image: redis:7-alpine
-  #   restart: always
-  #   mem_limit: 150m
-  #   volumes:
-  #     - redis_data:/data
-  #
-  # worker:
+  worker:
+    image: ${ECR_BACKEND}:${IMAGE_TAG}
+    restart: always
+    env_file:
+      - backend.env
+    command: ["celery", "-A", "app.celery_app:celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+    depends_on:
+      backend:
+        condition: service_healthy
+    mem_limit: 500m
+
+  # Scheduler for periodic tasks (e.g. FBR reference sync). Enable once such tasks exist.
+  # beat:
   #   image: ${ECR_BACKEND}:${IMAGE_TAG}
   #   restart: always
   #   env_file:
   #     - backend.env
-  #   command: ["python", "-m", "app.worker"]   # replace with your worker entrypoint
+  #   command: ["celery", "-A", "app.celery_app:celery_app", "beat", "--loglevel=info"]
   #   depends_on:
-  #     - redis
-  #   mem_limit: 400m
+  #     backend:
+  #       condition: service_healthy
+  #   mem_limit: 200m
 
 volumes:
   caddy_data:
   caddy_config:
-  # redis_data:
