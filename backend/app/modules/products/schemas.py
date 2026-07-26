@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -10,6 +11,12 @@ from app.modules.attributes.schemas import AttributeValueSummary
 from app.modules.categories.schemas import CategorySummary
 from app.modules.media.schemas import MediaCreate, MediaRead
 from app.modules.uoms.schemas import UomSummary
+
+
+class ItemSalesPoint(BaseModel):
+    label: str
+    sales: Decimal
+
 
 Nature = Literal["good", "service"]
 ProductType = Literal["single", "variable"]

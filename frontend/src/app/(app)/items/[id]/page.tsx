@@ -246,7 +246,7 @@ export default function ViewItemPage() {
       </div>
 
                 <Card title="Sales Summary" className="border-gray-100">
-                  <ItemSalesChart />
+                  <ItemSalesChart productId={p.id} />
                 </Card>
               </div>
             ),

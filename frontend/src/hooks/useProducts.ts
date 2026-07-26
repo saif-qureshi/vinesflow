@@ -56,6 +56,21 @@ export function useProduct(id: number | null) {
   });
 }
 
+export function useItemSales(productId: number, period: "month" | "quarter" | "year") {
+  const token = useSessionStore((s) => s.accessToken);
+  const orgId = useSessionStore((s) => s.currentOrgId);
+  return useQuery({
+    queryKey: ["item-sales", orgId, productId, period],
+    queryFn: async () =>
+      (
+        await api.get<{ label: string; sales: number }[]>(
+          `/products/${productId}/sales?period=${period}`,
+        )
+      ).data,
+    enabled: !!token && !!orgId && !!productId,
+  });
+}
+
 function useInvalidate() {
   const qc = useQueryClient();
   const orgId = useSessionStore((s) => s.currentOrgId);

@@ -13,24 +13,21 @@ import {
 } from "recharts";
 
 import { useCurrency } from "@/hooks/useCurrency";
+import { useItemSales } from "@/hooks/useProducts";
 import { useAppTheme } from "@/hooks/useSession";
 
 const AXIS = { tickLine: false, axisLine: false, tickMargin: 8, fontSize: 12, stroke: "#94a3b8" } as const;
 
 type Period = "month" | "quarter" | "year";
 
-const BUCKETS: Record<Period, string[]> = {
-  month: ["W1", "W2", "W3", "W4"],
-  quarter: ["M1", "M2", "M3"],
-  year: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
-};
-
-export function ItemSalesChart() {
+export function ItemSalesChart({ productId }: { productId: number }) {
   const { money, compact } = useCurrency();
   const { accent } = useAppTheme();
-  const [period, setPeriod] = useState<Period>("month");
+  const [period, setPeriod] = useState<Period>("year");
+  const { data: points } = useItemSales(productId, period);
 
-  const data = BUCKETS[period].map((label) => ({ label, sales: 0 }));
+  const data = (points ?? []).map((p) => ({ label: p.label, sales: Number(p.sales) }));
+  const hasSales = data.some((d) => d.sales > 0);
 
   return (
     <div className="space-y-4">
@@ -61,9 +58,11 @@ export function ItemSalesChart() {
             <Area type="monotone" dataKey="sales" name="Sales" stroke={accent} strokeWidth={2} fill="url(#fillItemSales)" />
           </AreaChart>
         </ResponsiveContainer>
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <span className="text-sm text-gray-400">No sales recorded for this item yet</span>
-        </div>
+        {!hasSales && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <span className="text-sm text-gray-400">No sales recorded for this item yet</span>
+          </div>
+        )}
       </div>
     </div>
   );

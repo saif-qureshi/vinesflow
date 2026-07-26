@@ -49,21 +49,90 @@ class ProductService:
             raise NotFoundError("Product not found")
         return product
 
+    def item_sales(self, org_id: int, product_id: int, period: str) -> list[dict]:
+        from decimal import Decimal
+
+        from app.modules.documents.enums import DocumentStatus, DocumentType
+        from app.modules.documents.models import Document, DocumentLine
+
+        self.get(org_id, product_id)
+        child_ids = list(
+            self.db.scalars(
+                select(Product.id).where(Product.org_id == org_id, Product.parent_id == product_id)
+            )
+        )
+        ids = child_ids or [product_id]
+
+        buckets = self._sales_buckets(period)
+        rows = self.db.execute(
+            select(Document.issue_date, DocumentLine.line_total)
+            .join(DocumentLine, DocumentLine.document_id == Document.id)
+            .where(
+                Document.org_id == org_id,
+                Document.type == DocumentType.INVOICE,
+                Document.status == DocumentStatus.SENT,
+                DocumentLine.product_id.in_(ids),
+                Document.issue_date >= buckets[0][1],
+                Document.issue_date <= buckets[-1][2],
+            )
+        ).all()
+
+        out = [{"label": label, "sales": Decimal("0")} for label, _s, _e in buckets]
+        for issue_date, line_total in rows:
+            for i, (_label, start, end) in enumerate(buckets):
+                if start <= issue_date <= end:
+                    out[i]["sales"] += line_total or Decimal("0")
+                    break
+        return out
+
+    @staticmethod
+    def _sales_buckets(period: str) -> list[tuple]:
+        from datetime import date, timedelta
+
+        today = date.today()
+        if period == "month":
+            weeks = []
+            for i in range(3, -1, -1):
+                end = today - timedelta(days=7 * i)
+                weeks.append((end.strftime("%d %b"), end - timedelta(days=6), end))
+            return weeks
+        months = 3 if period == "quarter" else 12
+        out = []
+        for i in range(months - 1, -1, -1):
+            month = today.month - i
+            year = today.year
+            while month <= 0:
+                month += 12
+                year -= 1
+            start = date(year, month, 1)
+            end = (
+                date(year, 12, 31) if month == 12 else date(year, month + 1, 1) - timedelta(days=1)
+            )
+            out.append((start.strftime("%b"), start, end))
+        return out
+
     def _validate_refs(self, org_id: int, category_id: int | None, uom_id: int | None) -> None:
-        if category_id is not None and self.db.scalar(
-            select(Category.id).where(Category.id == category_id, Category.org_id == org_id)
-        ) is None:
+        if (
+            category_id is not None
+            and self.db.scalar(
+                select(Category.id).where(Category.id == category_id, Category.org_id == org_id)
+            )
+            is None
+        ):
             raise NotFoundError("Category not found")
-        if uom_id is not None and self.db.scalar(
-            select(Uom.id).where(Uom.id == uom_id, Uom.org_id == org_id)
-        ) is None:
+        if (
+            uom_id is not None
+            and self.db.scalar(select(Uom.id).where(Uom.id == uom_id, Uom.org_id == org_id)) is None
+        ):
             raise NotFoundError("Unit not found")
 
     def _require_uom_for_goods(self, nature: str, uom_id: int | None) -> None:
         if nature == "good" and uom_id is None:
             raise BadRequestError("A unit of measure is required for goods")
 
-    def _ensure_unique_sku(self, org_id: int, sku: str | None, exclude_id: int | None = None) -> None:
+    def _ensure_unique_sku(
+        self, org_id: int, sku: str | None, exclude_id: int | None = None
+    ) -> None:
         if not sku:
             return
         q = select(Product.id).where(Product.org_id == org_id, Product.sku == sku)
@@ -78,7 +147,9 @@ class ProductService:
         mapping: dict[tuple[str, str], AttributeValue] = {}
         for attr_input in attributes:
             attribute = self.db.scalar(
-                select(Attribute).where(Attribute.org_id == org_id, Attribute.name == attr_input.name)
+                select(Attribute).where(
+                    Attribute.org_id == org_id, Attribute.name == attr_input.name
+                )
             )
             if attribute is None:
                 attribute = Attribute(org_id=org_id, name=attr_input.name)
@@ -167,7 +238,9 @@ class ProductService:
         for key, value in scalar_fields.items():
             setattr(product, key, value)
         if payload.variant_attributes is not None:
-            self._apply_variants(org_id, product, payload.variant_attributes, payload.variants or [])
+            self._apply_variants(
+                org_id, product, payload.variant_attributes, payload.variants or []
+            )
         if payload.media is not None:
             self.media.replace_for(
                 org_id=org_id,

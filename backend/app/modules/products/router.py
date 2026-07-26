@@ -11,6 +11,7 @@ from app.core.responses import EnvelopeRoute
 from app.modules.orgs.models import Membership
 from app.modules.products.models import Product
 from app.modules.products.schemas import (
+    ItemSalesPoint,
     ProductCreate,
     ProductListQuery,
     ProductRead,
@@ -48,6 +49,16 @@ def get_product(
     svc: ProductService = Svc,
 ) -> Product:
     return svc.get(membership.org_id, product_id)
+
+
+@router.get("/{product_id}/sales", response_model=list[ItemSalesPoint])
+def item_sales(
+    product_id: int,
+    period: Literal["month", "quarter", "year"] = "year",
+    membership: Membership = Depends(require_permission("products:read")),
+    svc: ProductService = Svc,
+):
+    return svc.item_sales(membership.org_id, product_id, period)
 
 
 @router.patch("/{product_id}", response_model=ProductRead)
