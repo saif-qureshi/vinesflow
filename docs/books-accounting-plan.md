@@ -108,11 +108,17 @@ zero; control-account guard blocks a manual line but allows a system line.
   `retained_earnings`, `opening_balance_equity`, `inventory_adjustment`.
 - **Auto-create fiscal year + 12 monthly periods** at org creation, derived from
   `organizations.fiscal_year_start_month` (default 7 → Jul–Jun). Idempotent.
-- **API + RBAC** — new `accounting` (+ `journals`) RBAC module. Accounts CRUD,
-  fiscal-year CRUD + `close`, period `lock/unlock`. Guard: can't delete an
-  account with ledger entries; can't edit FY dates after periods exist.
-- **Frontend:** Chart-of-Accounts tree + account form; Fiscal Years / Periods
-  screens with lock toggles (Zoho-style "Accountant" area).
+- **API + RBAC** — new `accounting` RBAC module. Accounts CRUD, fiscal-year
+  list + **create-next** (append the following year + its 12 periods), period
+  `lock/unlock`. Guard: can't deactivate an account with ledger entries.
+  *(Year-end **close** — retained-earnings closing voucher — is B7, not here.)*
+- **Frontend:** Chart-of-Accounts table + account form; Fiscal Periods screen with
+  per-period lock toggles and a **New Fiscal Year** action (Zoho-style "Accountant"
+  menu). The fiscal-year start month is set on the Org Profile settings page.
+
+**Exit:** a fresh org boots with a chart, mappings, and an open current year;
+accounts and the fiscal calendar (including adding the next year) are manageable
+from the UI. *Not in B1:* automated year-end close/rollover (B7).
 
 **Exit:** a fresh org has a chart, mappings, and an open current year; accounts
 and periods are manageable from the UI.

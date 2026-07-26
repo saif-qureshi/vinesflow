@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import calendar
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import BadRequestError
 from app.modules.accounting.constants import (
     ACCOUNT_MAPPING,
     ACCOUNTING_SETTINGS_GROUP,
@@ -71,17 +72,17 @@ class AccountingSetupService:
         existing = self.db.scalar(select(FiscalYear).where(FiscalYear.org_id == org_id).limit(1))
         if existing is not None:
             return existing
-
         day = today or date.today()
         start_year = day.year if day.month >= fiscal_year_start_month else day.year - 1
-        starts_on = date(start_year, fiscal_year_start_month, 1)
+        return self.create_fiscal_year(org_id, date(start_year, fiscal_year_start_month, 1))
+
+    def create_fiscal_year(self, org_id: int, starts_on: date) -> FiscalYear:
         ends_on = _month_end(_add_months(starts_on, 11))
         name = (
-            f"FY {start_year}-{str(ends_on.year)[-2:]}"
+            f"FY {starts_on.year}-{str(ends_on.year)[-2:]}"
             if starts_on.year != ends_on.year
-            else f"FY {start_year}"
+            else f"FY {starts_on.year}"
         )
-
         fiscal_year = FiscalYear(
             org_id=org_id,
             name=name,
@@ -107,3 +108,14 @@ class AccountingSetupService:
             )
         self.db.flush()
         return fiscal_year
+
+    def create_next_fiscal_year(self, org_id: int) -> FiscalYear:
+        latest = self.db.scalar(
+            select(FiscalYear)
+            .where(FiscalYear.org_id == org_id)
+            .order_by(FiscalYear.ends_on.desc())
+            .limit(1)
+        )
+        if latest is None:
+            raise BadRequestError("Set up the first fiscal year before creating the next one")
+        return self.create_fiscal_year(org_id, latest.ends_on + timedelta(days=1))

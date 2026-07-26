@@ -100,6 +100,14 @@ class AccountingService:
             )
         )
 
+    def create_next_fiscal_year(self, org_id: int) -> FiscalYear:
+        from app.modules.accounting.setup import AccountingSetupService
+
+        fiscal_year = AccountingSetupService(self.db).create_next_fiscal_year(org_id)
+        self.db.commit()
+        self.db.refresh(fiscal_year)
+        return fiscal_year
+
     def list_periods(
         self, org_id: int, fiscal_year_id: int | None = None
     ) -> list[AccountingPeriod]:

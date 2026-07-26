@@ -1,9 +1,15 @@
 "use client";
 
+import { Plus } from "lucide-react";
 import type { ColumnsType } from "antd/es/table";
 
-import { App, Card, DataTable, PageHeader, Switch, Tag } from "@/components/ui";
-import { useFiscalYears, usePeriods, useSetPeriodStatus } from "@/hooks/useAccounting";
+import { App, Button, Card, DataTable, PageHeader, Switch, Tag } from "@/components/ui";
+import {
+  useCreateFiscalYear,
+  useFiscalYears,
+  usePeriods,
+  useSetPeriodStatus,
+} from "@/hooks/useAccounting";
 import { apiErrorMessage } from "@/lib/api";
 import type { AccountingPeriod, PeriodStatus } from "@/types";
 
@@ -26,6 +32,16 @@ export default function FiscalPeriodsPage() {
   const fiscalYears = useFiscalYears();
   const periods = usePeriods();
   const setStatus = useSetPeriodStatus();
+  const createYear = useCreateFiscalYear();
+
+  const addYear = async () => {
+    try {
+      const res = await createYear.mutateAsync();
+      message.success(`Created ${res.data.name}`);
+    } catch (err) {
+      message.error(apiErrorMessage(err));
+    }
+  };
 
   const toggle = async (period: AccountingPeriod, lock: boolean) => {
     try {
@@ -74,6 +90,16 @@ export default function FiscalPeriodsPage() {
       <PageHeader
         title="Fiscal Periods"
         description="Lock a period to stop new postings landing in it"
+        actions={
+          <Button
+            type="primary"
+            icon={<Plus size={16} />}
+            onClick={addYear}
+            loading={createYear.isPending}
+          >
+            New fiscal year
+          </Button>
+        }
       />
       {(fiscalYears.data ?? []).map((fy) => (
         <Card

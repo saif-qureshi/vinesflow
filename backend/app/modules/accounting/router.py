@@ -55,6 +55,14 @@ def list_fiscal_years(
     return svc.list_fiscal_years(membership.org_id)
 
 
+@router.post("/fiscal-years", response_model=FiscalYearRead, status_code=status.HTTP_201_CREATED)
+def create_fiscal_year(
+    membership: Membership = Depends(require_permission("accounting:create")),
+    svc: AccountingService = Svc,
+):
+    return svc.create_next_fiscal_year(membership.org_id)
+
+
 @router.get("/periods", response_model=list[PeriodRead])
 def list_periods(
     fiscal_year_id: int | None = None,

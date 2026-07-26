@@ -31,6 +31,21 @@ def test_fiscal_year_and_periods_seeded(client, register, org_id_of, h):
     assert len(periods) == 12
 
 
+def test_create_next_fiscal_year(client, register, org_id_of, h):
+    headers = _ctx(register, org_id_of, h)
+    before = client.get(f"{BASE}/fiscal-years", headers=headers).json()["data"]
+    assert len(before) == 1
+
+    res = client.post(f"{BASE}/fiscal-years", headers=headers)
+    assert res.status_code == 201, res.text
+
+    after = client.get(f"{BASE}/fiscal-years", headers=headers).json()["data"]
+    assert len(after) == 2
+    assert after[1]["starts_on"] > after[0]["ends_on"]
+    periods = client.get(f"{BASE}/periods", headers=headers).json()["data"]
+    assert len(periods) == 24
+
+
 def test_create_custom_account_and_reject_duplicate(client, register, org_id_of, h):
     headers = _ctx(register, org_id_of, h)
     body = {

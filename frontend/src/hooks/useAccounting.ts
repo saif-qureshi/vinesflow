@@ -56,6 +56,18 @@ export function useFiscalYears() {
   });
 }
 
+export function useCreateFiscalYear() {
+  const qc = useQueryClient();
+  const orgId = useSessionStore((s) => s.currentOrgId);
+  return useMutation({
+    mutationFn: () => api.post<FiscalYear>("/accounting/fiscal-years"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["fiscal-years", orgId] });
+      qc.invalidateQueries({ queryKey: ["periods", orgId] });
+    },
+  });
+}
+
 export function usePeriods(fiscalYearId?: number) {
   const { orgId, enabled } = useOrgToken();
   return useQuery({
