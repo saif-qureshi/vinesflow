@@ -49,9 +49,14 @@ its users.
 - **Reporting** — financial (P&L, Balance Sheet, Cash Flow, TB, GL) + operational
   (sales, purchases, inventory, aging).
 - **Onboarding polish** — the org seeder is complete; add a first-run setup wizard.
+- **Plan entitlements & Super-Admin (v1)** — gate features and limits by
+  subscription plan (Starter / Business / Group); a superuser **platform console**
+  to manage owners/orgs, assign plans, extend trials, suspend, and impersonate for
+  support. Manual billing to start; payment gateways automate it in H2. See the
+  deep-dive below.
 
 **Exit:** a new business can sign up, sell, buy, get paid, stay FBR-compliant, and
-see correct books — end to end, on the web.
+see correct books — end to end, on the web; plans are enforced and manageable.
 
 ---
 
@@ -122,6 +127,40 @@ The tracking dimension `(product, location, bin?, lot?)` + serial table is
 designed **once** so the ledger migrates cleanly. Costing/valuation is the bridge
 to Books — the `finalize`/`void` seam already anticipates it.
 
+## Billing, Subscriptions & Super-Admin (deep-dive)
+
+Greenfield today (only an `is_superuser` flag exists; no plan model, no limit
+enforcement). Two connected halves:
+
+**Entitlements engine.** A **plan** defines `limits` (max orgs, users/org,
+warehouses/org) and `features` (roles & permissions, accounting/Books,
+credit-notes, delivery-challans, activity log, consolidated view, onboarding &
+migration). A **subscription** links a plan to a billing account with a status
+(`trialing · active · past_due · cancelled`), cycle (monthly/yearly), and current
+period. A central `EntitlementService` enforces both — a FastAPI dependency for
+feature gates and a guard on create paths for limits (add-user, add-warehouse,
+create-org) — with matching **frontend gating** (hide/disable + upsell). Fail
+closed, degrade gracefully (never lose data when a plan downgrades — lock, don't
+delete).
+
+**Super-Admin / Platform console** (a distinct surface, `is_superuser`-gated,
+outside the org scope): search owners/orgs, view usage vs limits, assign/change
+plans, start/extend trials, suspend/reactivate, **impersonate** (login-as) for
+support, and platform metrics (active orgs, MRR, usage). Manual billing first;
+**payment gateways** (H2) automate collection and flip subscription status.
+
+**Decided — per-org subscription.** Each organization carries its own plan
+(Starter / Business / Group), matching the "per company, per month" pricing. The
+plan defines that org's internal limits (users, warehouses) and feature flags. The
+plans' *organization count* ("1 vs unlimited") is therefore not a hard per-org
+limit — it's handled at signup/owner level, and Group's **consolidated view** is a
+feature flag that lets an owner see across their orgs. Revisit an account-level
+`Account` entity only if reseller/agency hierarchies appear.
+
+Full plan to follow in `docs/subscriptions-and-admin-plan.md`. **Sequencing:
+Books ships first**, then entitlements + console (**H1**), then automated
+billing/gateways (**H2**).
+
 ## Platform capabilities (cross-cutting, ongoing)
 
 - **Multi-branch / multi-warehouse** (deepen beyond current locations).
@@ -147,6 +186,7 @@ to Books — the `finalize`/`void` seam already anticipates it.
 | Surface | Status | Horizon |
 |---|---|---|
 | Web app | ✅ shipped | — |
+| Super-Admin / Platform console | planned | H1 |
 | Mobile app (iOS/Android) | planned | H2 |
 | Desktop app (Win/Mac) | planned | H2 |
 | POS | planned | H2 |
