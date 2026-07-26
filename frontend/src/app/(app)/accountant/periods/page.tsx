@@ -1,11 +1,12 @@
 "use client";
 
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import type { ColumnsType } from "antd/es/table";
 
 import { App, Button, Card, DataTable, PageHeader, Popconfirm, Switch, Tag } from "@/components/ui";
 import {
   useCreateFiscalYear,
+  useDeleteFiscalYear,
   useFiscalYears,
   usePeriods,
   useSetPeriodStatus,
@@ -42,6 +43,7 @@ export default function FiscalPeriodsPage() {
   const periods = usePeriods();
   const setStatus = useSetPeriodStatus();
   const createYear = useCreateFiscalYear();
+  const deleteYear = useDeleteFiscalYear();
 
   const years = fiscalYears.data ?? [];
   const nextLabel = years.length ? nextYearLabel(years[years.length - 1].ends_on) : null;
@@ -50,6 +52,15 @@ export default function FiscalPeriodsPage() {
     try {
       const res = await createYear.mutateAsync();
       message.success(`Created ${res.data.name}`);
+    } catch (err) {
+      message.error(apiErrorMessage(err));
+    }
+  };
+
+  const removeYear = async (id: number, name: string) => {
+    try {
+      await deleteYear.mutateAsync(id);
+      message.success(`Deleted ${name}`);
     } catch (err) {
       message.error(apiErrorMessage(err));
     }
@@ -127,6 +138,19 @@ export default function FiscalPeriodsPage() {
               </span>
               <Tag color={fy.status === "active" ? "green" : "default"}>{fy.status}</Tag>
             </span>
+          }
+          extra={
+            years.length > 1 ? (
+              <Popconfirm
+                title={`Delete ${fy.name}?`}
+                description="Removes the year and its periods. Only allowed if nothing has posted to it."
+                okText="Delete"
+                okButtonProps={{ danger: true }}
+                onConfirm={() => removeYear(fy.id, fy.name)}
+              >
+                <Button size="small" type="text" danger icon={<Trash2 size={15} />} />
+              </Popconfirm>
+            ) : null
           }
         >
           <DataTable<AccountingPeriod>

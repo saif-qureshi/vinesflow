@@ -63,6 +63,15 @@ def create_fiscal_year(
     return svc.create_next_fiscal_year(membership.org_id)
 
 
+@router.delete("/fiscal-years/{fiscal_year_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_fiscal_year(
+    fiscal_year_id: int,
+    membership: Membership = Depends(require_permission("accounting:delete")),
+    svc: AccountingService = Svc,
+):
+    svc.delete_fiscal_year(membership.org_id, fiscal_year_id)
+
+
 @router.get("/periods", response_model=list[PeriodRead])
 def list_periods(
     fiscal_year_id: int | None = None,

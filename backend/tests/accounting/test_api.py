@@ -46,6 +46,22 @@ def test_create_next_fiscal_year(client, register, org_id_of, h):
     assert len(periods) == 24
 
 
+def test_delete_fiscal_year(client, register, org_id_of, h):
+    headers = _ctx(register, org_id_of, h)
+    years = client.get(f"{BASE}/fiscal-years", headers=headers).json()["data"]
+    only = client.delete(f"{BASE}/fiscal-years/{years[0]['id']}", headers=headers)
+    assert only.status_code == 409  # can't delete the only fiscal year
+
+    client.post(f"{BASE}/fiscal-years", headers=headers)
+    years = client.get(f"{BASE}/fiscal-years", headers=headers).json()["data"]
+    assert len(years) == 2
+
+    res = client.delete(f"{BASE}/fiscal-years/{years[1]['id']}", headers=headers)
+    assert res.status_code == 204
+    assert len(client.get(f"{BASE}/fiscal-years", headers=headers).json()["data"]) == 1
+    assert len(client.get(f"{BASE}/periods", headers=headers).json()["data"]) == 12
+
+
 def test_create_custom_account_and_reject_duplicate(client, register, org_id_of, h):
     headers = _ctx(register, org_id_of, h)
     body = {

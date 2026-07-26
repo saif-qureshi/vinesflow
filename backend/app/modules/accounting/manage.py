@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
@@ -8,6 +8,7 @@ from app.modules.accounting.enums import PeriodStatus
 from app.modules.accounting.models import (
     Account,
     AccountingPeriod,
+    AccountingVoucher,
     FiscalYear,
     LedgerEntry,
 )
@@ -107,6 +108,33 @@ class AccountingService:
         self.db.commit()
         self.db.refresh(fiscal_year)
         return fiscal_year
+
+    def delete_fiscal_year(self, org_id: int, fiscal_year_id: int) -> None:
+        fiscal_year = self.db.scalar(
+            select(FiscalYear).where(FiscalYear.id == fiscal_year_id, FiscalYear.org_id == org_id)
+        )
+        if fiscal_year is None:
+            raise NotFoundError("Fiscal year not found")
+        count = self.db.scalar(
+            select(func.count()).select_from(FiscalYear).where(FiscalYear.org_id == org_id)
+        )
+        if count <= 1:
+            raise ConflictError("Cannot delete the only fiscal year")
+        if self._fiscal_year_has_postings(fiscal_year_id):
+            raise ConflictError("Cannot delete a fiscal year that has postings")
+        self.db.delete(fiscal_year)
+        self.db.commit()
+
+    def _fiscal_year_has_postings(self, fiscal_year_id: int) -> bool:
+        has_entries = self.db.scalar(
+            select(LedgerEntry.id).where(LedgerEntry.fiscal_year_id == fiscal_year_id).limit(1)
+        )
+        has_vouchers = self.db.scalar(
+            select(AccountingVoucher.id)
+            .where(AccountingVoucher.fiscal_year_id == fiscal_year_id)
+            .limit(1)
+        )
+        return has_entries is not None or has_vouchers is not None
 
     def list_periods(
         self, org_id: int, fiscal_year_id: int | None = None

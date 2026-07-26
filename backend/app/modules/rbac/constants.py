@@ -22,7 +22,7 @@ MODULE_ACTIONS: dict[str, list[str]] = {
     "products": ["create", "read", "update", "delete"],
     "inventory": ["create", "read", "update", "delete"],
     "payments": ["create", "read", "update", "delete"],
-    "accounting": ["create", "read", "update"],
+    "accounting": ["create", "read", "update", "delete"],
     "reports": ["read"],
 }
 
