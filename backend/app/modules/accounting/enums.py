@@ -41,6 +41,7 @@ class VoucherType(StrEnum):
     ADJUSTMENT = "adjustment"
     PERIOD_CLOSING = "period_closing"
     SALES_INVOICE = "sales_invoice"
+    DELIVERY_CHALLAN = "delivery_challan"
     CUSTOMER_RECEIPT = "customer_receipt"
     CREDIT_NOTE = "credit_note"
     BILL = "bill"

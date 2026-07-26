@@ -9,6 +9,7 @@ VOUCHER_PREFIXES: dict[VoucherType, str] = {
     VoucherType.ADJUSTMENT: "ADJ",
     VoucherType.PERIOD_CLOSING: "PCV",
     VoucherType.SALES_INVOICE: "SV",
+    VoucherType.DELIVERY_CHALLAN: "DCV",
     VoucherType.CUSTOMER_RECEIPT: "RCP",
     VoucherType.CREDIT_NOTE: "CN",
     VoucherType.BILL: "PV",

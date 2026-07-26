@@ -12,6 +12,7 @@ from app.modules.documents.enums import DocumentType, PaymentDirection
 from app.modules.documents.models import TaxRate
 from app.modules.documents.schemas import DocumentCreate, DocumentLineInput
 from app.modules.documents.service import DocumentService
+from app.modules.locations.models import Location
 from app.modules.orgs.service import OrgService
 from app.modules.parties.models import Party
 from app.modules.payments.schemas import PaymentAllocationInput, PaymentCreate
@@ -158,4 +159,116 @@ def test_payment_received_posts_cash_and_clears_ar(db):
     assert voucher.voucher_type == VoucherType.CUSTOMER_RECEIPT
     assert _bal(db, org_id, "cash") == doc.total
     assert _bal(db, org_id, "accounts_receivable") == 0  # invoice raised it, receipt cleared it
+    assert _tb_balances(db, org_id)
+
+
+def test_challan_records_cogs_and_sourced_invoice_records_revenue_only(db):
+    org_id, cust_id, pid = _setup(db)
+    loc_id = db.scalar(select(Location.id).where(Location.org_id == org_id))
+    svc = DocumentService(db)
+    tax = db.scalar(select(TaxRate).where(TaxRate.org_id == org_id, TaxRate.name == "GST 18%"))
+
+    challan = svc.create(
+        org_id,
+        DocumentType.DELIVERY_CHALLAN,
+        DocumentCreate(
+            party_id=cust_id,
+            warehouse_id=loc_id,
+            lines=[
+                DocumentLineInput(
+                    product_id=pid,
+                    description="Widget",
+                    quantity=Decimal("2"),
+                    unit_price=Decimal("100"),
+                    tax_rate_id=tax.id,
+                )
+            ],
+        ),
+    )
+    svc.finalize(org_id, challan.id)  # DCV: Dr COGS / Cr Inventory
+    invoice = svc.convert(org_id, challan.id, DocumentType.DELIVERY_CHALLAN, DocumentType.INVOICE)
+    svc.finalize(org_id, invoice.id)  # SV: Dr AR / Cr Revenue + Tax, no COGS
+
+    # COGS recorded exactly once (at the challan), from cost 2 * 60
+    assert _bal(db, org_id, "cogs") == Decimal("120")
+    assert _bal(db, org_id, "inventory") == Decimal("-120")
+    # revenue booked at the invoice
+    tax_amt = invoice.tax_total + invoice.further_tax_total
+    assert _bal(db, org_id, "sales_revenue") == -(invoice.total - tax_amt)
+    assert _bal(db, org_id, "accounts_receivable") == invoice.total
+    assert _tb_balances(db, org_id)
+
+
+def _vendor(db, org_id):
+    vendor = Party(org_id=org_id, is_vendor=True, name="Supplier")
+    db.add(vendor)
+    db.flush()
+    return vendor.id
+
+
+def _bill(db, org_id, vendor_id, pid):
+    svc = DocumentService(db)
+    tax = db.scalar(select(TaxRate).where(TaxRate.org_id == org_id, TaxRate.name == "GST 18%"))
+    doc = svc.create(
+        org_id,
+        DocumentType.BILL,
+        DocumentCreate(
+            party_id=vendor_id,
+            lines=[
+                DocumentLineInput(
+                    product_id=pid,
+                    description="Widget",
+                    quantity=Decimal("2"),
+                    unit_price=Decimal("60"),
+                    tax_rate_id=tax.id,
+                )
+            ],
+        ),
+    )
+    return svc.finalize(org_id, doc.id)
+
+
+def test_standalone_bill_posts_inventory_input_tax_and_ap(db):
+    org_id, cust_id, pid = _setup(db)
+    vendor_id = _vendor(db, org_id)
+    bill = _bill(db, org_id, vendor_id, pid)
+
+    voucher = db.scalar(
+        select(AccountingVoucher).where(
+            AccountingVoucher.source_type == "bill", AccountingVoucher.source_id == bill.id
+        )
+    )
+    assert voucher.voucher_type == VoucherType.BILL
+    tax = bill.tax_total + bill.further_tax_total
+    assert _bal(db, org_id, "inventory") == bill.total - tax  # net purchase → inventory
+    assert _bal(db, org_id, "input_tax") == tax
+    assert _bal(db, org_id, "accounts_payable") == -bill.total
+    assert _tb_balances(db, org_id)
+
+
+def test_payment_made_posts_ap_and_cash(db):
+    org_id, cust_id, pid = _setup(db)
+    vendor_id = _vendor(db, org_id)
+    bill = _bill(db, org_id, vendor_id, pid)
+
+    pay_svc = PaymentService(db)
+    pay = pay_svc.create(
+        org_id,
+        PaymentDirection.MADE,
+        PaymentCreate(
+            party_id=vendor_id,
+            amount=bill.total,
+            allocations=[PaymentAllocationInput(document_id=bill.id, amount=bill.total)],
+        ),
+    )
+    pay_svc.submit(org_id, PaymentDirection.MADE, pay.id)
+
+    voucher = db.scalar(
+        select(AccountingVoucher).where(
+            AccountingVoucher.source_type == "payment_made", AccountingVoucher.source_id == pay.id
+        )
+    )
+    assert voucher.voucher_type == VoucherType.VENDOR_PAYMENT
+    assert _bal(db, org_id, "cash") == -bill.total
+    assert _bal(db, org_id, "accounts_payable") == 0  # bill raised it, payment cleared it
     assert _tb_balances(db, org_id)
