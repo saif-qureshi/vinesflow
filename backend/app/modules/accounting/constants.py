@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.modules.accounting.enums import VoucherType
+from app.modules.accounting.enums import AccountType, NormalBalance, VoucherType
 
 VOUCHER_PREFIXES: dict[VoucherType, str] = {
     VoucherType.JOURNAL: "JV",
@@ -18,3 +18,167 @@ VOUCHER_PREFIXES: dict[VoucherType, str] = {
     VoucherType.EXPENSE: "EXV",
     VoucherType.STOCK_ADJUSTMENT: "SAV",
 }
+
+_A = AccountType
+_N = NormalBalance
+
+# `parent` links the hierarchy by code; non-postable rows are group headers.
+DEFAULT_ACCOUNTS: list[dict] = [
+    {"code": "1000", "name": "Assets", "type": _A.ASSET, "normal": _N.DEBIT, "postable": False},
+    {
+        "code": "1100",
+        "name": "Current Assets",
+        "type": _A.ASSET,
+        "normal": _N.DEBIT,
+        "postable": False,
+        "parent": "1000",
+    },
+    {"code": "1110", "name": "Cash", "type": _A.ASSET, "normal": _N.DEBIT, "parent": "1100"},
+    {"code": "1120", "name": "Bank", "type": _A.ASSET, "normal": _N.DEBIT, "parent": "1100"},
+    {
+        "code": "1130",
+        "name": "Accounts Receivable",
+        "type": _A.ASSET,
+        "normal": _N.DEBIT,
+        "parent": "1100",
+        "control": True,
+    },
+    {
+        "code": "1140",
+        "name": "Inventory",
+        "type": _A.ASSET,
+        "normal": _N.DEBIT,
+        "parent": "1100",
+        "control": True,
+    },
+    {
+        "code": "1150",
+        "name": "Input Tax",
+        "type": _A.ASSET,
+        "normal": _N.DEBIT,
+        "parent": "1100",
+        "control": True,
+    },
+    {
+        "code": "2000",
+        "name": "Liabilities",
+        "type": _A.LIABILITY,
+        "normal": _N.CREDIT,
+        "postable": False,
+    },
+    {
+        "code": "2100",
+        "name": "Current Liabilities",
+        "type": _A.LIABILITY,
+        "normal": _N.CREDIT,
+        "postable": False,
+        "parent": "2000",
+    },
+    {
+        "code": "2110",
+        "name": "Accounts Payable",
+        "type": _A.LIABILITY,
+        "normal": _N.CREDIT,
+        "parent": "2100",
+        "control": True,
+    },
+    {
+        "code": "2120",
+        "name": "Sales Tax Payable",
+        "type": _A.LIABILITY,
+        "normal": _N.CREDIT,
+        "parent": "2100",
+        "control": True,
+    },
+    {
+        "code": "2130",
+        "name": "Goods Received Not Invoiced",
+        "type": _A.LIABILITY,
+        "normal": _N.CREDIT,
+        "parent": "2100",
+    },
+    {"code": "3000", "name": "Equity", "type": _A.EQUITY, "normal": _N.CREDIT, "postable": False},
+    {
+        "code": "3100",
+        "name": "Owner Equity",
+        "type": _A.EQUITY,
+        "normal": _N.CREDIT,
+        "parent": "3000",
+    },
+    {
+        "code": "3200",
+        "name": "Retained Earnings",
+        "type": _A.EQUITY,
+        "normal": _N.CREDIT,
+        "parent": "3000",
+        "control": True,
+    },
+    {
+        "code": "3300",
+        "name": "Opening Balance Equity",
+        "type": _A.EQUITY,
+        "normal": _N.CREDIT,
+        "parent": "3000",
+        "control": True,
+    },
+    {"code": "4000", "name": "Income", "type": _A.INCOME, "normal": _N.CREDIT, "postable": False},
+    {
+        "code": "4100",
+        "name": "Sales Revenue",
+        "type": _A.INCOME,
+        "normal": _N.CREDIT,
+        "parent": "4000",
+        "control": True,
+    },
+    {
+        "code": "4200",
+        "name": "Sales Returns",
+        "type": _A.INCOME,
+        "normal": _N.DEBIT,
+        "parent": "4000",
+    },
+    {"code": "5000", "name": "Expenses", "type": _A.EXPENSE, "normal": _N.DEBIT, "postable": False},
+    {
+        "code": "5100",
+        "name": "Cost of Goods Sold",
+        "type": _A.EXPENSE,
+        "normal": _N.DEBIT,
+        "parent": "5000",
+        "control": True,
+    },
+    {
+        "code": "5200",
+        "name": "Operating Expenses",
+        "type": _A.EXPENSE,
+        "normal": _N.DEBIT,
+        "parent": "5000",
+    },
+    {
+        "code": "5300",
+        "name": "Inventory Adjustments",
+        "type": _A.EXPENSE,
+        "normal": _N.DEBIT,
+        "parent": "5000",
+    },
+]
+
+# Role -> account code, seeded per org into the "accounting" settings group.
+ACCOUNT_MAPPING: dict[str, str] = {
+    "cash": "1110",
+    "bank": "1120",
+    "accounts_receivable": "1130",
+    "inventory": "1140",
+    "input_tax": "1150",
+    "accounts_payable": "2110",
+    "sales_tax_payable": "2120",
+    "grni": "2130",
+    "retained_earnings": "3200",
+    "opening_balance_equity": "3300",
+    "sales_revenue": "4100",
+    "sales_returns": "4200",
+    "cogs": "5100",
+    "operating_expenses": "5200",
+    "inventory_adjustment": "5300",
+}
+
+ACCOUNTING_SETTINGS_GROUP = "accounting"

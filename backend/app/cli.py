@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC
+
 import typer
 from sqlalchemy import func, select
 
@@ -19,11 +21,13 @@ orgs_app = typer.Typer(no_args_is_help=True, help="Manage organizations")
 roles_app = typer.Typer(no_args_is_help=True, help="Inspect roles")
 db_app = typer.Typer(no_args_is_help=True, help="Database tasks")
 fbr_app = typer.Typer(no_args_is_help=True, help="FBR digital invoicing")
+accounting_app = typer.Typer(no_args_is_help=True, help="Accounting / Books")
 app.add_typer(users_app, name="users")
 app.add_typer(orgs_app, name="orgs")
 app.add_typer(roles_app, name="roles")
 app.add_typer(db_app, name="db")
 app.add_typer(fbr_app, name="fbr")
+app.add_typer(accounting_app, name="accounting")
 
 
 def _get_user(db, email: str) -> User:
@@ -203,11 +207,11 @@ def fbr_sync(
     token: str = typer.Option(None, help="Bearer token (defaults to FBR_REFERENCE_TOKEN)"),
 ):
     from app.core.config import settings
+    from app.core.crypto import decrypt_secret
     from app.modules.fbr.client import FbrClient
     from app.modules.fbr.enums import FbrEnvironment
     from app.modules.fbr.sync import FbrReferenceSyncService
     from app.modules.orgs.models import Organization
-    from app.core.crypto import decrypt_secret
 
     resolved = token or settings.FBR_REFERENCE_TOKEN
     db = SessionLocal()
@@ -299,6 +303,26 @@ def fbr_summary():
         db.close()
 
 
+@accounting_app.command("init")
+def accounting_init(org: str = typer.Option("all", help="org slug/id, or 'all'")):
+    """Seed the chart of accounts + fiscal calendar for existing orgs (idempotent)."""
+    from app.modules.accounting.setup import AccountingSetupService
+
+    db = SessionLocal()
+    try:
+        targets = (
+            db.scalars(select(Organization)).all() if org == "all" else [_get_org(db, org)]
+        )
+        for organization in targets:
+            AccountingSetupService(db).ensure_setup(
+                organization.id, organization.fiscal_year_start_month
+            )
+        db.commit()
+        typer.secho(f"Accounting setup ensured for {len(targets)} org(s)", fg=typer.colors.GREEN)
+    finally:
+        db.close()
+
+
 @db_app.command("seed")
 def db_seed():
     db = SessionLocal()
@@ -312,15 +336,16 @@ def db_seed():
 
 @db_app.command("upgrade")
 def db_upgrade():
-    from alembic import command
     from alembic.config import Config
+
+    from alembic import command
 
     command.upgrade(Config("alembic.ini"), "head")
 
 
 @db_app.command("prune-sessions")
 def db_prune_sessions():
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from sqlalchemy import delete, or_
 
@@ -329,7 +354,7 @@ def db_prune_sessions():
         result = db.execute(
             delete(RefreshSession).where(
                 or_(
-                    RefreshSession.expires_at < datetime.now(timezone.utc),
+                    RefreshSession.expires_at < datetime.now(UTC),
                     RefreshSession.revoked_at.is_not(None),
                 )
             )

@@ -6,13 +6,14 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.crypto import encrypt_secret
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.utils import slugify
-from app.modules.orgs.models import Membership, Organization
-from app.modules.orgs.schemas import MemberAdd, MemberUpdate, OrgCreate, OrgUpdate
-from app.modules.rbac.constants import ALL_PERMISSION_CODES, OWNER_ROLE_SLUG
+from app.modules.accounting.setup import AccountingSetupService
 from app.modules.activities.service import ActivityService
 from app.modules.documents.service import DocumentService
 from app.modules.inventory.service import InventoryService
 from app.modules.locations.service import LocationService
+from app.modules.orgs.models import Membership, Organization
+from app.modules.orgs.schemas import MemberAdd, MemberUpdate, OrgCreate, OrgUpdate
+from app.modules.rbac.constants import ALL_PERMISSION_CODES, OWNER_ROLE_SLUG
 from app.modules.rbac.models import Role
 from app.modules.rbac.service import RbacService
 from app.modules.settings.service import SettingsService
@@ -43,10 +44,21 @@ class OrgService:
         return candidate
 
     def create_org_with_owner(
-        self, *, owner: User, name: str, slug: str | None = None, currency: str = "PKR"
+        self,
+        *,
+        owner: User,
+        name: str,
+        slug: str | None = None,
+        currency: str = "PKR",
+        fiscal_year_start_month: int = 7,
     ) -> Organization:
         """Create an org, seed its default roles, and make `owner` its super admin."""
-        org = Organization(name=name, slug=self._unique_slug(slug or name), currency=currency)
+        org = Organization(
+            name=name,
+            slug=self._unique_slug(slug or name),
+            currency=currency,
+            fiscal_year_start_month=fiscal_year_start_month,
+        )
         self.db.add(org)
         self.db.flush()
 
@@ -60,6 +72,7 @@ class OrgService:
         InventoryService(self.db).seed_reasons(org.id)
         DocumentService(self.db).seed_tax_rates(org.id)
         SettingsService(self.db).seed_numbering(org.id)
+        AccountingSetupService(self.db).ensure_setup(org.id, fiscal_year_start_month)
         self.db.flush()
         return org
 
@@ -77,10 +90,13 @@ class OrgService:
 
     def create_org(self, *, owner: User, payload: OrgCreate) -> Organization:
         org = self.create_org_with_owner(
-            owner=owner, name=payload.name, slug=payload.slug, currency=payload.currency
+            owner=owner,
+            name=payload.name,
+            slug=payload.slug,
+            currency=payload.currency,
+            fiscal_year_start_month=payload.fiscal_year_start_month,
         )
         org.industry = payload.industry
-        org.fiscal_year_start_month = payload.fiscal_year_start_month
         self.db.commit()
         self.db.refresh(org)
         return org
