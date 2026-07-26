@@ -3,7 +3,7 @@
 import { Plus } from "lucide-react";
 import type { ColumnsType } from "antd/es/table";
 
-import { App, Button, Card, DataTable, PageHeader, Switch, Tag } from "@/components/ui";
+import { App, Button, Card, DataTable, PageHeader, Popconfirm, Switch, Tag } from "@/components/ui";
 import {
   useCreateFiscalYear,
   useFiscalYears,
@@ -27,12 +27,24 @@ function fmt(date: string) {
   });
 }
 
+// The label the backend will give the next fiscal year (the one after `endsOn`).
+function nextYearLabel(endsOn: string): string {
+  const [y, m, d] = endsOn.split("-").map(Number);
+  const start = new Date(y, m - 1, d + 1);
+  const startY = start.getFullYear();
+  const endY = new Date(startY + 1, start.getMonth(), start.getDate() - 1).getFullYear();
+  return startY !== endY ? `FY ${startY}-${String(endY).slice(-2)}` : `FY ${startY}`;
+}
+
 export default function FiscalPeriodsPage() {
   const { message } = App.useApp();
   const fiscalYears = useFiscalYears();
   const periods = usePeriods();
   const setStatus = useSetPeriodStatus();
   const createYear = useCreateFiscalYear();
+
+  const years = fiscalYears.data ?? [];
+  const nextLabel = years.length ? nextYearLabel(years[years.length - 1].ends_on) : null;
 
   const addYear = async () => {
     try {
@@ -91,14 +103,17 @@ export default function FiscalPeriodsPage() {
         title="Fiscal Periods"
         description="Lock a period to stop new postings landing in it"
         actions={
-          <Button
-            type="primary"
-            icon={<Plus size={16} />}
-            onClick={addYear}
-            loading={createYear.isPending}
+          <Popconfirm
+            title={nextLabel ? `Create ${nextLabel}?` : "Create the next fiscal year?"}
+            description="This adds a new fiscal year and its 12 monthly periods."
+            okText="Create"
+            onConfirm={addYear}
+            disabled={fiscalYears.isLoading}
           >
-            New fiscal year
-          </Button>
+            <Button type="primary" icon={<Plus size={16} />} loading={createYear.isPending}>
+              New fiscal year
+            </Button>
+          </Popconfirm>
         }
       />
       {(fiscalYears.data ?? []).map((fy) => (
