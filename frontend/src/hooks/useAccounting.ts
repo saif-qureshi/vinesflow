@@ -10,7 +10,10 @@ import type {
   AccountUpdateInput,
   AccountingPeriod,
   FiscalYear,
+  JournalVoucherCreate,
   PeriodStatus,
+  Voucher,
+  VoucherSummary,
 } from "@/types";
 
 function useOrgToken() {
@@ -92,6 +95,63 @@ export function usePeriods(fiscalYearId?: number) {
       ).data,
     enabled,
   });
+}
+
+export function useVouchers() {
+  const { orgId, enabled } = useOrgToken();
+  return useQuery({
+    queryKey: ["vouchers", orgId],
+    queryFn: async () => (await api.get<VoucherSummary[]>("/accounting/vouchers")).data,
+    enabled,
+  });
+}
+
+export function useVoucher(id: number | null) {
+  const { orgId, enabled } = useOrgToken();
+  return useQuery({
+    queryKey: ["voucher", orgId, id],
+    queryFn: async () => (await api.get<Voucher>(`/accounting/vouchers/${id}`)).data,
+    enabled: enabled && !!id,
+  });
+}
+
+export function useCreateVoucher() {
+  const qc = useQueryClient();
+  const orgId = useSessionStore((s) => s.currentOrgId);
+  return useMutation({
+    mutationFn: (payload: JournalVoucherCreate) => api.post<Voucher>("/accounting/vouchers", payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["vouchers", orgId] }),
+  });
+}
+
+function useVoucherAction<TArg, TData>(fn: (arg: TArg) => Promise<TData>) {
+  const qc = useQueryClient();
+  const orgId = useSessionStore((s) => s.currentOrgId);
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vouchers", orgId] });
+      qc.invalidateQueries({ queryKey: ["voucher", orgId] });
+    },
+  });
+}
+
+export function useUpdateVoucher() {
+  return useVoucherAction((vars: { id: number; payload: JournalVoucherCreate }) =>
+    api.patch<Voucher>(`/accounting/vouchers/${vars.id}`, vars.payload),
+  );
+}
+
+export function usePostVoucher() {
+  return useVoucherAction((id: number) => api.post<Voucher>(`/accounting/vouchers/${id}/post`));
+}
+
+export function useCancelVoucher() {
+  return useVoucherAction((id: number) => api.post<Voucher>(`/accounting/vouchers/${id}/cancel`));
+}
+
+export function useReverseVoucher() {
+  return useVoucherAction((id: number) => api.post<Voucher>(`/accounting/vouchers/${id}/reverse`));
 }
 
 export function useSetPeriodStatus() {

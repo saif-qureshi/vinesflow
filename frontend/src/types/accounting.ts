@@ -50,3 +50,51 @@ export interface AccountingPeriod {
   ends_on: string;
   status: PeriodStatus;
 }
+
+export type VoucherStatus = "draft" | "posted" | "reversed" | "cancelled";
+
+export interface VoucherLine {
+  id: number;
+  account_id: number;
+  party_id: number | null;
+  line_no: number;
+  debit: string;
+  credit: string;
+  description: string | null;
+}
+
+export interface VoucherSummary {
+  id: number;
+  voucher_type: string;
+  number: string;
+  reference_no: string | null;
+  posting_date: string;
+  description: string | null;
+  total_debit: string;
+  status: VoucherStatus;
+}
+
+export interface Voucher extends VoucherSummary {
+  document_date: string;
+  total_credit: string;
+  reversed_from_id: number | null;
+  source_type: string | null;
+  source_id: number | null;
+  created_at: string;
+  lines: VoucherLine[];
+}
+
+export interface JournalLineInput {
+  account_id: number;
+  party_id?: number | null;
+  debit?: number;
+  credit?: number;
+  description?: string | null;
+}
+
+export interface JournalVoucherCreate {
+  date: string;
+  reference_no?: string | null;
+  description?: string | null;
+  lines: JournalLineInput[];
+}
