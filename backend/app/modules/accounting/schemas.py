@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -9,7 +10,69 @@ from app.modules.accounting.enums import (
     FiscalYearStatus,
     NormalBalance,
     PeriodStatus,
+    VoucherStatus,
+    VoucherType,
 )
+
+
+class JournalLineInput(BaseModel):
+    account_id: int
+    party_id: int | None = None
+    debit: Decimal = Decimal("0")
+    credit: Decimal = Decimal("0")
+    description: str | None = None
+
+
+class JournalVoucherCreate(BaseModel):
+    date: date
+    reference_no: str | None = Field(default=None, max_length=50)
+    description: str | None = None
+    lines: list[JournalLineInput] = Field(min_length=2)
+
+
+class VoucherLineRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    account_id: int
+    party_id: int | None
+    line_no: int
+    debit: Decimal
+    credit: Decimal
+    description: str | None
+
+
+class VoucherRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    voucher_type: VoucherType
+    number: str
+    reference_no: str | None
+    document_date: date
+    posting_date: date
+    description: str | None
+    total_debit: Decimal
+    total_credit: Decimal
+    status: VoucherStatus
+    reversed_from_id: int | None
+    source_type: str | None
+    source_id: int | None
+    created_at: datetime
+    lines: list[VoucherLineRead] = Field(default_factory=list)
+
+
+class VoucherSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    voucher_type: VoucherType
+    number: str
+    reference_no: str | None
+    posting_date: date
+    description: str | None
+    total_debit: Decimal
+    status: VoucherStatus
 
 
 class AccountRead(BaseModel):

@@ -128,7 +128,7 @@ class PostingService:
 
     # --- Posting ----------------------------------------------------------
 
-    def post_voucher(
+    def create_voucher(
         self,
         org_id: int,
         *,
@@ -136,28 +136,29 @@ class PostingService:
         posting_date: date,
         lines: list[JournalLine],
         document_date: date | None = None,
+        reference_no: str | None = None,
         description: str | None = None,
         source_type: str | None = None,
         source_id: int | None = None,
         allow_control_accounts: bool = False,
     ) -> AccountingVoucher:
+        """Build a balanced voucher in draft (no ledger entries yet)."""
         period = self.resolve_open_period(org_id, posting_date)
         total_debit, total_credit = self.validate_lines(
             org_id, lines, allow_control_accounts=allow_control_accounts
         )
-
         voucher = AccountingVoucher(
             org_id=org_id,
             fiscal_year_id=period.fiscal_year_id,
             period_id=period.id,
             voucher_type=voucher_type,
+            reference_no=reference_no,
             document_date=document_date or posting_date,
             posting_date=posting_date,
             description=description,
             total_debit=total_debit,
             total_credit=total_credit,
-            status=VoucherStatus.POSTED,
-            posted_at=datetime.now(UTC),
+            status=VoucherStatus.DRAFT,
             source_type=source_type,
             source_id=source_id,
         )
@@ -172,41 +173,95 @@ class PostingService:
             AccountingVoucher.org_id == org_id,
             AccountingVoucher.voucher_type == voucher_type,
         )
-
         for index, line in enumerate(lines, start=1):
-            debit = _money(line.debit)
-            credit = _money(line.credit)
-            voucher_line = VoucherLine(
-                voucher_id=voucher.id,
-                account_id=line.account_id,
-                party_id=line.party_id,
-                line_no=index,
-                debit=debit,
-                credit=credit,
-                description=line.description,
-            )
-            self.db.add(voucher_line)
-            self.db.flush()
             self.db.add(
-                LedgerEntry(
-                    org_id=org_id,
+                VoucherLine(
+                    voucher_id=voucher.id,
                     account_id=line.account_id,
                     party_id=line.party_id,
-                    voucher_id=voucher.id,
-                    voucher_line_id=voucher_line.id,
-                    fiscal_year_id=period.fiscal_year_id,
-                    period_id=period.id,
-                    voucher_type=voucher_type,
-                    number=voucher.number,
-                    posting_date=posting_date,
                     line_no=index,
-                    debit=debit,
-                    credit=credit,
-                    description=line.description or description,
+                    debit=_money(line.debit),
+                    credit=_money(line.credit),
+                    description=line.description,
                 )
             )
         self.db.flush()
         return voucher
+
+    def post_draft(
+        self, voucher: AccountingVoucher, *, allow_control_accounts: bool = False
+    ) -> AccountingVoucher:
+        """Post a draft voucher to the ledger."""
+        if voucher.status != VoucherStatus.DRAFT:
+            raise BadRequestError("Only draft vouchers can be posted")
+        period = self.resolve_open_period(voucher.org_id, voucher.posting_date)
+        self.validate_lines(
+            voucher.org_id,
+            [
+                JournalLine(
+                    account_id=line.account_id,
+                    debit=line.debit,
+                    credit=line.credit,
+                    party_id=line.party_id,
+                )
+                for line in voucher.lines
+            ],
+            allow_control_accounts=allow_control_accounts,
+        )
+        for line in voucher.lines:
+            self.db.add(
+                LedgerEntry(
+                    org_id=voucher.org_id,
+                    account_id=line.account_id,
+                    party_id=line.party_id,
+                    voucher_id=voucher.id,
+                    voucher_line_id=line.id,
+                    fiscal_year_id=period.fiscal_year_id,
+                    period_id=period.id,
+                    voucher_type=voucher.voucher_type,
+                    number=voucher.number,
+                    posting_date=voucher.posting_date,
+                    line_no=line.line_no,
+                    debit=line.debit,
+                    credit=line.credit,
+                    description=line.description or voucher.description,
+                )
+            )
+        voucher.fiscal_year_id = period.fiscal_year_id
+        voucher.period_id = period.id
+        voucher.status = VoucherStatus.POSTED
+        voucher.posted_at = datetime.now(UTC)
+        self.db.flush()
+        return voucher
+
+    def post_voucher(
+        self,
+        org_id: int,
+        *,
+        voucher_type: VoucherType,
+        posting_date: date,
+        lines: list[JournalLine],
+        document_date: date | None = None,
+        reference_no: str | None = None,
+        description: str | None = None,
+        source_type: str | None = None,
+        source_id: int | None = None,
+        allow_control_accounts: bool = False,
+    ) -> AccountingVoucher:
+        """Create and immediately post a voucher (used by automatic document postings)."""
+        voucher = self.create_voucher(
+            org_id,
+            voucher_type=voucher_type,
+            posting_date=posting_date,
+            lines=lines,
+            document_date=document_date,
+            reference_no=reference_no,
+            description=description,
+            source_type=source_type,
+            source_id=source_id,
+            allow_control_accounts=allow_control_accounts,
+        )
+        return self.post_draft(voucher, allow_control_accounts=allow_control_accounts)
 
     def reverse_voucher(
         self,

@@ -8,10 +8,14 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.ratelimit import limiter
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 from app.modules.rbac.service import RbacService
+
+# The suite registers an org per test; the /auth/register rate limit would throttle it.
+limiter.enabled = False
 
 _BASE_URL = settings.DATABASE_URL.rsplit("/", 1)[0]
 TEST_DB_NAME = "vineflow_test"

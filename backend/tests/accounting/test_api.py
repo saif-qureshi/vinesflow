@@ -89,6 +89,87 @@ def test_update_account_name(client, register, org_id_of, h):
     assert res.json()["data"]["name"] == "Overheads"
 
 
+def _codes(client, headers):
+    accounts = client.get(f"{BASE}/accounts", headers=headers).json()["data"]
+    return {a["code"]: a["id"] for a in accounts}
+
+
+def test_manual_journal_draft_edit_post_reverse(client, register, org_id_of, h):
+    headers = _ctx(register, org_id_of, h)
+    code = _codes(client, headers)
+    body = {
+        "date": "2026-07-15",
+        "reference_no": "ADJ-99",
+        "description": "Reclass office expense",
+        "lines": [
+            {"account_id": code["5200"], "debit": "100", "credit": "0"},
+            {"account_id": code["1110"], "debit": "0", "credit": "100"},
+        ],
+    }
+    res = client.post(f"{BASE}/vouchers", json=body, headers=headers)
+    assert res.status_code == 201, res.text
+    voucher = res.json()["data"]
+    assert voucher["status"] == "draft"  # created as a draft, not posted
+    assert voucher["number"].startswith("JV")
+    assert voucher["reference_no"] == "ADJ-99"
+    vid = voucher["id"]
+
+    body["description"] = "Reclass office rent"
+    upd = client.patch(f"{BASE}/vouchers/{vid}", json=body, headers=headers)
+    assert upd.status_code == 200
+    assert upd.json()["data"]["description"] == "Reclass office rent"
+
+    posted = client.post(f"{BASE}/vouchers/{vid}/post", headers=headers)
+    assert posted.status_code == 200
+    assert posted.json()["data"]["status"] == "posted"
+
+    rev = client.post(f"{BASE}/vouchers/{vid}/reverse", headers=headers)
+    assert rev.status_code == 200
+    assert rev.json()["data"]["number"].startswith("RV")
+
+
+def test_manual_journal_cancel_draft(client, register, org_id_of, h):
+    headers = _ctx(register, org_id_of, h)
+    code = _codes(client, headers)
+    body = {
+        "date": "2026-07-15",
+        "lines": [
+            {"account_id": code["5200"], "debit": "50"},
+            {"account_id": code["1110"], "credit": "50"},
+        ],
+    }
+    vid = client.post(f"{BASE}/vouchers", json=body, headers=headers).json()["data"]["id"]
+    res = client.post(f"{BASE}/vouchers/{vid}/cancel", headers=headers)
+    assert res.status_code == 200
+    assert res.json()["data"]["status"] == "cancelled"
+
+
+def test_manual_journal_unbalanced_rejected(client, register, org_id_of, h):
+    headers = _ctx(register, org_id_of, h)
+    code = _codes(client, headers)
+    body = {
+        "date": "2026-07-15",
+        "lines": [
+            {"account_id": code["5200"], "debit": "100"},
+            {"account_id": code["1110"], "credit": "90"},
+        ],
+    }
+    assert client.post(f"{BASE}/vouchers", json=body, headers=headers).status_code == 400
+
+
+def test_manual_journal_to_control_account_rejected(client, register, org_id_of, h):
+    headers = _ctx(register, org_id_of, h)
+    code = _codes(client, headers)
+    body = {
+        "date": "2026-07-15",
+        "lines": [
+            {"account_id": code["1130"], "debit": "100"},  # AR is a control account
+            {"account_id": code["1110"], "credit": "100"},
+        ],
+    }
+    assert client.post(f"{BASE}/vouchers", json=body, headers=headers).status_code == 400
+
+
 def test_lock_and_reopen_period(client, register, org_id_of, h):
     headers = _ctx(register, org_id_of, h)
     periods = client.get(f"{BASE}/periods", headers=headers).json()["data"]

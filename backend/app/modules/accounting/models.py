@@ -113,6 +113,7 @@ class AccountingVoucher(Base, TimestampMixin, AuditMixin):
     )
     voucher_type: Mapped[str] = mapped_column(String(20), nullable=False)
     number: Mapped[str] = mapped_column(String(40), nullable=False)
+    reference_no: Mapped[str | None] = mapped_column(String(50), nullable=True)
     document_date: Mapped[date] = mapped_column(Date, nullable=False)
     posting_date: Mapped[date] = mapped_column(Date, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)

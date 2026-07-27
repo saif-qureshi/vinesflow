@@ -5,25 +5,35 @@ from fastapi import APIRouter, Depends, status
 from app.api.deps import require_permission
 from app.core.container import Provide
 from app.core.responses import EnvelopeRoute
-from app.modules.accounting.manage import AccountingService
+from app.modules.accounting.accounts import AccountsService
+from app.modules.accounting.fiscal import FiscalYearService
 from app.modules.accounting.schemas import (
     AccountCreate,
     AccountRead,
     AccountUpdate,
     FiscalYearRead,
+    JournalVoucherCreate,
     PeriodRead,
     PeriodStatusUpdate,
+    VoucherRead,
+    VoucherSummary,
 )
+from app.modules.accounting.vouchers import VoucherService
 from app.modules.orgs.models import Membership
 
 router = APIRouter(prefix="/accounting", tags=["accounting"], route_class=EnvelopeRoute)
-Svc = Depends(Provide(AccountingService))
+Accounts = Depends(Provide(AccountsService))
+Fiscal = Depends(Provide(FiscalYearService))
+Vouchers = Depends(Provide(VoucherService))
+
+
+# --- Accounts ------------------------------------------------------------
 
 
 @router.get("/accounts", response_model=list[AccountRead])
 def list_accounts(
     membership: Membership = Depends(require_permission("accounting:read")),
-    svc: AccountingService = Svc,
+    svc: AccountsService = Accounts,
 ):
     return svc.list_accounts(membership.org_id)
 
@@ -32,7 +42,7 @@ def list_accounts(
 def create_account(
     payload: AccountCreate,
     membership: Membership = Depends(require_permission("accounting:create")),
-    svc: AccountingService = Svc,
+    svc: AccountsService = Accounts,
 ):
     return svc.create_account(membership.org_id, payload)
 
@@ -42,15 +52,84 @@ def update_account(
     account_id: int,
     payload: AccountUpdate,
     membership: Membership = Depends(require_permission("accounting:update")),
-    svc: AccountingService = Svc,
+    svc: AccountsService = Accounts,
 ):
     return svc.update_account(membership.org_id, account_id, payload)
+
+
+# --- Journal vouchers ----------------------------------------------------
+
+
+@router.get("/vouchers", response_model=list[VoucherSummary])
+def list_vouchers(
+    membership: Membership = Depends(require_permission("accounting:read")),
+    svc: VoucherService = Vouchers,
+):
+    return svc.list_vouchers(membership.org_id)
+
+
+@router.post("/vouchers", response_model=VoucherRead, status_code=status.HTTP_201_CREATED)
+def create_voucher(
+    payload: JournalVoucherCreate,
+    membership: Membership = Depends(require_permission("accounting:create")),
+    svc: VoucherService = Vouchers,
+):
+    return svc.create_journal_voucher(membership.org_id, payload)
+
+
+@router.get("/vouchers/{voucher_id}", response_model=VoucherRead)
+def get_voucher(
+    voucher_id: int,
+    membership: Membership = Depends(require_permission("accounting:read")),
+    svc: VoucherService = Vouchers,
+):
+    return svc.get_voucher(membership.org_id, voucher_id)
+
+
+@router.patch("/vouchers/{voucher_id}", response_model=VoucherRead)
+def update_voucher(
+    voucher_id: int,
+    payload: JournalVoucherCreate,
+    membership: Membership = Depends(require_permission("accounting:update")),
+    svc: VoucherService = Vouchers,
+):
+    return svc.update_journal_voucher(membership.org_id, voucher_id, payload)
+
+
+@router.post("/vouchers/{voucher_id}/post", response_model=VoucherRead)
+def post_voucher(
+    voucher_id: int,
+    membership: Membership = Depends(require_permission("accounting:update")),
+    svc: VoucherService = Vouchers,
+):
+    return svc.post_journal_voucher(membership.org_id, voucher_id)
+
+
+@router.post("/vouchers/{voucher_id}/cancel", response_model=VoucherRead)
+def cancel_voucher(
+    voucher_id: int,
+    membership: Membership = Depends(require_permission("accounting:update")),
+    svc: VoucherService = Vouchers,
+):
+    return svc.cancel_journal_voucher(membership.org_id, voucher_id)
+
+
+@router.post("/vouchers/{voucher_id}/reverse", response_model=VoucherRead)
+def reverse_voucher(
+    voucher_id: int,
+    membership: Membership = Depends(require_permission("accounting:update")),
+    svc: VoucherService = Vouchers,
+):
+    return svc.reverse_voucher(membership.org_id, voucher_id)
+
+
+# --- Fiscal years & periods ----------------------------------------------
 
 
 @router.get("/fiscal-years", response_model=list[FiscalYearRead])
 def list_fiscal_years(
     membership: Membership = Depends(require_permission("accounting:read")),
-    svc: AccountingService = Svc,
+    svc: FiscalYearService = Fiscal,
 ):
     return svc.list_fiscal_years(membership.org_id)
 
@@ -58,7 +137,7 @@ def list_fiscal_years(
 @router.post("/fiscal-years", response_model=FiscalYearRead, status_code=status.HTTP_201_CREATED)
 def create_fiscal_year(
     membership: Membership = Depends(require_permission("accounting:create")),
-    svc: AccountingService = Svc,
+    svc: FiscalYearService = Fiscal,
 ):
     return svc.create_next_fiscal_year(membership.org_id)
 
@@ -67,7 +146,7 @@ def create_fiscal_year(
 def delete_fiscal_year(
     fiscal_year_id: int,
     membership: Membership = Depends(require_permission("accounting:delete")),
-    svc: AccountingService = Svc,
+    svc: FiscalYearService = Fiscal,
 ):
     svc.delete_fiscal_year(membership.org_id, fiscal_year_id)
 
@@ -76,7 +155,7 @@ def delete_fiscal_year(
 def list_periods(
     fiscal_year_id: int | None = None,
     membership: Membership = Depends(require_permission("accounting:read")),
-    svc: AccountingService = Svc,
+    svc: FiscalYearService = Fiscal,
 ):
     return svc.list_periods(membership.org_id, fiscal_year_id)
 
@@ -86,6 +165,6 @@ def set_period_status(
     period_id: int,
     payload: PeriodStatusUpdate,
     membership: Membership = Depends(require_permission("accounting:update")),
-    svc: AccountingService = Svc,
+    svc: FiscalYearService = Fiscal,
 ):
     return svc.set_period_status(membership.org_id, period_id, payload.status)
