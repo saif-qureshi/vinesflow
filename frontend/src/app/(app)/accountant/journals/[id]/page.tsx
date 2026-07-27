@@ -104,6 +104,9 @@ export default function VoucherDetailPage() {
             <Tag color={STATUS_COLOR[voucher.status]}>{voucher.status}</Tag>
             {voucher.status === "draft" && (
               <>
+                <Button onClick={() => router.push(`/accountant/journals/${voucher.id}/edit`)}>
+                  Edit
+                </Button>
                 <Popconfirm
                   title="Cancel this draft?"
                   okText="Cancel draft"
