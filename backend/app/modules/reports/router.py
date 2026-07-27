@@ -46,7 +46,7 @@ def export_report(
         media, ext = _XLSX, "xlsx"
     else:
         org = svc.db.get(Organization, membership.org_id)
-        content = to_pdf(result, org.name if org else None)
+        content = to_pdf(result, org)
         media, ext = "application/pdf", "pdf"
     return Response(
         content=content,
