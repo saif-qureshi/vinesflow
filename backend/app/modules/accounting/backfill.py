@@ -9,6 +9,8 @@ from app.modules.accounting.poster import RealLedgerPoster
 from app.modules.accounting.setup import AccountingSetupService
 from app.modules.documents.enums import DocumentStatus, PaymentStatus
 from app.modules.documents.models import Document
+from app.modules.expenses.enums import ExpenseStatus
+from app.modules.expenses.models import Expense
 from app.modules.inventory.models import StockMovement
 from app.modules.orgs.models import Organization
 from app.modules.payments.models import Payment
@@ -54,6 +56,13 @@ class BackfillService:
                 .order_by(StockMovement.id)
             )
         )
+        expenses = list(
+            self.db.scalars(
+                select(Expense)
+                .where(Expense.org_id == org_id, Expense.status == ExpenseStatus.SUBMITTED)
+                .order_by(Expense.expense_date, Expense.id)
+            )
+        )
 
         # A pre-Books document can predate the seeded fiscal year — make sure a
         # covering fiscal year + periods exist before anything tries to post.
@@ -63,8 +72,10 @@ class BackfillService:
             self.setup.ensure_fiscal_year_for(org_id, pay.posting_date, start_month)
         for adj in adjustments:
             self.setup.ensure_fiscal_year_for(org_id, adj.created_at.date(), start_month)
+        for exp in expenses:
+            self.setup.ensure_fiscal_year_for(org_id, exp.expense_date, start_month)
 
-        counts = {"documents": 0, "payments": 0, "adjustments": 0}
+        counts = {"documents": 0, "payments": 0, "adjustments": 0, "expenses": 0}
         for doc in documents:
             self.poster.post_document(self.db, doc)
             counts["documents"] += 1
@@ -84,6 +95,9 @@ class BackfillService:
                 source_id=adj.id,
             )
             counts["adjustments"] += 1
+        for exp in expenses:
+            self.poster.post_expense(self.db, exp)
+            counts["expenses"] += 1
 
         self.db.commit()
         return counts

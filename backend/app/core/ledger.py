@@ -13,6 +13,8 @@ class LedgerPoster(Protocol):
     def post_inventory_adjustment(
         self, db: Session, *, org_id, value, account_id, posting_date, source_id
     ) -> None: ...
+    def post_expense(self, db: Session, expense) -> None: ...
+    def reverse_expense(self, db: Session, expense) -> None: ...
 
 
 class NullLedgerPoster:
@@ -31,6 +33,12 @@ class NullLedgerPoster:
     def post_inventory_adjustment(
         self, db: Session, *, org_id, value, account_id, posting_date, source_id
     ) -> None:
+        return None
+
+    def post_expense(self, db: Session, expense) -> None:
+        return None
+
+    def reverse_expense(self, db: Session, expense) -> None:
         return None
 
 

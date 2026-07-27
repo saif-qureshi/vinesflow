@@ -360,3 +360,39 @@ class RealLedgerPoster:
             source_type=source_type,
             source_id=source_id,
         )
+
+    # --- expenses ---------------------------------------------------------
+
+    def post_expense(self, db: Session, expense) -> None:
+        # Dr expense categories + Dr input tax / Cr the paid-through account.
+        if expense.total <= _ZERO:
+            return
+        source_type = "expense"
+        if self._already_posted(db, expense.org_id, source_type, expense.id):
+            return
+        org_id = expense.org_id
+        lines = [
+            JournalLine(account_id=line.account_id, debit=line.amount, party_id=expense.vendor_id)
+            for line in expense.lines
+            if line.amount != _ZERO
+        ]
+        if expense.tax_amount != _ZERO:
+            lines.append(
+                JournalLine(
+                    account_id=self._account(db, org_id, "input_tax"), debit=expense.tax_amount
+                )
+            )
+        lines.append(JournalLine(account_id=expense.paid_through_account_id, credit=expense.total))
+        self._post(
+            db,
+            org_id,
+            voucher_type=VoucherType.EXPENSE,
+            posting_date=expense.expense_date,
+            lines=lines,
+            description=f"Expense {expense.number}",
+            source_type=source_type,
+            source_id=expense.id,
+        )
+
+    def reverse_expense(self, db: Session, expense) -> None:
+        self._reverse(db, expense.org_id, "expense", expense.id, expense.expense_date)
