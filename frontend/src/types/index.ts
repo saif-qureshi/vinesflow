@@ -6,8 +6,14 @@ export type {
   AccountingPeriod,
   FiscalYear,
   FiscalYearStatus,
+  JournalLineInput,
+  JournalVoucherCreate,
   NormalBalance,
   PeriodStatus,
+  Voucher,
+  VoucherLine,
+  VoucherStatus,
+  VoucherSummary,
 } from "./accounting";
 export type { Activity, ActivityActor } from "./activity";
 export type { ApiEnvelope, ApiError } from "./api";
@@ -38,6 +44,15 @@ export type {
   PaymentStatus,
   PaymentSummary,
 } from "./payment";
+export type {
+  ExpenseInput,
+  ExpenseLine,
+  ExpenseLineInput,
+  ExpenseParty,
+  ExpenseRecord,
+  ExpenseStatus,
+  ExpenseSummary,
+} from "./expense";
 export type { Media, MediaInput } from "./media";
 export type {
   InventoryItem,

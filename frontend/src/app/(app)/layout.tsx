@@ -83,6 +83,7 @@ const NAV: MenuProps["items"] = [
       { key: "/purchases/orders", label: "Purchase Orders" },
       { key: "/purchases/receipts", label: "Goods Receipts" },
       { key: "/purchases/bills", label: "Bills" },
+      { key: "/purchases/expenses", label: "Expenses" },
       { key: "/purchases/payments-made", label: "Payments Made" },
     ],
   },
