@@ -1,0 +1,28 @@
+<div class="head">
+  {% if logo %}<img class="logo" src="{{ logo }}">{% endif %}
+  <div class="org">{{ company }}</div>
+</div>
+<div class="titleblock">
+  <div class="title">{{ title }}</div>
+  {% if subtitle %}<div class="sub">{{ subtitle }}</div>{% endif %}
+  <div class="meta">Generated on {{ generated }}{% if currency %} · Amounts in {{ currency }}{% endif %}</div>
+</div>
+<table>
+  <thead>
+    <tr>{% for c in columns %}<th class="{{ c.align }}">{{ c.label }}</th>{% endfor %}</tr>
+  </thead>
+  <tbody>
+    {% for s in sections %}
+      {% if s.title %}<tr class="section"><td colspan="{{ ncols }}">{{ s.title }}</td></tr>{% endif %}
+      {% for row in s.rows %}
+      <tr>{% for cell in row %}<td class="{{ cell.align }}">{{ cell.value }}</td>{% endfor %}</tr>
+      {% endfor %}
+      {% if s.subtotal %}
+      <tr class="subtotal">{% for cell in s.subtotal %}<td class="{{ cell.align }}">{{ cell.value }}</td>{% endfor %}</tr>
+      {% endif %}
+    {% endfor %}
+    {% if grand_total %}
+    <tr class="grand">{% for cell in grand_total %}<td class="{{ cell.align }}">{{ cell.value }}</td>{% endfor %}</tr>
+    {% endif %}
+  </tbody>
+</table>
