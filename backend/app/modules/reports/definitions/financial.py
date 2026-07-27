@@ -1,0 +1,234 @@
+from __future__ import annotations
+
+from app.modules.accounting.reports import ReportsService
+from app.modules.reports.contract import Column, Filter, ReportDef, ReportResult, Section
+from app.modules.reports.registry import register
+
+AMOUNT_COLS = [Column("account", "Account"), Column("amount", "Amount", "money", "right")]
+TB_COLS = [
+    Column("account", "Account"),
+    Column("debit", "Debit", "money", "right"),
+    Column("credit", "Credit", "money", "right"),
+]
+GL_COLS = [
+    Column("date", "Date", "date"),
+    Column("voucher", "Voucher"),
+    Column("number", "Number"),
+    Column("description", "Description"),
+    Column("debit", "Debit", "money", "right"),
+    Column("credit", "Credit", "money", "right"),
+    Column("balance", "Balance", "money", "right"),
+]
+
+
+def _label(item: dict) -> str:
+    return f"{item['code']} — {item['name']}" if item.get("code") else item["name"]
+
+
+def _period(params: dict) -> str:
+    return f"From {params['start'].isoformat()} to {params['end'].isoformat()}"
+
+
+def _rows(items: list[dict]) -> list[dict]:
+    return [{"account": _label(i), "amount": i["amount"]} for i in items]
+
+
+# --- Trial Balance -------------------------------------------------------
+
+
+def _trial_balance(db, org_id, params) -> ReportResult:
+    data = ReportsService(db).trial_balance(org_id, params["as_of"])
+    rows = [
+        {"account": _label(line), "debit": line["debit"], "credit": line["credit"]}
+        for line in data["lines"]
+    ]
+    return ReportResult(
+        title="Trial Balance",
+        subtitle=f"As of {params['as_of'].isoformat()}",
+        columns=TB_COLS,
+        sections=[Section(rows=rows)],
+        grand_total={
+            "account": "Total",
+            "debit": data["total_debit"],
+            "credit": data["total_credit"],
+        },
+    )
+
+
+register(
+    ReportDef(
+        key="trial_balance",
+        name="Trial Balance",
+        category="Financial",
+        description="Debit and credit balance of every account.",
+        columns=TB_COLS,
+        filters=[Filter("as_of", "date", "As of date")],
+        run=_trial_balance,
+    )
+)
+
+
+# --- Profit and Loss -----------------------------------------------------
+
+
+def _profit_and_loss(db, org_id, params) -> ReportResult:
+    d = ReportsService(db).profit_and_loss(org_id, params["start"], params["end"])
+    sections = [
+        Section(
+            title="Income",
+            rows=_rows(d["income"]),
+            subtotal={"account": "Total Income", "amount": d["total_income"]},
+        ),
+        Section(
+            title="Cost of Goods Sold",
+            rows=_rows(d["cost_of_sales"]),
+            subtotal={"account": "Total Cost of Goods Sold", "amount": d["total_cost_of_sales"]},
+        ),
+        Section(rows=[], subtotal={"account": "Gross Profit", "amount": d["gross_profit"]}),
+        Section(
+            title="Operating Expenses",
+            rows=_rows(d["operating_expenses"]),
+            subtotal={
+                "account": "Total Operating Expenses",
+                "amount": d["total_operating_expenses"],
+            },
+        ),
+    ]
+    return ReportResult(
+        title="Profit and Loss",
+        subtitle=_period(params),
+        columns=AMOUNT_COLS,
+        sections=sections,
+        grand_total={"account": "Net Profit / (Loss)", "amount": d["net_profit"]},
+    )
+
+
+register(
+    ReportDef(
+        key="profit_and_loss",
+        name="Profit and Loss",
+        category="Financial",
+        description="Income, cost of sales and expenses over a period.",
+        columns=AMOUNT_COLS,
+        filters=[Filter("range", "date_range", "Date range", default="this_month")],
+        run=_profit_and_loss,
+    )
+)
+
+
+# --- Balance Sheet -------------------------------------------------------
+
+
+def _balance_sheet(db, org_id, params) -> ReportResult:
+    d = ReportsService(db).balance_sheet(org_id, params["as_of"])
+    sections = [
+        Section(
+            title="Assets",
+            rows=_rows(d["assets"]),
+            subtotal={"account": "Total Assets", "amount": d["total_assets"]},
+        ),
+        Section(
+            title="Liabilities",
+            rows=_rows(d["liabilities"]),
+            subtotal={"account": "Total Liabilities", "amount": d["total_liabilities"]},
+        ),
+        Section(
+            title="Equity",
+            rows=_rows(d["equity"]),
+            subtotal={"account": "Total Equity", "amount": d["total_equity"]},
+        ),
+    ]
+    return ReportResult(
+        title="Balance Sheet",
+        subtitle=f"As of {params['as_of'].isoformat()}",
+        columns=AMOUNT_COLS,
+        sections=sections,
+        grand_total={
+            "account": "Total Liabilities & Equity",
+            "amount": d["total_liabilities_and_equity"],
+        },
+    )
+
+
+register(
+    ReportDef(
+        key="balance_sheet",
+        name="Balance Sheet",
+        category="Financial",
+        description="Assets, liabilities and equity as of a date.",
+        columns=AMOUNT_COLS,
+        filters=[Filter("as_of", "date", "As of date")],
+        run=_balance_sheet,
+    )
+)
+
+
+# --- General Ledger ------------------------------------------------------
+
+
+def _general_ledger(db, org_id, params) -> ReportResult:
+    account_id = params.get("account_id")
+    if not account_id:
+        return ReportResult(
+            title="General Ledger",
+            subtitle="Select an account to run this report",
+            columns=GL_COLS,
+            sections=[Section(rows=[])],
+        )
+    d = ReportsService(db).general_ledger(org_id, int(account_id), params["start"], params["end"])
+    rows = [
+        {
+            "date": None,
+            "voucher": "",
+            "number": "",
+            "description": "Opening balance",
+            "debit": None,
+            "credit": None,
+            "balance": d["opening_balance"],
+        }
+    ]
+    for entry in d["rows"]:
+        rows.append(
+            {
+                "date": entry["posting_date"],
+                "voucher": entry["voucher_type"],
+                "number": entry["number"],
+                "description": entry["description"],
+                "debit": entry["debit"],
+                "credit": entry["credit"],
+                "balance": entry["balance"],
+            }
+        )
+    return ReportResult(
+        title=f"General Ledger — {d['account_code']} {d['account_name']}",
+        subtitle=_period(params),
+        columns=GL_COLS,
+        sections=[
+            Section(
+                rows=rows,
+                subtotal={
+                    "date": None,
+                    "description": "Closing balance",
+                    "debit": None,
+                    "credit": None,
+                    "balance": d["closing_balance"],
+                },
+            )
+        ],
+    )
+
+
+register(
+    ReportDef(
+        key="general_ledger",
+        name="General Ledger",
+        category="Financial",
+        description="Every transaction posted to an account, with running balance.",
+        columns=GL_COLS,
+        filters=[
+            Filter("account_id", "select", "Account", required=True, source="accounts"),
+            Filter("range", "date_range", "Date range", default="this_fiscal_year"),
+        ],
+        run=_general_ledger,
+    )
+)
