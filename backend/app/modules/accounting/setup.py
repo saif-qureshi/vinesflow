@@ -119,3 +119,22 @@ class AccountingSetupService:
         if latest is None:
             raise BadRequestError("Set up the first fiscal year before creating the next one")
         return self.create_fiscal_year(org_id, latest.ends_on + timedelta(days=1))
+
+    def ensure_fiscal_year_for(
+        self, org_id: int, target: date, fiscal_year_start_month: int
+    ) -> FiscalYear:
+        covering = self.db.scalar(
+            select(FiscalYear).where(
+                FiscalYear.org_id == org_id,
+                FiscalYear.starts_on <= target,
+                FiscalYear.ends_on >= target,
+            )
+        )
+        if covering is not None:
+            return covering
+        start_year = target.year if target.month >= fiscal_year_start_month else target.year - 1
+        starts_on = date(start_year, fiscal_year_start_month, 1)
+        existing = self.db.scalar(
+            select(FiscalYear).where(FiscalYear.org_id == org_id, FiscalYear.starts_on == starts_on)
+        )
+        return existing or self.create_fiscal_year(org_id, starts_on)
