@@ -101,7 +101,7 @@ def _aging(db, org_id, doc_type, as_of, party_label):
     for key, _ in AGING:
         totals[key] = sum((r[key] for r in rows), _ZERO)
     columns = [Column("party", party_label)]
-    columns += [Column(key, label, "money", "right") for key, label in AGING]
+    columns += [Column(key, label, "money", "right", filterable=False) for key, label in AGING]
     columns.append(Column("total", "Total", "money", "right"))
     return ReportResult(
         title=f"{party_label} Aging Summary",
@@ -137,7 +137,7 @@ register(
         category="Receivables",
         description="Receivables bucketed by how overdue they are.",
         columns=[Column("party", "Customer")]
-        + [Column(k, label, "money", "right") for k, label in AGING]
+        + [Column(k, label, "money", "right", filterable=False) for k, label in AGING]
         + [Column("total", "Total", "money", "right")],
         filters=[Filter("as_of", "date", "As of date")],
         run=_ar_aging,
@@ -160,7 +160,7 @@ register(
         category="Payables",
         description="Payables bucketed by how overdue they are.",
         columns=[Column("party", "Vendor")]
-        + [Column(k, label, "money", "right") for k, label in AGING]
+        + [Column(k, label, "money", "right", filterable=False) for k, label in AGING]
         + [Column("total", "Total", "money", "right")],
         filters=[Filter("as_of", "date", "As of date")],
         run=_ap_aging,

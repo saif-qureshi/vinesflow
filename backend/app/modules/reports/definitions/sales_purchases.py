@@ -74,7 +74,7 @@ def _by_item(db, org_id, params, doc_type, title):
         Column("sku", "SKU"),
         Column("quantity", "Quantity", "number", "right"),
         Column("amount", "Amount", "money", "right"),
-        Column("avg_price", "Avg Price", "money", "right"),
+        Column("avg_price", "Avg Price", "money", "right", aggregate="none", filterable=False),
     ]
     return ReportResult(
         title=title,
@@ -168,7 +168,7 @@ register(
             Column("sku", "SKU"),
             Column("quantity", "Quantity", "number", "right"),
             Column("amount", "Amount", "money", "right"),
-            Column("avg_price", "Avg Price", "money", "right"),
+            Column("avg_price", "Avg Price", "money", "right", aggregate="none", filterable=False),
         ],
         filters=[_date_range_filter()],
         run=_sales_by_item,
@@ -200,7 +200,7 @@ register(
             Column("sku", "SKU"),
             Column("quantity", "Quantity", "number", "right"),
             Column("amount", "Amount", "money", "right"),
-            Column("avg_price", "Avg Price", "money", "right"),
+            Column("avg_price", "Avg Price", "money", "right", aggregate="none", filterable=False),
         ],
         filters=[_date_range_filter()],
         run=_purchases_by_item,

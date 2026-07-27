@@ -112,6 +112,7 @@ register(
         columns=AMOUNT_COLS,
         filters=[Filter("range", "date_range", "Date range", default="this_month")],
         run=_profit_and_loss,
+        supports_filters=False,
     )
 )
 
@@ -159,6 +160,7 @@ register(
         columns=AMOUNT_COLS,
         filters=[Filter("as_of", "date", "As of date")],
         run=_balance_sheet,
+        supports_filters=False,
     )
 )
 
@@ -230,5 +232,6 @@ register(
             Filter("range", "date_range", "Date range", default="this_fiscal_year"),
         ],
         run=_general_ledger,
+        supports_filters=False,
     )
 )

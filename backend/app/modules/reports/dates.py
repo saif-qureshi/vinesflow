@@ -78,5 +78,4 @@ def resolve_range(
             if prev is not None:
                 return prev.starts_on, prev.ends_on
         return date(today.year, 1, 1), date(today.year, 12, 31)
-    # default fallback: this month
     return date(today.year, today.month, 1), _month_end(today)

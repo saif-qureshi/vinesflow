@@ -36,6 +36,8 @@ class Column:
     label: str
     type: ColumnType = "text"
     align: Align = "left"
+    aggregate: str = "auto"
+    filterable: bool = True
 
 
 @dataclass
@@ -63,3 +65,4 @@ class ReportDef:
     run: Callable[[Session, int, dict], ReportResult]
     filters: list[Filter] = field(default_factory=list)
     description: str | None = None
+    supports_filters: bool = True

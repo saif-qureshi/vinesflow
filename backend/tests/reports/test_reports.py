@@ -128,3 +128,33 @@ def test_metadata_resolves_account_options(db):
     meta = ReportService(db).metadata("general_ledger", org_id)
     account_filter = next(f for f in meta["filters"] if f["key"] == "account_id")
     assert account_filter["options"]  # populated from the org's chart
+
+
+def test_column_filter_keeps_matching_rows_and_recomputes_total(db):
+    import json
+
+    org_id = _setup(db)  # one Widget line, amount 200
+    svc = ReportService(db)
+
+    kept = svc.run(
+        org_id,
+        "sales_by_item",
+        {"filters": json.dumps([{"field": "amount", "op": "gt", "value": "100"}])},
+    )
+    assert sum(len(s.rows) for s in kept.sections) == 1
+    assert kept.grand_total["amount"] == Decimal("200")
+
+    dropped = svc.run(
+        org_id,
+        "sales_by_item",
+        {"filters": json.dumps([{"field": "amount", "op": "gt", "value": "500"}])},
+    )
+    assert sum(len(s.rows) for s in dropped.sections) == 0
+    assert dropped.grand_total["amount"] == Decimal("0")
+
+
+def test_statements_opt_out_of_column_filters(db):
+    org_id = _setup(db)
+    meta = ReportService(db).metadata("profit_and_loss", org_id)
+    assert meta["supports_filters"] is False
+    assert ReportService(db).metadata("sales_by_item", org_id)["supports_filters"] is True

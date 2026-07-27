@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict
 from datetime import date
 from decimal import Decimal
@@ -10,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import NotFoundError
 from app.modules.reports.contract import ReportDef, ReportResult
 from app.modules.reports.dates import resolve_range
+from app.modules.reports.filters import apply_filters, operators_for
 from app.modules.reports.registry import REPORTS
 
 
@@ -63,13 +65,20 @@ class ReportService:
             if f.source:
                 data["options"] = self._filter_options(org_id, f.source)
             filters.append(data)
+        columns = []
+        for c in report.columns:
+            data = asdict(c)
+            if report.supports_filters and c.filterable:
+                data["operators"] = operators_for(c)
+            columns.append(data)
         return {
             "key": report.key,
             "name": report.name,
             "category": report.category,
             "description": report.description,
+            "supports_filters": report.supports_filters,
             "filters": filters,
-            "columns": [asdict(c) for c in report.columns],
+            "columns": columns,
         }
 
     def _filter_options(self, org_id: int, source: str) -> list[dict]:
@@ -117,7 +126,18 @@ class ReportService:
     def run(self, org_id: int, key: str, raw: dict) -> ReportResult:
         report = self.get(key)
         params = self.resolve_params(report, org_id, raw)
-        return report.run(self.db, org_id, params)
+        result = report.run(self.db, org_id, params)
+        if report.supports_filters:
+            result = apply_filters(result, self._parse_filters(raw))
+        return result
+
+    @staticmethod
+    def _parse_filters(raw: dict) -> list[dict]:
+        try:
+            parsed = json.loads(raw.get("filters") or "[]")
+        except (ValueError, TypeError):
+            return []
+        return [f for f in parsed if isinstance(f, dict) and f.get("field") and f.get("op")]
 
     def run_json(self, org_id: int, key: str, raw: dict) -> dict:
         result = self.run(org_id, key, raw)
