@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
+from app.modules.accounting.constants import ACCOUNTING_SETTINGS_GROUP
 from app.modules.accounting.enums import VoucherStatus, VoucherType
 from app.modules.accounting.models import AccountingVoucher, VoucherLine
-from app.modules.accounting.schemas import JournalVoucherCreate
+from app.modules.accounting.schemas import JournalVoucherCreate, OpeningBalanceInput
 from app.modules.accounting.service import JournalLine, PostingService
+from app.modules.settings.service import SettingsService
+
+_ZERO = Decimal("0")
 
 
 class VoucherService:
@@ -102,6 +108,52 @@ class VoucherService:
         self.db.commit()
         self.db.refresh(reversal)
         return reversal
+
+    def create_opening_balances(
+        self, org_id: int, payload: OpeningBalanceInput
+    ) -> AccountingVoucher:
+        if self.db.scalar(
+            select(AccountingVoucher.id)
+            .where(
+                AccountingVoucher.org_id == org_id,
+                AccountingVoucher.voucher_type == VoucherType.OPENING,
+                AccountingVoucher.status == VoucherStatus.POSTED,
+            )
+            .limit(1)
+        ):
+            raise ConflictError("Opening balances have already been set")
+
+        lines = [
+            JournalLine(account_id=e.account_id, debit=e.debit, credit=e.credit)
+            for e in payload.entries
+            if e.debit or e.credit
+        ]
+        if not lines:
+            raise BadRequestError("Enter at least one opening balance")
+
+        net = sum((line.debit - line.credit for line in lines), _ZERO)
+        if net != _ZERO:
+            offset = int(
+                SettingsService(self.db).get(
+                    org_id, ACCOUNTING_SETTINGS_GROUP, "opening_balance_equity"
+                )
+            )
+            if net > _ZERO:
+                lines.append(JournalLine(account_id=offset, credit=net))
+            else:
+                lines.append(JournalLine(account_id=offset, debit=-net))
+
+        voucher = self.posting.post_voucher(
+            org_id,
+            voucher_type=VoucherType.OPENING,
+            posting_date=payload.date,
+            lines=lines,
+            description="Opening balances",
+            allow_control_accounts=True,
+        )
+        self.db.commit()
+        self.db.refresh(voucher)
+        return voucher
 
     @staticmethod
     def _journal_lines(payload: JournalVoucherCreate) -> list[JournalLine]:

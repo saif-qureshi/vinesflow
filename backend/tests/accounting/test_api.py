@@ -128,6 +128,29 @@ def test_manual_journal_draft_edit_post_reverse(client, register, org_id_of, h):
     assert rev.json()["data"]["number"].startswith("RV")
 
 
+def test_opening_balances_post_and_balance_to_obe(client, register, org_id_of, h):
+    headers = _ctx(register, org_id_of, h)
+    code = _codes(client, headers)
+    body = {
+        "date": "2026-07-01",
+        "entries": [
+            {"account_id": code["1110"], "debit": "50000", "credit": "0"},  # Cash
+            {"account_id": code["1130"], "debit": "80000", "credit": "0"},  # AR (control)
+            {"account_id": code["2110"], "debit": "0", "credit": "60000"},  # AP (control)
+        ],
+    }
+    res = client.post(f"{BASE}/opening-balances", json=body, headers=headers)
+    assert res.status_code == 201, res.text
+    voucher = res.json()["data"]
+    assert voucher["voucher_type"] == "opening"
+    assert voucher["status"] == "posted"
+    # net debit 70000 → balanced by an Opening Balance Equity credit
+    assert float(voucher["total_debit"]) == float(voucher["total_credit"])
+
+    dup = client.post(f"{BASE}/opening-balances", json=body, headers=headers)
+    assert dup.status_code == 409  # can only set opening balances once
+
+
 def test_manual_journal_cancel_draft(client, register, org_id_of, h):
     headers = _ctx(register, org_id_of, h)
     code = _codes(client, headers)

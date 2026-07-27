@@ -30,6 +30,17 @@ class JournalVoucherCreate(BaseModel):
     lines: list[JournalLineInput] = Field(min_length=2)
 
 
+class OpeningBalanceEntry(BaseModel):
+    account_id: int
+    debit: Decimal = Decimal("0")
+    credit: Decimal = Decimal("0")
+
+
+class OpeningBalanceInput(BaseModel):
+    date: date
+    entries: list[OpeningBalanceEntry] = Field(min_length=1)
+
+
 class VoucherLineRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

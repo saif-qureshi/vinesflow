@@ -154,6 +154,18 @@ export function useReverseVoucher() {
   return useVoucherAction((id: number) => api.post<Voucher>(`/accounting/vouchers/${id}/reverse`));
 }
 
+export function useCreateOpeningBalances() {
+  const qc = useQueryClient();
+  const orgId = useSessionStore((s) => s.currentOrgId);
+  return useMutation({
+    mutationFn: (payload: {
+      date: string;
+      entries: { account_id: number; debit: number; credit: number }[];
+    }) => api.post<Voucher>("/accounting/opening-balances", payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["vouchers", orgId] }),
+  });
+}
+
 export function useSetPeriodStatus() {
   const qc = useQueryClient();
   const orgId = useSessionStore((s) => s.currentOrgId);

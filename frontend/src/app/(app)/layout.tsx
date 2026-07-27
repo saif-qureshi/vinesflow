@@ -92,6 +92,8 @@ const NAV: MenuProps["items"] = [
     label: "Accountant",
     children: [
       { key: "/accountant/chart-of-accounts", label: "Chart of Accounts" },
+      { key: "/accountant/opening-balances", label: "Opening Balances" },
+      { key: "/accountant/journals", label: "Manual Journals" },
       { key: "/accountant/periods", label: "Fiscal Periods" },
     ],
   },

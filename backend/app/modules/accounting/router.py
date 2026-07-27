@@ -13,6 +13,7 @@ from app.modules.accounting.schemas import (
     AccountUpdate,
     FiscalYearRead,
     JournalVoucherCreate,
+    OpeningBalanceInput,
     PeriodRead,
     PeriodStatusUpdate,
     VoucherRead,
@@ -121,6 +122,15 @@ def reverse_voucher(
     svc: VoucherService = Vouchers,
 ):
     return svc.reverse_voucher(membership.org_id, voucher_id)
+
+
+@router.post("/opening-balances", response_model=VoucherRead, status_code=status.HTTP_201_CREATED)
+def create_opening_balances(
+    payload: OpeningBalanceInput,
+    membership: Membership = Depends(require_permission("accounting:create")),
+    svc: VoucherService = Vouchers,
+):
+    return svc.create_opening_balances(membership.org_id, payload)
 
 
 # --- Fiscal years & periods ----------------------------------------------
