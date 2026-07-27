@@ -6,6 +6,7 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   BarChart3,
+  ChevronRight,
   Landmark,
   Search,
   ShoppingBag,
@@ -89,16 +90,29 @@ export default function ReportsPage() {
                     <button
                       key={r.key}
                       onClick={() => router.push(`/reports/${r.key}`)}
-                      className="group rounded-xl border border-gray-200 bg-white p-4 text-left transition hover:border-violet-300 hover:shadow-sm"
+                      className="group flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4 text-left transition hover:-translate-y-px hover:border-violet-300 hover:shadow-md"
                     >
-                      <div className="font-medium text-slate-800 group-hover:text-violet-700">
-                        {r.name}
-                      </div>
-                      {r.description && (
-                        <div className="mt-1 text-xs leading-relaxed text-gray-400">
-                          {r.description}
-                        </div>
-                      )}
+                      <span
+                        className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg ${tint}`}
+                      >
+                        <Icon size={16} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center justify-between gap-2">
+                          <span className="font-medium text-slate-800 group-hover:text-violet-700">
+                            {r.name}
+                          </span>
+                          <ChevronRight
+                            size={16}
+                            className="shrink-0 text-gray-300 transition group-hover:translate-x-0.5 group-hover:text-violet-400"
+                          />
+                        </span>
+                        {r.description && (
+                          <span className="mt-1 block text-xs leading-relaxed text-gray-400">
+                            {r.description}
+                          </span>
+                        )}
+                      </span>
                     </button>
                   ))}
                 </div>

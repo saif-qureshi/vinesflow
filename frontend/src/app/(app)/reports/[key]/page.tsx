@@ -2,7 +2,7 @@
 
 import { use, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Download } from "lucide-react";
+import { ChevronDown, Download, SlidersHorizontal } from "lucide-react";
 import { DatePicker, Select } from "antd";
 import dayjs from "dayjs";
 
@@ -12,6 +12,7 @@ import { useCurrency } from "@/hooks/useCurrency";
 import { apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import type { ReportColumn, ReportFilter, ReportRow } from "@/types/report";
+import { ColumnFilters, type BuiltFilter } from "../ColumnFilters";
 
 const RANGE_PRESETS = [
   { value: "today", label: "Today" },
@@ -43,13 +44,19 @@ export default function ReportRunnerPage({ params }: { params: Promise<{ key: st
   const { message } = App.useApp();
   const meta = useReportMeta(key);
   const [overrides, setOverrides] = useState<ReportParams>({});
+  const [advanced, setAdvanced] = useState<BuiltFilter[]>([]);
+  const [showFilters, setShowFilters] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  const base = useMemo(
-    () => (meta.data ? initialParams(meta.data.filters) : {}),
-    [meta.data],
+  const base = useMemo(() => (meta.data ? initialParams(meta.data.filters) : {}), [meta.data]);
+  const filterValues = useMemo<ReportParams>(
+    () => ({
+      ...base,
+      ...overrides,
+      filters: advanced.length ? JSON.stringify(advanced) : undefined,
+    }),
+    [base, overrides, advanced],
   );
-  const filterValues = useMemo(() => ({ ...base, ...overrides }), [base, overrides]);
 
   const report = useRunReport(key, filterValues, !!meta.data);
   const set = (patch: ReportParams) => setOverrides((v) => ({ ...v, ...patch }));
@@ -76,17 +83,8 @@ export default function ReportRunnerPage({ params }: { params: Promise<{ key: st
 
   const result = report.data;
   const cols = result?.columns ?? meta.data?.columns ?? [];
-  const colStyle = (c: ReportColumn) => (c.align === "right" ? "text-right" : "text-left");
-
-  const totalRow = (row: ReportRow, strong = true) => (
-    <tr className={strong ? "border-t-2 border-gray-200 font-semibold text-slate-900" : ""}>
-      {cols.map((c) => (
-        <td key={c.key} className={`px-3 py-2 ${colStyle(c)} tabular-nums`}>
-          {fmt(c, row)}
-        </td>
-      ))}
-    </tr>
-  );
+  const alignClass = (c: ReportColumn) => (c.align === "right" ? "text-right" : "text-left");
+  const rowCount = result?.sections.reduce((n, s) => n + s.rows.length, 0) ?? 0;
 
   return (
     <div className="space-y-4">
@@ -95,77 +93,124 @@ export default function ReportRunnerPage({ params }: { params: Promise<{ key: st
         description={meta.data?.description ?? undefined}
         onBack={() => router.push("/reports")}
         actions={
-          <Dropdown
-            trigger={["click"]}
-            menu={{
-              items: [
-                { key: "pdf", label: "Export PDF", onClick: () => doExport("pdf") },
-                { key: "xlsx", label: "Export Excel", onClick: () => doExport("xlsx") },
-              ],
-            }}
-          >
-            <Button icon={<Download size={15} />} loading={exporting}>
-              Export <ChevronDown size={14} />
-            </Button>
-          </Dropdown>
+          <div className="flex items-center gap-2">
+            {meta.data?.supports_filters && (
+              <Button
+                icon={<SlidersHorizontal size={15} />}
+                type={showFilters || advanced.length ? "primary" : "default"}
+                ghost={showFilters || advanced.length > 0}
+                onClick={() => setShowFilters((s) => !s)}
+              >
+                Filters{advanced.length ? ` (${advanced.length})` : ""}
+              </Button>
+            )}
+            <Dropdown
+              trigger={["click"]}
+              menu={{
+                items: [
+                  { key: "pdf", label: "Export PDF", onClick: () => doExport("pdf") },
+                  { key: "xlsx", label: "Export Excel", onClick: () => doExport("xlsx") },
+                ],
+              }}
+            >
+              <Button icon={<Download size={15} />} loading={exporting}>
+                Export <ChevronDown size={14} />
+              </Button>
+            </Dropdown>
+          </div>
         }
       />
 
-      <Card className="!p-3">
+      <Card size="small" className="!rounded-xl">
         <div className="flex flex-wrap items-end gap-3">
           {(meta.data?.filters ?? []).map((f) => (
             <Filter key={f.key} filter={f} values={filterValues} onChange={set} />
           ))}
         </div>
+        {meta.data?.supports_filters && showFilters && (
+          <div className="mt-3 border-t border-gray-100 pt-3">
+            <div className="mb-2 text-xs font-medium text-gray-400">Filter by column</div>
+            <ColumnFilters columns={meta.data.columns} onApply={setAdvanced} />
+          </div>
+        )}
       </Card>
 
-      <Card className="!p-0">
+      <Card className="!rounded-xl !p-0">
         {report.isLoading || meta.isLoading ? (
-          <div className="flex min-h-[30vh] items-center justify-center">
+          <div className="flex min-h-[40vh] items-center justify-center">
             <Spin />
           </div>
         ) : !result ? (
-          <div className="p-6 text-gray-400">Adjust the filters to run this report.</div>
+          <div className="p-8 text-center text-gray-400">Adjust the filters to run this report.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <div className="px-4 pt-4">
-              <div className="text-lg font-semibold text-slate-900">{result.title}</div>
-              {result.subtitle && (
-                <div className="text-sm text-gray-400">{result.subtitle}</div>
+          <>
+            <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4">
+              <div>
+                <div className="text-base font-semibold text-slate-900">{result.title}</div>
+                {result.subtitle && (
+                  <div className="mt-0.5 text-xs text-gray-400">{result.subtitle}</div>
+                )}
+              </div>
+              <span className="whitespace-nowrap pt-1 text-xs text-gray-400">
+                {rowCount} {rowCount === 1 ? "row" : "rows"}
+              </span>
+            </div>
+
+            <div className="max-h-[68vh] overflow-auto">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 z-10 bg-white">
+                  <tr className="text-xs text-gray-400">
+                    {cols.map((c) => (
+                      <th
+                        key={c.key}
+                        className={`border-b border-gray-100 px-5 py-2.5 font-medium uppercase tracking-wide ${alignClass(c)}`}
+                      >
+                        {c.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.sections.map((section, si) => (
+                    <SectionRows key={si} colspan={cols.length} title={section.title}>
+                      {section.rows.map((row, ri) => (
+                        <tr key={ri} className="border-b border-gray-50 hover:bg-slate-50/60">
+                          {cols.map((c) => (
+                            <td key={c.key} className={`px-5 py-2 ${alignClass(c)} tabular-nums`}>
+                              {fmt(c, row)}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                      {section.subtotal && (
+                        <tr className="border-t border-gray-200 font-medium text-slate-800">
+                          {cols.map((c) => (
+                            <td key={c.key} className={`px-5 py-2 ${alignClass(c)} tabular-nums`}>
+                              {fmt(c, section.subtotal!)}
+                            </td>
+                          ))}
+                        </tr>
+                      )}
+                    </SectionRows>
+                  ))}
+                  {result.grand_total && (
+                    <tr className="border-t-2 border-slate-300 bg-slate-50 font-semibold text-slate-900">
+                      {cols.map((c) => (
+                        <td key={c.key} className={`px-5 py-2.5 ${alignClass(c)} tabular-nums`}>
+                          {fmt(c, result.grand_total!)}
+                        </td>
+                      ))}
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+              {rowCount === 0 && !result.grand_total && (
+                <div className="p-8 text-center text-gray-400">
+                  No data for the selected filters.
+                </div>
               )}
             </div>
-            <table className="mt-3 w-full text-sm">
-              <thead>
-                <tr className="text-xs text-gray-400">
-                  {cols.map((c) => (
-                    <th key={c.key} className={`px-3 pb-2 font-normal ${colStyle(c)}`}>
-                      {c.label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {result.sections.map((section, si) => (
-                  <SectionRows key={si} colspan={cols.length} title={section.title}>
-                    {section.rows.map((row, ri) => (
-                      <tr key={ri} className="border-t border-gray-100">
-                        {cols.map((c) => (
-                          <td key={c.key} className={`px-3 py-1.5 ${colStyle(c)} tabular-nums`}>
-                            {fmt(c, row)}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                    {section.subtotal && totalRow(section.subtotal, false)}
-                  </SectionRows>
-                ))}
-                {result.grand_total && totalRow(result.grand_total)}
-              </tbody>
-            </table>
-            {result.sections.every((s) => s.rows.length === 0) && !result.grand_total && (
-              <div className="p-6 text-gray-400">No data for the selected filters.</div>
-            )}
-          </div>
+          </>
         )}
       </Card>
     </div>
@@ -184,8 +229,8 @@ function SectionRows({
   return (
     <>
       {title && (
-        <tr>
-          <td colSpan={colspan} className="px-3 pb-1 pt-4 text-sm font-semibold text-slate-700">
+        <tr className="bg-slate-50/40">
+          <td colSpan={colspan} className="px-5 pb-1.5 pt-4 text-sm font-semibold text-slate-700">
             {title}
           </td>
         </tr>

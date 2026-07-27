@@ -23,11 +23,26 @@ export interface ReportFilter {
   source: string | null;
 }
 
+export interface ReportOperator {
+  value: string;
+  label: string;
+}
+
 export interface ReportColumn {
   key: string;
   label: string;
   type: ReportColumnType;
   align: "left" | "right";
+  aggregate?: string;
+  operators?: ReportOperator[];
+}
+
+export interface ReportColumnFilter {
+  id: number;
+  field?: string;
+  op?: string;
+  value?: string | number;
+  value2?: string | number;
 }
 
 export type ReportRow = Record<string, string | number | null>;
@@ -52,6 +67,7 @@ export interface ReportMeta {
   name: string;
   category: string;
   description: string | null;
+  supports_filters: boolean;
   filters: ReportFilter[];
   columns: ReportColumn[];
 }
