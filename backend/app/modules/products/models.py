@@ -29,7 +29,11 @@ product_attribute_values = Table(
     "product_attribute_values",
     Base.metadata,
     Column("product_id", ForeignKey("products.id", ondelete="CASCADE"), primary_key=True),
-    Column("attribute_value_id", ForeignKey("attribute_values.id", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "attribute_value_id",
+        ForeignKey("attribute_values.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
 )
 
 # The specific value per attribute a variant (a child product) represents.
@@ -37,7 +41,11 @@ variant_values = Table(
     "variant_values",
     Base.metadata,
     Column("product_id", ForeignKey("products.id", ondelete="CASCADE"), primary_key=True),
-    Column("attribute_value_id", ForeignKey("attribute_values.id", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "attribute_value_id",
+        ForeignKey("attribute_values.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
 )
 
 
@@ -51,8 +59,12 @@ class Product(Base, TimestampMixin, AuditMixin):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    nature: Mapped[str] = mapped_column(String(20), default="good", server_default="good", nullable=False)
-    type: Mapped[str] = mapped_column(String(20), default="single", server_default="single", nullable=False)
+    nature: Mapped[str] = mapped_column(
+        String(20), default="good", server_default="good", nullable=False
+    )
+    type: Mapped[str] = mapped_column(
+        String(20), default="single", server_default="single", nullable=False
+    )
     sku: Mapped[str | None] = mapped_column(String(100), nullable=True)
     barcode: Mapped[str | None] = mapped_column(String(64), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
