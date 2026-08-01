@@ -7,6 +7,7 @@ from app.core.exceptions import BadRequestError, NotFoundError
 from app.core.security import hash_password
 from app.modules.documents.enums import (
     DocumentPaymentStatus,
+    DocumentStatus,
     DocumentType,
     PaymentDirection,
     PaymentStatus,
@@ -33,8 +34,12 @@ def _setup(db):
     customer = Party(org_id=org.id, is_customer=True, name="Beta Corp")
     vendor = Party(org_id=org.id, is_vendor=True, name="Supplier")
     product = Product(
-        org_id=org.id, name="Widget", type="single", track_inventory=False,
-        sale_price=Decimal("100"), purchase_price=Decimal("60"),
+        org_id=org.id,
+        name="Widget",
+        type="single",
+        track_inventory=False,
+        sale_price=Decimal("100"),
+        purchase_price=Decimal("60"),
     )
     db.add_all([customer, vendor, product])
     db.flush()
@@ -54,8 +59,11 @@ def _finalized(db, org_id, doc_type, party_id, pid, tax_id, qty=2, price=Decimal
             party_id=party_id,
             lines=[
                 DocumentLineInput(
-                    product_id=pid, description="Widget", quantity=Decimal(qty),
-                    unit_price=price, tax_rate_id=tax_id,
+                    product_id=pid,
+                    description="Widget",
+                    quantity=Decimal(qty),
+                    unit_price=price,
+                    tax_rate_id=tax_id,
                 )
             ],
         ),
@@ -181,6 +189,58 @@ def test_direction_mismatch(db):
         _received(svc, org_id, vend_id, 200, [(bill.id, 200)])
 
 
+@pytest.mark.parametrize(
+    "doc_type",
+    [
+        DocumentType.SALES_ORDER,
+        DocumentType.DELIVERY_CHALLAN,
+        DocumentType.CREDIT_NOTE,
+    ],
+)
+def test_received_payment_only_accepts_sales_invoices(db, doc_type):
+    org_id, loc_id, cust_id, vend_id, pid = _setup(db)
+    tax = _exempt(db, org_id)
+    doc = _finalized(db, org_id, doc_type, cust_id, pid, tax.id)
+
+    with pytest.raises(BadRequestError, match="finalized sales invoices"):
+        _received(PaymentService(db), org_id, cust_id, 200, [(doc.id, 200)])
+
+
+@pytest.mark.parametrize(
+    "doc_type",
+    [DocumentType.PURCHASE_ORDER, DocumentType.GOODS_RECEIPT],
+)
+def test_made_payment_only_accepts_purchase_bills(db, doc_type):
+    org_id, loc_id, cust_id, vend_id, pid = _setup(db)
+    tax = _exempt(db, org_id)
+    doc = _finalized(db, org_id, doc_type, vend_id, pid, tax.id)
+
+    with pytest.raises(BadRequestError, match="finalized purchase bills"):
+        PaymentService(db).create(
+            org_id,
+            PaymentDirection.MADE,
+            PaymentCreate(
+                party_id=vend_id,
+                amount=Decimal("200"),
+                allocations=[PaymentAllocationInput(document_id=doc.id, amount=Decimal("200"))],
+            ),
+        )
+
+
+def test_payment_party_must_have_the_required_active_role(db):
+    org_id, loc_id, cust_id, vend_id, pid = _setup(db)
+    svc = PaymentService(db)
+
+    with pytest.raises(BadRequestError, match="not a customer"):
+        _received(svc, org_id, vend_id, 100, [])
+
+    customer = db.get(Party, cust_id)
+    customer.is_active = False
+    db.commit()
+    with pytest.raises(BadRequestError, match="customer is inactive"):
+        _received(svc, org_id, cust_id, 100, [])
+
+
 def test_only_finalized_can_be_paid(db):
     org_id, loc_id, cust_id, vend_id, pid = _setup(db)
     tax = _exempt(db, org_id)
@@ -189,12 +249,113 @@ def test_only_finalized_can_be_paid(db):
         DocumentType.INVOICE,
         DocumentCreate(
             party_id=cust_id,
-            lines=[DocumentLineInput(product_id=pid, description="W", quantity=Decimal(1), unit_price=Decimal(100), tax_rate_id=tax.id)],
+            lines=[
+                DocumentLineInput(
+                    product_id=pid,
+                    description="W",
+                    quantity=Decimal(1),
+                    unit_price=Decimal(100),
+                    tax_rate_id=tax.id,
+                )
+            ],
         ),
     )
     svc = PaymentService(db)
     with pytest.raises(BadRequestError):
         _received(svc, org_id, cust_id, 100, [(draft.id, 100)])
+
+
+def test_changing_payment_party_clears_existing_allocations(db):
+    org_id, loc_id, cust_id, vend_id, pid = _setup(db)
+    tax = _exempt(db, org_id)
+    other = Party(org_id=org_id, is_customer=True, name="Gamma")
+    db.add(other)
+    db.flush()
+    inv = _finalized(db, org_id, DocumentType.INVOICE, cust_id, pid, tax.id)
+    svc = PaymentService(db)
+    pay = _received(svc, org_id, cust_id, 200, [(inv.id, 200)])
+
+    updated = svc.update(
+        org_id,
+        PaymentDirection.RECEIVED,
+        pay.id,
+        PaymentUpdate(party_id=other.id),
+    )
+
+    assert updated.party_id == other.id
+    assert updated.allocations == []
+    assert updated.allocated_amount == Decimal("0")
+    assert updated.unapplied_amount == Decimal("200")
+
+
+def test_changing_payment_party_revalidates_replacement_allocations(db):
+    org_id, loc_id, cust_id, vend_id, pid = _setup(db)
+    tax = _exempt(db, org_id)
+    other = Party(org_id=org_id, is_customer=True, name="Gamma")
+    db.add(other)
+    db.flush()
+    inv = _finalized(db, org_id, DocumentType.INVOICE, cust_id, pid, tax.id)
+    svc = PaymentService(db)
+    pay = _received(svc, org_id, cust_id, 200, [(inv.id, 200)])
+
+    with pytest.raises(BadRequestError, match="different party"):
+        svc.update(
+            org_id,
+            PaymentDirection.RECEIVED,
+            pay.id,
+            PaymentUpdate(
+                party_id=other.id,
+                allocations=[PaymentAllocationInput(document_id=inv.id, amount=Decimal("200"))],
+            ),
+        )
+
+    assert pay.party_id == cust_id
+    assert pay.allocated_amount == Decimal("200")
+
+
+def test_submit_revalidates_document_status(db):
+    org_id, loc_id, cust_id, vend_id, pid = _setup(db)
+    tax = _exempt(db, org_id)
+    inv = _finalized(db, org_id, DocumentType.INVOICE, cust_id, pid, tax.id)
+    svc = PaymentService(db)
+    pay = _received(svc, org_id, cust_id, 200, [(inv.id, 200)])
+    inv.status = DocumentStatus.VOID
+    db.commit()
+
+    with pytest.raises(BadRequestError, match="Only finalized documents"):
+        svc.submit(org_id, PaymentDirection.RECEIVED, pay.id)
+
+    assert pay.status == PaymentStatus.DRAFT
+
+
+def test_submit_revalidates_document_currency(db):
+    org_id, loc_id, cust_id, vend_id, pid = _setup(db)
+    tax = _exempt(db, org_id)
+    inv = _finalized(db, org_id, DocumentType.INVOICE, cust_id, pid, tax.id)
+    svc = PaymentService(db)
+    pay = _received(svc, org_id, cust_id, 200, [(inv.id, 200)])
+    inv.currency = "USD"
+    db.commit()
+
+    with pytest.raises(BadRequestError, match="uses USD, but payments use PKR"):
+        svc.submit(org_id, PaymentDirection.RECEIVED, pay.id)
+
+    assert pay.status == PaymentStatus.DRAFT
+
+
+def test_submit_revalidates_current_outstanding_balance(db):
+    org_id, loc_id, cust_id, vend_id, pid = _setup(db)
+    tax = _exempt(db, org_id)
+    inv = _finalized(db, org_id, DocumentType.INVOICE, cust_id, pid, tax.id)
+    svc = PaymentService(db)
+    first = _received(svc, org_id, cust_id, 200, [(inv.id, 200)])
+    second = _received(svc, org_id, cust_id, 200, [(inv.id, 200)])
+    svc.submit(org_id, PaymentDirection.RECEIVED, first.id)
+
+    with pytest.raises(BadRequestError, match="exceeds the balance due"):
+        svc.submit(org_id, PaymentDirection.RECEIVED, second.id)
+
+    assert second.status == PaymentStatus.DRAFT
 
 
 def test_vendor_payment_pays_bill(db):
@@ -206,7 +367,8 @@ def test_vendor_payment_pays_bill(db):
         org_id,
         PaymentDirection.MADE,
         PaymentCreate(
-            party_id=vend_id, amount=Decimal("200"),
+            party_id=vend_id,
+            amount=Decimal("200"),
             allocations=[PaymentAllocationInput(document_id=bill.id, amount=Decimal("200"))],
         ),
     )

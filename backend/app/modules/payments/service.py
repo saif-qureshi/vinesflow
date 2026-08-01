@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.exceptions import BadRequestError, NotFoundError
 from app.core import ledger as _ledger
+from app.core.exceptions import BadRequestError, NotFoundError
 from app.core.pagination import paginate_cursor
 from app.modules.activities.service import ActivityService
 from app.modules.documents.enums import (
@@ -19,7 +19,8 @@ from app.modules.documents.enums import (
 )
 from app.modules.documents.models import Document
 from app.modules.documents.numbering import assign_number, numbering_format
-from app.modules.documents.service import SALES_TYPES, DocumentService
+from app.modules.documents.service import DocumentService
+from app.modules.orgs.models import Organization
 from app.modules.parties.models import Party
 from app.modules.payments.models import Payment, PaymentAllocation
 from app.modules.payments.schemas import (
@@ -43,7 +44,7 @@ def _q(value: Decimal) -> Decimal:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class PaymentService:
@@ -58,21 +59,42 @@ class PaymentService:
         if party is None:
             label = "Customer" if direction == PaymentDirection.RECEIVED else "Vendor"
             raise NotFoundError(f"{label} not found")
+        label = "customer" if direction == PaymentDirection.RECEIVED else "vendor"
+        has_role = party.is_customer if direction == PaymentDirection.RECEIVED else party.is_vendor
+        if not has_role:
+            raise BadRequestError(f"The selected party is not a {label}")
+        if not party.is_active:
+            raise BadRequestError(f"The selected {label} is inactive")
         return party
 
-    def _build_allocations(self, org_id, direction, party_id, inputs, amount):
+    def _build_allocations(
+        self,
+        org_id: int,
+        direction: PaymentDirection,
+        party_id: int,
+        inputs,
+        amount: Decimal,
+        *,
+        lock_documents: bool = False,
+    ):
         if not inputs:
             return [], _ZERO
         doc_ids = [a.document_id for a in inputs]
         if len(set(doc_ids)) != len(doc_ids):
             raise BadRequestError("A document can only be allocated once per payment")
-        docs = {
-            d.id: d
-            for d in self.db.scalars(
-                select(Document).where(Document.org_id == org_id, Document.id.in_(doc_ids))
-            )
-        }
-        is_sales = direction == PaymentDirection.RECEIVED
+        stmt = select(Document).where(Document.org_id == org_id, Document.id.in_(doc_ids))
+        if lock_documents:
+            stmt = stmt.with_for_update()
+        docs = {d.id: d for d in self.db.scalars(stmt)}
+        org_currency = self.db.scalar(
+            select(Organization.currency).where(Organization.id == org_id)
+        )
+        if org_currency is None:
+            raise NotFoundError("Organization not found")
+        expected_type = OUTSTANDING_TYPES[direction]
+        expected_label = (
+            "sales invoices" if direction == PaymentDirection.RECEIVED else "purchase bills"
+        )
         allocated = _ZERO
         resolved = []
         for a in inputs:
@@ -81,12 +103,20 @@ class PaymentService:
                 raise NotFoundError("A document to allocate was not found")
             if doc.party_id != party_id:
                 raise BadRequestError(f"{doc.number} belongs to a different party")
-            if (doc.type in SALES_TYPES) != is_sales:
-                raise BadRequestError(f"{doc.number} does not match the payment direction")
+            if doc.type != expected_type:
+                raise BadRequestError(
+                    f"Payments can only be allocated to finalized {expected_label}"
+                )
             if doc.status != DocumentStatus.SENT:
                 raise BadRequestError(f"Only finalized documents can be paid ({doc.number})")
+            if doc.currency.upper() != org_currency.upper():
+                raise BadRequestError(
+                    f"{doc.number} uses {doc.currency}, but payments use {org_currency}"
+                )
             alloc = _q(a.amount)
-            balance = doc.total - doc.amount_paid
+            if alloc <= _ZERO:
+                raise BadRequestError("Allocation amounts must be greater than zero")
+            balance = _q(doc.total - doc.amount_paid)
             if alloc > balance:
                 raise BadRequestError(f"Allocation exceeds the balance due on {doc.number}")
             allocated += alloc
@@ -125,8 +155,15 @@ class PaymentService:
             for doc, alloc in resolved
         ]
         assign_number(
-            self.db, payment, Payment.number, prefix, start, restart, document_date.year,
-            Payment.org_id == org_id, Payment.direction == direction,
+            self.db,
+            payment,
+            Payment.number,
+            prefix,
+            start,
+            restart,
+            document_date.year,
+            Payment.org_id == org_id,
+            Payment.direction == direction,
         )
         self.activity.record(
             org_id, "created", f"payment_{direction}", payment.number, entity_id=payment.id
@@ -173,26 +210,40 @@ class PaymentService:
         if payment.status != PaymentStatus.DRAFT:
             raise BadRequestError("Only draft payments can be edited")
         fields = payload.model_fields_set
+        party = None
+        target_party_id = payment.party_id
+        party_changed = False
         if "party_id" in fields and payload.party_id is not None:
             party = self._get_party(org_id, payload.party_id, direction)
+            party_changed = party.id != payment.party_id
+            target_party_id = party.id
+        if target_party_id is None:
+            raise BadRequestError("A payment must have a customer or vendor")
+        target_amount = _q(payload.amount) if payload.amount is not None else payment.amount
+        resolved = None
+        allocated = payment.allocated_amount
+        if payload.allocations is not None:
+            resolved, allocated = self._build_allocations(
+                org_id, direction, target_party_id, payload.allocations, target_amount
+            )
+        elif party_changed:
+            resolved, allocated = [], _ZERO
+        elif allocated > target_amount:
+            raise BadRequestError("Allocated amount exceeds the payment amount")
+
+        if party is not None:
             payment.party_id = party.id
             payment.party_name = party.name
         for field in ("document_date", "posting_date", "method", "reference", "notes"):
             if field in fields and getattr(payload, field) is not None:
                 setattr(payment, field, getattr(payload, field))
-        if payload.amount is not None:
-            payment.amount = _q(payload.amount)
-        if payload.allocations is not None:
-            resolved, allocated = self._build_allocations(
-                org_id, direction, payment.party_id, payload.allocations, payment.amount
-            )
+        payment.amount = target_amount
+        if resolved is not None:
             payment.allocations = [
                 PaymentAllocation(document_id=doc.id, document_number=doc.number, amount=alloc)
                 for doc, alloc in resolved
             ]
             payment.allocated_amount = allocated
-        elif payment.allocated_amount > payment.amount:
-            raise BadRequestError("Allocated amount exceeds the payment amount")
         payment.unapplied_amount = payment.amount - payment.allocated_amount
         self.activity.record(
             org_id, "updated", f"payment_{direction}", payment.number, entity_id=payment.id
@@ -205,7 +256,25 @@ class PaymentService:
         payment = self.get_of_direction(org_id, payment_id, direction)
         if payment.status != PaymentStatus.DRAFT:
             raise BadRequestError("Only draft payments can be submitted")
-        self._apply_allocations(payment, 1)
+        if payment.party_id is None:
+            raise BadRequestError("A payment must have a customer or vendor")
+        self._get_party(org_id, payment.party_id, direction)
+        resolved, allocated = self._build_allocations(
+            org_id,
+            direction,
+            payment.party_id,
+            payment.allocations,
+            payment.amount,
+            lock_documents=True,
+        )
+        expected_unapplied = _q(payment.amount - allocated)
+        if (
+            _q(payment.allocated_amount) != allocated
+            or _q(payment.unapplied_amount) != expected_unapplied
+        ):
+            raise BadRequestError("Payment allocation totals are inconsistent")
+        for doc, allocation in resolved:
+            self.documents.apply_settlement(doc, allocation)
         self.ledger.post_payment(self.db, payment)
         payment.status = PaymentStatus.SUBMITTED
         payment.submitted_at = _now()
@@ -249,14 +318,25 @@ class PaymentService:
         if not doc_ids:
             return
         docs = {
-            d.id: d for d in self.db.scalars(select(Document).where(Document.id.in_(doc_ids)))
+            d.id: d
+            for d in self.db.scalars(
+                select(Document).where(
+                    Document.org_id == payment.org_id,
+                    Document.id.in_(doc_ids),
+                )
+            )
         }
+        expected_type = OUTSTANDING_TYPES[PaymentDirection(payment.direction)]
         for a in payment.allocations:
             doc = docs.get(a.document_id)
             if doc is None:
-                continue
+                raise BadRequestError("A payment allocation document was not found")
+            if doc.party_id != payment.party_id or doc.type != expected_type:
+                raise BadRequestError("A payment allocation no longer matches the payment")
             if sign > 0 and a.amount > doc.total - doc.amount_paid:
                 raise BadRequestError(f"Allocation exceeds the balance due on {doc.number}")
+            if sign < 0 and a.amount > doc.amount_paid:
+                raise BadRequestError(f"Allocation exceeds the amount paid on {doc.number}")
             self.documents.apply_settlement(doc, sign * a.amount)
 
     def outstanding_documents(self, org_id, direction, party_id) -> list[OutstandingDocumentRead]:
