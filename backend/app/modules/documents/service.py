@@ -68,7 +68,7 @@ CONVERSIONS: dict[DocumentType, list[DocumentType]] = {
     DocumentType.GOODS_RECEIPT: [DocumentType.BILL],
 }
 
-# Orders stop committing / expecting stock once they have been converted.
+# Orders stop committing / expecting stock once a converted document is finalized.
 CLOSED_ON_CONVERT = {DocumentType.SALES_ORDER, DocumentType.PURCHASE_ORDER}
 
 SALES_TYPES = {
@@ -362,8 +362,21 @@ class DocumentService:
 
     def _default_location(self, org_id: int) -> int | None:
         return self.db.scalar(
-            select(Location.id).where(Location.org_id == org_id).order_by(Location.id)
+            select(Location.id)
+            .where(Location.org_id == org_id, Location.is_active.is_(True))
+            .order_by(Location.is_default.desc(), Location.id)
         )
+
+    def _validate_warehouse(self, org_id: int, warehouse_id: int) -> None:
+        location_id = self.db.scalar(
+            select(Location.id).where(
+                Location.id == warehouse_id,
+                Location.org_id == org_id,
+                Location.is_active.is_(True),
+            )
+        )
+        if location_id is None:
+            raise NotFoundError("Warehouse not found")
 
     def _default_due(self, issue_date: date, party: Party) -> date | None:
         if party.payment_term_days:
@@ -386,9 +399,21 @@ class DocumentService:
             raise NotFoundError("Document not found")
         return doc
 
+    def _get_for_update(self, org_id: int, doc_id: int) -> Document:
+        doc = self.db.scalar(
+            select(Document)
+            .where(Document.id == doc_id, Document.org_id == org_id)
+            .with_for_update()
+        )
+        if doc is None:
+            raise NotFoundError("Document not found")
+        return doc
+
     def create(self, org_id: int, doc_type: DocumentType, payload: DocumentCreate) -> Document:
         doc_cls = DOCUMENT_CLASSES[doc_type]
         party = self._get_party(org_id, payload.party_id, doc_type)
+        if payload.warehouse_id is not None:
+            self._validate_warehouse(org_id, payload.warehouse_id)
         issue_date = payload.issue_date or date.today()
         prefix, start, restart = numbering_format(
             self.db, org_id, str(doc_type), DEFAULT_PREFIXES[doc_type]
@@ -472,6 +497,8 @@ class DocumentService:
             doc.party_id = party.id
             doc.billing_address = party.billing_address
             doc.shipping_address = party.shipping_address
+        if "warehouse_id" in fields and payload.warehouse_id is not None:
+            self._validate_warehouse(org_id, payload.warehouse_id)
         for field in (
             "issue_date", "due_date", "reference", "warehouse_id", "notes", "terms",
             "fbr_sale_origin", "fbr_sale_destination", "fbr_scenario_id",
@@ -554,14 +581,119 @@ class DocumentService:
         if source.issue_date and date.today() > source.issue_date + timedelta(days=180):
             raise BadRequestError("Credit notes must be issued within 180 days of the invoice")
 
+    def _guard_source_for_finalize(self, org_id: int, doc: Document) -> Document | None:
+        if doc.source_document_id is None:
+            return None
+        source = self.db.scalar(
+            select(Document).where(
+                Document.id == doc.source_document_id,
+                Document.org_id == org_id,
+            )
+        )
+        if source is None:
+            raise BadRequestError("Source document was not found")
+        if doc.type not in CONVERSIONS.get(source.type, []):
+            raise BadRequestError("Document is not a valid conversion of its source")
+        valid_statuses = {DocumentStatus.SENT}
+        if source.type in CLOSED_ON_CONVERT:
+            valid_statuses.add(DocumentStatus.CLOSED)
+        if source.status not in valid_statuses:
+            raise BadRequestError(f"Source document {source.number} is no longer active")
+        if doc.party_id != source.party_id:
+            raise BadRequestError(
+                f"Converted document must use the same party as {source.number}"
+            )
+        self._guard_converted_lines(source, doc)
+        return source
+
+    @staticmethod
+    def _line_quantities(doc: Document) -> dict[tuple, Decimal]:
+        quantities: dict[tuple, Decimal] = {}
+        for line in doc.lines:
+            signature = (
+                line.product_id,
+                line.description,
+                line.unit_price,
+                line.discount_type,
+                line.discount_value,
+                line.tax_rate_id,
+            )
+            quantities[signature] = quantities.get(signature, _ZERO) + line.quantity
+        return quantities
+
+    def _guard_converted_lines(self, source: Document, target: Document) -> None:
+        source_quantities = self._line_quantities(source)
+        target_quantities = self._line_quantities(target)
+        if target.type == DocumentType.CREDIT_NOTE:
+            if any(
+                signature not in source_quantities
+                or quantity > source_quantities[signature]
+                for signature, quantity in target_quantities.items()
+            ):
+                raise BadRequestError(
+                    f"Credit note lines must match quantities and prices on {source.number}"
+                )
+            return
+        if target_quantities != source_quantities:
+            raise BadRequestError(
+                f"Converted document lines must match source document {source.number}"
+            )
+
+    def _active_dependent(
+        self, org_id: int, source_id: int, *, exclude_id: int | None = None
+    ) -> Document | None:
+        stmt = select(Document).where(
+            Document.org_id == org_id,
+            Document.source_document_id == source_id,
+            Document.status != DocumentStatus.VOID,
+        )
+        if exclude_id is not None:
+            stmt = stmt.where(Document.id != exclude_id)
+        return self.db.scalar(stmt.order_by(Document.id).limit(1))
+
+    def _guard_no_active_dependents(self, org_id: int, doc: Document) -> None:
+        dependent = self._active_dependent(org_id, doc.id)
+        if dependent is not None:
+            raise BadRequestError(
+                f"Cannot void {doc.number} while {dependent.number} is active; "
+                "void or delete the dependent document first"
+            )
+
+    def _guard_no_active_conversion(self, org_id: int, source: Document) -> None:
+        dependent = self._active_dependent(org_id, source.id)
+        if dependent is not None:
+            raise BadRequestError(
+                f"{source.number} already has active document {dependent.number}"
+            )
+
+    def _reopen_order_source(self, org_id: int, doc: Document) -> None:
+        if doc.source_document_id is None:
+            return
+        source = self.db.scalar(
+            select(Document).where(
+                Document.id == doc.source_document_id,
+                Document.org_id == org_id,
+            )
+        )
+        if (
+            source is not None
+            and source.type in CLOSED_ON_CONVERT
+            and source.status == DocumentStatus.CLOSED
+            and self._active_dependent(org_id, source.id, exclude_id=doc.id) is None
+        ):
+            source.status = DocumentStatus.SENT
+
     def convert(
         self, org_id: int, doc_id: int, source_type: DocumentType, target_type: DocumentType
     ) -> Document:
-        source = self.get_of_type(org_id, doc_id, source_type)
+        source = self._get_for_update(org_id, doc_id)
+        if source.type != source_type:
+            raise NotFoundError("Document not found")
         if target_type not in CONVERSIONS.get(source_type, []):
             raise BadRequestError("That document cannot be converted to this type")
         if source.status != DocumentStatus.SENT:
             raise BadRequestError("Only a finalized document can be converted")
+        self._guard_no_active_conversion(org_id, source)
         if target_type == DocumentType.CREDIT_NOTE and self._org_fbr_enabled(org_id):
             self._guard_fbr_credit_note(org_id, source)
 
@@ -615,8 +747,6 @@ class DocumentService:
             Document.org_id == org_id, Document.type == target_type,
         )
 
-        if source_type in CLOSED_ON_CONVERT:
-            source.status = DocumentStatus.CLOSED
         self.activity.record(
             org_id, "converted", source.type, source.number,
             entity_id=source.id, context={"to": target_type, "number": target.number},
@@ -628,13 +758,24 @@ class DocumentService:
     def finalize(
         self, org_id: int, doc_id: int, expected_type: DocumentType | None = None
     ) -> Document:
-        doc = self.get(org_id, doc_id)
+        doc = self._get_for_update(org_id, doc_id)
         if expected_type and doc.type != expected_type:
             raise NotFoundError("Document not found")
         if doc.status != DocumentStatus.DRAFT:
             raise BadRequestError("Only draft documents can be finalized")
         if not doc.lines:
             raise BadRequestError("Cannot finalize a document with no lines")
+        source = self._guard_source_for_finalize(org_id, doc)
+        moves_stock = doc.stock_direction != 0 and not self._source_moved_stock(doc)
+        if moves_stock and any(line.product_id for line in doc.lines):
+            if doc.warehouse_id is None:
+                doc.warehouse_id = self._default_location(org_id)
+            if doc.warehouse_id is None:
+                raise BadRequestError("No warehouse available to move stock")
+        if doc.warehouse_id is not None:
+            self._validate_warehouse(org_id, doc.warehouse_id)
+        if moves_stock and doc.stock_direction < 0:
+            self._preflight_outbound_stock(org_id, doc)
         if doc.type in (DocumentType.INVOICE, DocumentType.CREDIT_NOTE):
             from app.modules.fbr.service import FbrService
 
@@ -643,18 +784,14 @@ class DocumentService:
                 doc.fbr_invoice_number = result["invoice_number"]
                 doc.fbr_response = result["response"]
                 doc.fbr_submitted_at = datetime.now(timezone.utc)
-        moves_stock = doc.stock_direction != 0 and not self._source_moved_stock(doc)
-        if moves_stock and any(line.product_id for line in doc.lines):
-            if doc.warehouse_id is None:
-                doc.warehouse_id = self._default_location(org_id)
-            if doc.warehouse_id is None:
-                raise BadRequestError("No warehouse available to move stock")
         self._apply_credit(org_id, doc)
         if moves_stock:
             self._post_stock(org_id, doc, reverse=False)
             doc.stock_posted = True
         self.ledger.post_document(self.db, doc)
         doc.status = DocumentStatus.SENT
+        if source is not None and source.type in CLOSED_ON_CONVERT:
+            source.status = DocumentStatus.CLOSED
         self.activity.record(org_id, "finalized", doc.type, doc.number, entity_id=doc.id)
         self.db.commit()
         self.db.refresh(doc)
@@ -663,11 +800,12 @@ class DocumentService:
     def void(
         self, org_id: int, doc_id: int, expected_type: DocumentType | None = None
     ) -> Document:
-        doc = self.get(org_id, doc_id)
+        doc = self._get_for_update(org_id, doc_id)
         if expected_type and doc.type != expected_type:
             raise NotFoundError("Document not found")
         if doc.status in (DocumentStatus.DRAFT, DocumentStatus.VOID):
             raise BadRequestError("Only a finalized document can be voided")
+        self._guard_no_active_dependents(org_id, doc)
         if doc.type == DocumentType.INVOICE and doc.fbr_invoice_number:
             raise BadRequestError(
                 "A filed FBR invoice cannot be voided; issue a credit note instead"
@@ -680,6 +818,7 @@ class DocumentService:
         self._reverse_credit(doc)
         self.ledger.reverse_document(self.db, doc)
         doc.status = DocumentStatus.VOID
+        self._reopen_order_source(org_id, doc)
         self.activity.record(org_id, "voided", doc.type, doc.number, entity_id=doc.id)
         self.db.commit()
         self.db.refresh(doc)
@@ -693,18 +832,50 @@ class DocumentService:
             raise BadRequestError("Only draft documents can be deleted")
         self.activity.record(org_id, "deleted", doc.type, doc.number, entity_id=doc.id)
         self.db.delete(doc)
+        self._reopen_order_source(org_id, doc)
         self.db.commit()
+
+    def _preflight_outbound_stock(self, org_id: int, doc: Document) -> None:
+        if doc.warehouse_id is None:
+            return
+        product_ids = {line.product_id for line in doc.lines if line.product_id is not None}
+        products = {
+            product.id: product
+            for product in self.db.scalars(
+                select(Product).where(
+                    Product.org_id == org_id,
+                    Product.id.in_(product_ids),
+                    Product.track_inventory.is_(True),
+                )
+            )
+        }
+        required: dict[int, Decimal] = {}
+        for line in doc.lines:
+            if line.product_id in products:
+                required[line.product_id] = required.get(line.product_id, _ZERO) + line.quantity
+        for product_id, quantity in required.items():
+            available = self.inventory.on_hand(org_id, product_id, doc.warehouse_id)
+            if available < quantity:
+                raise BadRequestError(
+                    f"Not enough stock for {products[product_id].name} at the selected warehouse"
+                )
 
     def _post_stock(self, org_id: int, doc: Document, reverse: bool) -> None:
         if doc.stock_direction == 0 or doc.warehouse_id is None:
             return
-        trackable = [line for line in doc.lines if line.product_id is not None]
+        trackable = sorted(
+            (line for line in doc.lines if line.product_id is not None),
+            key=lambda line: line.product_id,
+        )
         if not trackable:
             return
         products = {
             p.id: p
             for p in self.db.scalars(
-                select(Product).where(Product.id.in_([line.product_id for line in trackable]))
+                select(Product).where(
+                    Product.org_id == org_id,
+                    Product.id.in_([line.product_id for line in trackable]),
+                )
             )
         }
         direction = -doc.stock_direction if reverse else doc.stock_direction

@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from app.core.exceptions import BadRequestError
 from app.core.security import hash_password
-from app.modules.documents.enums import DocumentPaymentStatus, DocumentType
+from app.modules.documents.enums import DocumentPaymentStatus, DocumentStatus, DocumentType
 from app.modules.documents.models import TaxRate
 from app.modules.documents.schemas import DocumentCreate, DocumentLineInput, DocumentUpdate
 from app.modules.documents.service import DocumentService
@@ -124,6 +124,56 @@ def test_credit_cannot_exceed_the_invoice_balance(db):
     )
     with pytest.raises(BadRequestError):
         svc.finalize(org_id, note.id)
+
+
+def test_credit_note_cannot_return_an_unrelated_product(db):
+    org_id, loc_id, party_id, pid, tax_id = _setup(db)
+    svc = DocumentService(db)
+    invoice = _invoice(svc, org_id, party_id, pid, tax_id, qty=2, warehouse_id=loc_id)
+    note = svc.convert(org_id, invoice.id, DocumentType.INVOICE, DocumentType.CREDIT_NOTE)
+    other = Product(
+        org_id=org_id,
+        name="Other Widget",
+        type="single",
+        track_inventory=True,
+        sale_price=Decimal("100"),
+        purchase_price=Decimal("60"),
+    )
+    db.add(other)
+    db.flush()
+    svc.update(
+        org_id,
+        note.id,
+        DocumentType.CREDIT_NOTE,
+        DocumentUpdate(
+            lines=[
+                DocumentLineInput(
+                    product_id=other.id,
+                    description="Widget",
+                    quantity=Decimal(1),
+                    unit_price=Decimal("100"),
+                    tax_rate_id=tax_id,
+                )
+            ]
+        ),
+    )
+
+    with pytest.raises(BadRequestError, match="must match quantities and prices"):
+        svc.finalize(org_id, note.id)
+
+
+def test_active_credit_note_blocks_voiding_its_invoice(db):
+    org_id, loc_id, party_id, pid, tax_id = _setup(db)
+    svc = DocumentService(db)
+    invoice = _invoice(svc, org_id, party_id, pid, tax_id, warehouse_id=loc_id)
+    note = svc.convert(org_id, invoice.id, DocumentType.INVOICE, DocumentType.CREDIT_NOTE)
+
+    with pytest.raises(BadRequestError, match=f"{note.number} is active"):
+        svc.void(org_id, invoice.id)
+
+    svc.delete(org_id, note.id)
+    svc.void(org_id, invoice.id)
+    assert invoice.status == DocumentStatus.VOID
 
 
 def test_voiding_a_credit_note_restores_the_debt_and_stock(db):

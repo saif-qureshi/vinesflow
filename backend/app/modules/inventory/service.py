@@ -89,7 +89,11 @@ class InventoryService:
             raise BadRequestError("Stock is tracked on the individual variants, not the group")
         if (
             self.db.scalar(
-                select(Location.id).where(Location.id == location_id, Location.org_id == org_id)
+                select(Location.id).where(
+                    Location.id == location_id,
+                    Location.org_id == org_id,
+                    Location.is_active.is_(True),
+                )
             )
             is None
         ):
@@ -99,7 +103,11 @@ class InventoryService:
     def _validate_location(self, org_id: int, location_id: int) -> None:
         if (
             self.db.scalar(
-                select(Location.id).where(Location.id == location_id, Location.org_id == org_id)
+                select(Location.id).where(
+                    Location.id == location_id,
+                    Location.org_id == org_id,
+                    Location.is_active.is_(True),
+                )
             )
             is None
         ):
@@ -107,11 +115,13 @@ class InventoryService:
 
     def _level(self, org_id: int, product_id: int, location_id: int) -> StockLevel:
         level = self.db.scalar(
-            select(StockLevel).where(
+            select(StockLevel)
+            .where(
                 StockLevel.org_id == org_id,
                 StockLevel.product_id == product_id,
                 StockLevel.location_id == location_id,
             )
+            .with_for_update()
         )
         if level is None:
             level = StockLevel(
@@ -170,6 +180,10 @@ class InventoryService:
         reference_id,
         unit_cost=None,
     ) -> None:
+        level = self._level(org_id, product_id, location_id)
+        new_quantity = level.quantity + qty_delta
+        if new_quantity < _ZERO:
+            raise BadRequestError("Not enough stock at the selected location")
         self.db.add(
             StockMovement(
                 org_id=org_id,
@@ -182,8 +196,7 @@ class InventoryService:
                 unit_cost=unit_cost,
             )
         )
-        level = self._level(org_id, product_id, location_id)
-        level.quantity = level.quantity + qty_delta
+        level.quantity = new_quantity
 
     def _record(self, org_id, action, product, delta, location_id) -> None:
         self.activity.record(

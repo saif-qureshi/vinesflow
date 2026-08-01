@@ -50,7 +50,15 @@ class StockLevel(Base, TimestampMixin):
     """Cached on-hand per (item, variant, location). Derived from the ledger."""
 
     __tablename__ = "stock_levels"
-    __table_args__ = (Index("ix_stock_levels_org_product", "org_id", "product_id"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "org_id",
+            "product_id",
+            "location_id",
+            name="uq_stock_level_org_product_location",
+        ),
+        Index("ix_stock_levels_org_product", "org_id", "product_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     org_id: Mapped[int] = mapped_column(

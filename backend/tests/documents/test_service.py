@@ -261,6 +261,69 @@ def test_finalize_ships_stock(db):
     assert movement.unit_cost == Decimal("60")
 
 
+def test_finalize_rejects_insufficient_stock_without_partial_posting(db):
+    org_id, loc_id, party_id, pid = _setup(db)
+    svc = DocumentService(db)
+    inv = _invoice(
+        svc,
+        org_id,
+        party_id,
+        pid,
+        _tax(db, org_id).id,
+        warehouse_id=loc_id,
+    )
+
+    with pytest.raises(BadRequestError, match="Not enough stock"):
+        svc.finalize(org_id, inv.id)
+
+    assert inv.status == DocumentStatus.DRAFT
+    assert InventoryService(db).item_stock(org_id, pid).on_hand == Decimal(0)
+    movement = db.scalar(
+        select(StockMovement).where(
+            StockMovement.reference_type == "invoice",
+            StockMovement.reference_id == inv.id,
+        )
+    )
+    assert movement is None
+
+
+def test_document_rejects_inactive_or_cross_org_warehouse(db):
+    org_id, loc_id, party_id, pid = _setup(db)
+    tax_id = _tax(db, org_id).id
+    location = db.get(Location, loc_id)
+    location.is_active = False
+    db.commit()
+
+    with pytest.raises(NotFoundError, match="Warehouse not found"):
+        _invoice(
+            DocumentService(db),
+            org_id,
+            party_id,
+            pid,
+            tax_id,
+            warehouse_id=loc_id,
+        )
+
+    other_user = User(
+        email="other-warehouse@test.io",
+        hashed_password=hash_password("password123"),
+    )
+    db.add(other_user)
+    db.flush()
+    other_org = OrgService(db).create_org_with_owner(owner=other_user, name="Other Org")
+    other_location_id = db.scalar(select(Location.id).where(Location.org_id == other_org.id))
+
+    with pytest.raises(NotFoundError, match="Warehouse not found"):
+        _invoice(
+            DocumentService(db),
+            org_id,
+            party_id,
+            pid,
+            tax_id,
+            warehouse_id=other_location_id,
+        )
+
+
 def test_bill_receives_stock(db):
     org_id, loc_id, _, pid = _setup(db)
     vendor_id = _vendor(db, org_id)

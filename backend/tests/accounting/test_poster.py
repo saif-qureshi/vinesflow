@@ -12,6 +12,7 @@ from app.modules.documents.enums import DocumentType, PaymentDirection
 from app.modules.documents.models import TaxRate
 from app.modules.documents.schemas import DocumentCreate, DocumentLineInput
 from app.modules.documents.service import DocumentService
+from app.modules.inventory.models import StockLevel
 from app.modules.inventory.schemas import StockAdjustInput
 from app.modules.inventory.service import InventoryService
 from app.modules.locations.models import Location
@@ -73,8 +74,30 @@ def _tb_balances(db, org_id) -> bool:
     return debit == credit
 
 
+def _seed_stock(db, org_id, pid):
+    location_id = db.scalar(select(Location.id).where(Location.org_id == org_id))
+    level = db.scalar(
+        select(StockLevel).where(
+            StockLevel.org_id == org_id,
+            StockLevel.product_id == pid,
+            StockLevel.location_id == location_id,
+        )
+    )
+    if level is None:
+        db.add(
+            StockLevel(
+                org_id=org_id,
+                product_id=pid,
+                location_id=location_id,
+                quantity=Decimal("100"),
+            )
+        )
+        db.flush()
+
+
 def _invoice(db, org_id, cust_id, pid):
     svc = DocumentService(db)
+    _seed_stock(db, org_id, pid)
     tax = db.scalar(select(TaxRate).where(TaxRate.org_id == org_id, TaxRate.name == "GST 18%"))
     doc = svc.create(
         org_id,
@@ -249,6 +272,7 @@ def test_overpayment_parks_excess_in_customer_advances(db):
 def test_challan_records_cogs_and_sourced_invoice_records_revenue_only(db):
     org_id, cust_id, pid = _setup(db)
     loc_id = db.scalar(select(Location.id).where(Location.org_id == org_id))
+    _seed_stock(db, org_id, pid)
     svc = DocumentService(db)
     tax = db.scalar(select(TaxRate).where(TaxRate.org_id == org_id, TaxRate.name == "GST 18%"))
 

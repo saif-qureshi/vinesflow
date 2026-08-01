@@ -91,10 +91,12 @@ def test_po_to_grn_to_bill_receives_once(db):
     assert inv.item_stock(org_id, pid).to_be_received == Decimal(6)
 
     grn = svc.convert(org_id, order.id, DocumentType.PURCHASE_ORDER, DocumentType.GOODS_RECEIPT)
-    assert order.status == DocumentStatus.CLOSED
-    assert inv.item_stock(org_id, pid).to_be_received == Decimal(0)
+    assert order.status == DocumentStatus.SENT
+    assert inv.item_stock(org_id, pid).to_be_received == Decimal(6)
 
     svc.finalize(org_id, grn.id)
+    assert order.status == DocumentStatus.CLOSED
+    assert inv.item_stock(org_id, pid).to_be_received == Decimal(0)
     assert inv.item_stock(org_id, pid).on_hand == Decimal(16)
 
     bill = svc.convert(org_id, grn.id, DocumentType.GOODS_RECEIPT, DocumentType.BILL)
@@ -110,7 +112,9 @@ def test_po_straight_to_bill_still_receives(db):
     order = _create(svc, org_id, DocumentType.PURCHASE_ORDER, vendor_id, pid, tax_id, qty=3)
     svc.finalize(org_id, order.id)
     bill = svc.convert(org_id, order.id, DocumentType.PURCHASE_ORDER, DocumentType.BILL)
+    assert order.status == DocumentStatus.SENT
     svc.finalize(org_id, bill.id)
+    assert order.status == DocumentStatus.CLOSED
     assert bill.stock_posted is True
     assert InventoryService(db).item_stock(org_id, pid).on_hand == Decimal(13)
 

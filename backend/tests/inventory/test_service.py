@@ -11,6 +11,7 @@ from app.modules.inventory.schemas import (
     StockAdjustInput,
     StockTransferInput,
 )
+from app.modules.inventory.models import StockMovement
 from app.modules.inventory.service import InventoryService
 from app.modules.locations.models import Location
 from app.modules.locations.schemas import LocationCreate
@@ -73,6 +74,25 @@ def test_transfer_insufficient_stock_raises(db):
             org_id,
             StockTransferInput(product_id=pid, from_location_id=loc_id, to_location_id=loc_b.id, quantity=Decimal(1)),
         )
+
+
+def test_document_movement_cannot_create_negative_stock(db):
+    org_id, loc_id, pid = _setup(db)
+    svc = InventoryService(db)
+
+    with pytest.raises(BadRequestError, match="Not enough stock"):
+        svc.post_document_movement(
+            org_id=org_id,
+            product_id=pid,
+            location_id=loc_id,
+            qty_delta=Decimal("-1"),
+            type_="sale",
+            reference_type="invoice",
+            reference_id=1,
+        )
+
+    assert svc.on_hand(org_id, pid, loc_id) == Decimal(0)
+    assert db.scalar(select(StockMovement.id)) is None
 
 
 def test_variable_product_requires_variant(db):
