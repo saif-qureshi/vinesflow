@@ -23,3 +23,7 @@ route53_zone_id = "" # e.g. "Z0123456789ABCDEFGHIJ"
 # github_repo = "saif-qureshi/vinesflow-inventory"
 # If your account already has a GitHub OIDC provider, pass its ARN to reuse it:
 # github_oidc_provider_arn = "arn:aws:iam::730335575446:oidc-provider/token.actions.githubusercontent.com"
+
+# Optional: create a long-lived IAM key scoped to local/* media objects.
+# Keep disabled unless local development actively needs the production S3 bucket.
+# enable_local_dev_credentials = true

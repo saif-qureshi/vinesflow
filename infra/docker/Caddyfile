@@ -10,7 +10,8 @@
         Referrer-Policy strict-origin-when-cross-origin
     }
 
-    handle_path /api/* {
+    # Keep /api in the upstream URI; FastAPI mounts its routes at /api/v1.
+    handle /api/* {
         reverse_proxy backend:8000
     }
 

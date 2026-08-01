@@ -3,13 +3,14 @@ resource "random_password" "jwt" {
   special = false
 }
 
-# Fernet key for FBR token encryption: urlsafe base64 of 32 random bytes.
+# Fernet key for FBR token encryption: URL-safe base64 of exactly 32 random bytes.
 resource "random_id" "fbr_key" {
   byte_length = 32
 }
 
 locals {
-  fbr_encryption_key = replace(replace(base64encode(random_id.fbr_key.b64_std), "+", "-"), "/", "_")
+  # b64_std retains the padding Fernet requires; translate only the URL-unsafe characters.
+  fbr_encryption_key = replace(replace(random_id.fbr_key.b64_std, "+", "-"), "/", "_")
 
   backend_env = join("\n", [
     "ENVIRONMENT=production",

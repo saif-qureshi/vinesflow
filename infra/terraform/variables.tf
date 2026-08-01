@@ -62,6 +62,12 @@ variable "swap_gb" {
   default     = 3
 }
 
+variable "docker_compose_version" {
+  description = "Pinned Docker Compose release installed by cloud-init."
+  type        = string
+  default     = "v2.39.1"
+}
+
 variable "ssh_ingress_cidr" {
   description = "CIDR allowed to SSH (port 22). Set to your IP/32. Empty disables SSH ingress (use SSM Session Manager)."
   type        = string
@@ -134,4 +140,10 @@ variable "backup_retention_days" {
   description = "How long nightly DB dumps live in the backups bucket."
   type        = number
   default     = 14
+}
+
+variable "enable_local_dev_credentials" {
+  description = "Create a long-lived IAM access key for local/* media development. Keep disabled unless actively needed."
+  type        = bool
+  default     = false
 }

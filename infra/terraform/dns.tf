@@ -10,7 +10,7 @@ resource "aws_route53_record" "app" {
 }
 
 resource "aws_route53_record" "media" {
-  count   = var.route53_zone_id == "" ? 0 : 1
+  count   = local.use_route53 && local.use_custom_domain ? 1 : 0
   zone_id = var.route53_zone_id
   name    = local.media_domain
   type    = "A"

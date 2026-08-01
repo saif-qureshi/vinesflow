@@ -40,9 +40,9 @@ data "aws_iam_policy_document" "gha_assume" {
       values   = ["sts.amazonaws.com"]
     }
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repo}:*"]
+      values   = ["repo:${var.github_repo}:ref:refs/heads/main"]
     }
   }
 }
@@ -104,10 +104,11 @@ resource "aws_iam_role_policy" "gha_deploy" {
 output "github_actions_setup" {
   description = "Set these as repo Variables (Settings -> Secrets and variables -> Actions -> Variables)."
   value = {
-    AWS_ROLE_ARN = one(aws_iam_role.gha_deploy[*].arn)
-    AWS_REGION   = var.region
-    ECR_BACKEND  = aws_ecr_repository.backend.repository_url
-    ECR_FRONTEND = aws_ecr_repository.frontend.repository_url
-    INSTANCE_ID  = aws_instance.app.id
+    AWS_ROLE_ARN  = one(aws_iam_role.gha_deploy[*].arn)
+    AWS_REGION    = var.region
+    ECR_BACKEND   = aws_ecr_repository.backend.repository_url
+    ECR_FRONTEND  = aws_ecr_repository.frontend.repository_url
+    INSTANCE_ID   = aws_instance.app.id
+    SSM_ENV_PARAM = aws_ssm_parameter.backend_env.name
   }
 }

@@ -18,7 +18,7 @@ dnf update -y
 dnf install -y docker
 systemctl enable --now docker
 mkdir -p /usr/libexec/docker/cli-plugins
-curl -sSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-aarch64" \
+curl -fsSL "https://github.com/docker/compose/releases/download/${compose_version}/docker-compose-linux-aarch64" \
   -o /usr/libexec/docker/cli-plugins/docker-compose
 chmod +x /usr/libexec/docker/cli-plugins/docker-compose
 
@@ -30,23 +30,14 @@ cat > /opt/vineflow/docker-compose.yml <<'COMPOSE_EOF'
 ${compose_content}
 COMPOSE_EOF
 
-cat > /opt/vineflow/Caddyfile <<CADDY_EOF
-${app_domain} {
-    encode gzip zstd
-    header {
-        Strict-Transport-Security "max-age=31536000; includeSubDomains"
-        X-Content-Type-Options nosniff
-        X-Frame-Options DENY
-        Referrer-Policy strict-origin-when-cross-origin
-    }
-    handle_path /api/* {
-        reverse_proxy backend:8000
-    }
-    handle {
-        reverse_proxy frontend:3000
-    }
-}
+cat > /opt/vineflow/Caddyfile <<'CADDY_EOF'
+${caddy_content}
 CADDY_EOF
+
+cat > /opt/vineflow/deploy.sh <<'DEPLOY_SCRIPT_EOF'
+${deploy_script}
+DEPLOY_SCRIPT_EOF
+chmod 755 /opt/vineflow/deploy.sh
 
 cat > /opt/vineflow/deploy.env <<DEPLOY_EOF
 ECR_BACKEND=${ecr_backend}
@@ -54,6 +45,7 @@ ECR_FRONTEND=${ecr_frontend}
 IMAGE_TAG=latest
 APP_DOMAIN=${app_domain}
 AWS_REGION=${region}
+SSM_ENV_PARAM=${ssm_env_param}
 DEPLOY_EOF
 
 # backend secrets/config from SSM
@@ -84,16 +76,22 @@ Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/opt/vineflow
 ExecStartPre=/opt/vineflow/ecr-login.sh
+ExecStartPre=/bin/bash -c '/usr/bin/aws ssm get-parameter --with-decryption --region ${region} --name "${ssm_env_param}" --query "Parameter.Value" --output text > /opt/vineflow/backend.env.next && chmod 600 /opt/vineflow/backend.env.next && mv /opt/vineflow/backend.env.next /opt/vineflow/backend.env'
 ExecStart=/usr/bin/docker compose --env-file deploy.env pull
 ExecStartPost=/usr/bin/docker compose --env-file deploy.env up -d --remove-orphans
 ExecStop=/usr/bin/docker compose --env-file deploy.env down
+Restart=on-failure
+RestartSec=30
+TimeoutStartSec=300
 
 [Install]
 WantedBy=multi-user.target
 UNIT_EOF
 
 systemctl daemon-reload
-systemctl enable --now vineflow.service
+# ECR is empty on the first provision. Enable the unit for future reboots; the
+# first CI/manual deploy starts the stack after immutable images have been pushed.
+systemctl enable vineflow.service
 
 # ---------------------------------------------------------------- nightly logical DB dump -> S3 (belt & suspenders; RDS also has automated backups)
 cat > /opt/vineflow/backup.sh <<'BACKUP_EOF'
@@ -102,10 +100,12 @@ set -euo pipefail
 PGPASS=$(grep '^DATABASE_URL=' /opt/vineflow/backend.env | sed -E 's#.*://[^:]+:([^@]+)@.*#\1#')
 STAMP=$(date +%Y%m%d-%H%M%S)
 FILE=/tmp/${db_name}-$STAMP.sql.gz
+trap 'rm -f "$FILE"' EXIT
 docker run --rm -e PGPASSWORD="$PGPASS" postgres:16-alpine \
   pg_dump -h ${db_host} -U ${db_user} -d ${db_name} | gzip > "$FILE"
 aws s3 cp "$FILE" "s3://${backups_bucket}/db/${db_name}-$STAMP.sql.gz" --region ${region}
-rm -f "$FILE"
+aws cloudwatch put-metric-data --region ${region} --namespace Vineflow \
+  --metric-name BackupSuccess --dimensions Project=${project_name} --value 1 --unit Count
 BACKUP_EOF
 chmod +x /opt/vineflow/backup.sh
 

@@ -47,14 +47,19 @@ data "aws_iam_policy_document" "app" {
   }
 
   statement {
+    sid       = "EcrAuth"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+
+  statement {
     sid = "EcrPull"
     actions = [
-      "ecr:GetAuthorizationToken",
       "ecr:BatchGetImage",
       "ecr:GetDownloadUrlForLayer",
       "ecr:BatchCheckLayerAvailability",
     ]
-    resources = ["*"]
+    resources = [aws_ecr_repository.backend.arn, aws_ecr_repository.frontend.arn]
   }
 
   statement {
@@ -67,6 +72,17 @@ data "aws_iam_policy_document" "app" {
       "sqs:GetQueueAttributes",
     ]
     resources = [aws_sqs_queue.jobs.arn, aws_sqs_queue.jobs_dlq.arn]
+  }
+
+  statement {
+    sid       = "BackupMetrics"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["Vineflow"]
+    }
   }
 }
 
@@ -89,7 +105,8 @@ resource "aws_iam_instance_profile" "app" {
 
 # ---- Local-dev user (scoped to local/* only) --------------------------------
 resource "aws_iam_user" "local_dev" {
-  name = "${local.name}-local-dev"
+  count = var.enable_local_dev_credentials ? 1 : 0
+  name  = "${local.name}-local-dev"
 }
 
 data "aws_iam_policy_document" "local_dev" {
@@ -111,11 +128,13 @@ data "aws_iam_policy_document" "local_dev" {
 }
 
 resource "aws_iam_user_policy" "local_dev" {
+  count  = var.enable_local_dev_credentials ? 1 : 0
   name   = "local-media"
-  user   = aws_iam_user.local_dev.name
+  user   = aws_iam_user.local_dev[0].name
   policy = data.aws_iam_policy_document.local_dev.json
 }
 
 resource "aws_iam_access_key" "local_dev" {
-  user = aws_iam_user.local_dev.name
+  count = var.enable_local_dev_credentials ? 1 : 0
+  user  = aws_iam_user.local_dev[0].name
 }

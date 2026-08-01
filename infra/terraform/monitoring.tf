@@ -76,6 +76,48 @@ resource "aws_cloudwatch_metric_alarm" "rds_storage" {
   dimensions          = { DBInstanceIdentifier = aws_db_instance.main.identifier }
 }
 
+resource "aws_cloudwatch_metric_alarm" "jobs_oldest" {
+  alarm_name          = "${local.name}-jobs-oldest-message"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "ApproximateAgeOfOldestMessage"
+  namespace           = "AWS/SQS"
+  period              = 300
+  statistic           = "Maximum"
+  threshold           = 600
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.alarms.arn]
+  dimensions          = { QueueName = aws_sqs_queue.jobs.name }
+}
+
+resource "aws_cloudwatch_metric_alarm" "jobs_dlq" {
+  alarm_name          = "${local.name}-jobs-dlq-not-empty"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  namespace           = "AWS/SQS"
+  period              = 300
+  statistic           = "Maximum"
+  threshold           = 0
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.alarms.arn]
+  dimensions          = { QueueName = aws_sqs_queue.jobs_dlq.name }
+}
+
+resource "aws_cloudwatch_metric_alarm" "backup_missing" {
+  alarm_name          = "${local.name}-backup-missing"
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "BackupSuccess"
+  namespace           = "Vineflow"
+  period              = 86400
+  statistic           = "Sum"
+  threshold           = 1
+  treat_missing_data  = "breaching"
+  alarm_actions       = [aws_sns_topic.alarms.arn]
+  dimensions          = { Project = local.name }
+}
+
 # Notification-only budgets are free.
 resource "aws_budgets_budget" "monthly" {
   count        = var.alarm_email == "" ? 0 : 1

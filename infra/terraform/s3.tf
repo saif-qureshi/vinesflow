@@ -5,7 +5,7 @@ locals {
   backups_bucket = "${local.name}-backups-${data.aws_caller_identity.current.account_id}"
 }
 
-# ---- Media bucket (fully private; read only via CloudFront) ------------------
+# ---- Media bucket (private S3 origin; object URLs are public bearer URLs) -----
 resource "aws_s3_bucket" "media" {
   bucket = local.media_bucket
   tags   = { Name = local.media_bucket }
@@ -78,6 +78,13 @@ resource "aws_s3_bucket" "backups" {
   tags   = { Name = local.backups_bucket }
 }
 
+resource "aws_s3_bucket_versioning" "backups" {
+  bucket = aws_s3_bucket.backups.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
 resource "aws_s3_bucket_public_access_block" "backups" {
   bucket                  = aws_s3_bucket.backups.id
   block_public_acls       = true
@@ -96,13 +103,18 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "backups" {
 }
 
 resource "aws_s3_bucket_lifecycle_configuration" "backups" {
-  bucket = aws_s3_bucket.backups.id
+  bucket     = aws_s3_bucket.backups.id
+  depends_on = [aws_s3_bucket_versioning.backups]
+
   rule {
     id     = "expire-old-dumps"
     status = "Enabled"
     filter {}
     expiration {
       days = var.backup_retention_days
+    }
+    noncurrent_version_expiration {
+      noncurrent_days = var.backup_retention_days
     }
   }
 }

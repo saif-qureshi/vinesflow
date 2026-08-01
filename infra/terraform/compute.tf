@@ -33,10 +33,13 @@ resource "aws_instance" "app" {
     db_host         = aws_db_instance.main.address
     db_name         = var.db_name
     db_user         = var.db_username
+    compose_version = var.docker_compose_version
     compose_content = file("${path.module}/../docker/docker-compose.prod.yml")
+    caddy_content   = file("${path.module}/../docker/Caddyfile")
+    deploy_script   = file("${path.module}/../docker/deploy.sh")
   })
 
-  # Re-run user_data if the env parameter or compose changes.
+  # Cloud-init is for first boot. Existing hosts receive config and secrets through deploy.sh.
   user_data_replace_on_change = false
 
   tags = { Name = "${local.name}-app" }

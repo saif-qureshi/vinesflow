@@ -1,4 +1,11 @@
-# Runs on the EC2 instance. Image URIs + tag come from deploy.env; secrets from backend.env.
+# Runs on the EC2 instance. Image URIs + immutable tag come from deploy.env;
+# secrets come from backend.env and are refreshed from SSM before each deploy.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   caddy:
     image: caddy:2-alpine
@@ -10,6 +17,9 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+    logging: *default-logging
     depends_on:
       - backend
       - frontend
@@ -25,8 +35,9 @@ services:
       - default
       - internal
     mem_limit: 900m
+    logging: *default-logging
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/ready"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -36,6 +47,7 @@ services:
     image: ${ECR_FRONTEND}:${IMAGE_TAG}
     restart: always
     mem_limit: 300m
+    logging: *default-logging
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
       interval: 30s
@@ -49,40 +61,13 @@ services:
     networks:
       - internal
     mem_limit: 700m
+    logging: *default-logging
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:3000/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
-
-  # Restarts any container that goes UNHEALTHY (not just crashed). Reaches Docker
-  # only through the scoped proxy below — never the raw host socket.
-  autoheal:
-    image: willfarrell/autoheal:1.2.0
-    restart: always
-    depends_on:
-      - dockerproxy
-    environment:
-      AUTOHEAL_CONTAINER_LABEL: all
-      DOCKER_SOCK: tcp://dockerproxy:2375
-    security_opt:
-      - no-new-privileges:true
-    mem_limit: 64m
-
-  # Read-mostly Docker API gateway: exposes only container list/inspect + restart,
-  # so a compromised autoheal cannot become root on the host.
-  dockerproxy:
-    image: tecnativa/docker-socket-proxy:0.3.0
-    restart: always
-    environment:
-      CONTAINERS: 1
-      POST: 1
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    security_opt:
-      - no-new-privileges:true
-    mem_limit: 64m
 
   worker:
     image: ${ECR_BACKEND}:${IMAGE_TAG}
@@ -97,6 +82,7 @@ services:
       - default
       - internal
     mem_limit: 500m
+    logging: *default-logging
 
   # Scheduler for periodic tasks (e.g. FBR reference sync). Enable once such tasks exist.
   # beat:

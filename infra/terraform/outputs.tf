@@ -60,10 +60,10 @@ output "acm_validation_record" {
 
 # ---- Local-dev S3 credentials (scoped to local/*) ---------------------------
 output "local_dev_access_key_id" {
-  value = aws_iam_access_key.local_dev.id
+  value = one(aws_iam_access_key.local_dev[*].id)
 }
 
 output "local_dev_secret_access_key" {
-  value     = aws_iam_access_key.local_dev.secret
+  value     = one(aws_iam_access_key.local_dev[*].secret)
   sensitive = true
 }

@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy import text
 
 from app.api.router import api_router
 from app.core.config import settings
@@ -11,6 +12,7 @@ from app.core.exceptions import PayloadTooLargeError, RateLimitError
 from app.core.ledger import set_ledger_poster
 from app.core.ratelimit import limiter
 from app.core.responses import app_error_handler, register_exception_handlers
+from app.db.session import engine
 from app.modules.accounting.poster import RealLedgerPoster
 
 _docs_enabled = settings.ENVIRONMENT != "production"
@@ -71,3 +73,11 @@ app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 @app.get("/health", tags=["health"])
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/ready", tags=["health"])
+def ready() -> dict[str, str]:
+    """Report readiness only after the database accepts a query."""
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1"))
+    return {"status": "ready"}
