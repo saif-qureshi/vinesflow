@@ -21,6 +21,7 @@ import {
 import { App, Button, Card, Dropdown, Modal, Popconfirm, Tag, Tooltip, Typography } from "@/components/ui";
 import { PaymentModal } from "@/components/payments/PaymentModal";
 import { useCurrency } from "@/hooks/useCurrency";
+import { useBins } from "@/hooks/useBins";
 import {
   useConvertDocument,
   useDeleteDocument,
@@ -67,6 +68,7 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
   const can = useCan();
   const { currentMembership } = useSession();
   const { data: doc, isLoading } = useDocument(config.apiPath, id);
+  const { data: bins } = useBins(doc?.warehouse_id, false, doc?.warehouse_id != null);
   const finalize = useFinalizeDocument(config.apiPath);
   const voidDoc = useVoidDocument(config.apiPath);
   const del = useDeleteDocument(config.apiPath);
@@ -138,6 +140,19 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
 
   const columns: ColumnsType<DocumentLine> = [
     { title: "Description", key: "description", render: (_, l) => l.description },
+    ...((bins?.length ?? 0) > 0 || doc.lines.some((line) => line.bin_id != null)
+      ? ([
+          {
+            title: "Bin",
+            key: "bin",
+            render: (_: unknown, line: DocumentLine) => {
+              if (line.bin_id == null) return "Unassigned";
+              const bin = bins?.find((row) => row.id === line.bin_id);
+              return bin ? `${bin.code} · ${bin.name}` : `#${line.bin_id}`;
+            },
+          },
+        ] as ColumnsType<DocumentLine>)
+      : []),
     {
       title: "Qty",
       key: "qty",

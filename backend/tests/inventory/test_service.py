@@ -5,13 +5,14 @@ from sqlalchemy import select
 
 from app.core.exceptions import BadRequestError, ConflictError
 from app.core.security import hash_password
+from app.modules.inventory.models import StockMovement
 from app.modules.inventory.schemas import (
+    BinCreate,
     InventoryListQuery,
     ReasonCreate,
     StockAdjustInput,
     StockTransferInput,
 )
-from app.modules.inventory.models import StockMovement
 from app.modules.inventory.service import InventoryService
 from app.modules.locations.models import Location
 from app.modules.locations.schemas import LocationCreate
@@ -136,3 +137,55 @@ def test_on_hand_lookup(db):
         StockAdjustInput(product_id=pid, location_id=loc_id, qty_delta=Decimal(5), reason="Damaged goods"),
     )
     assert svc.on_hand(org_id, pid, loc_id) == Decimal(5)
+
+
+def test_stock_is_tracked_by_bin_and_aggregated_by_warehouse(db):
+    org_id, loc_id, pid = _setup(db)
+    svc = InventoryService(db)
+    bin_a = svc.bins.create(org_id, BinCreate(location_id=loc_id, code="A-01", name="Rack A"))
+    bin_b = svc.bins.create(org_id, BinCreate(location_id=loc_id, code="B-01", name="Rack B"))
+
+    svc.adjust(
+        org_id,
+        StockAdjustInput(
+            product_id=pid, location_id=loc_id, bin_id=bin_a.id, qty_delta=Decimal(10)
+        ),
+    )
+    svc.adjust(
+        org_id,
+        StockAdjustInput(product_id=pid, location_id=loc_id, bin_id=bin_b.id, qty_delta=Decimal(4)),
+    )
+
+    assert svc.on_hand(org_id, pid, loc_id) == Decimal(14)
+    assert svc.on_hand(org_id, pid, loc_id, bin_a.id) == Decimal(10)
+
+    svc.transfer(
+        org_id,
+        StockTransferInput(
+            product_id=pid,
+            from_location_id=loc_id,
+            to_location_id=loc_id,
+            from_bin_id=bin_a.id,
+            to_bin_id=bin_b.id,
+            quantity=Decimal(3),
+        ),
+    )
+
+    stock = svc.item_stock(org_id, pid)
+    by_bin = {row.bin_id: row.quantity for row in stock.by_bin}
+    assert stock.on_hand == Decimal(14)
+    assert stock.by_location[0].quantity == Decimal(14)
+    assert by_bin == {bin_a.id: Decimal(7), bin_b.id: Decimal(7)}
+
+    with pytest.raises(BadRequestError, match="Not enough stock"):
+        svc.transfer(
+            org_id,
+            StockTransferInput(
+                product_id=pid,
+                from_location_id=loc_id,
+                to_location_id=loc_id,
+                from_bin_id=bin_a.id,
+                to_bin_id=bin_b.id,
+                quantity=Decimal(8),
+            ),
+        )

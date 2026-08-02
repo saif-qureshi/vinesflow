@@ -12,6 +12,7 @@ from app.core.pagination import decode_cursor, encode_cursor, paginate_cursor
 from app.modules.activities.service import ActivityService
 from app.modules.documents.enums import DocumentStatus, DocumentType
 from app.modules.documents.models import Document, DocumentLine
+from app.modules.inventory.bin_service import BinService
 from app.modules.inventory.models import Reason, StockLevel, StockMovement
 from app.modules.inventory.schemas import (
     InventoryItemRead,
@@ -22,6 +23,7 @@ from app.modules.inventory.schemas import (
     OpeningStockRead,
     ReasonCreate,
     StockAdjustInput,
+    StockByBin,
     StockByLocation,
     StockTransferInput,
 )
@@ -44,6 +46,7 @@ class InventoryService:
     def __init__(self, db: Session) -> None:
         self.db = db
         self.activity = ActivityService(db)
+        self.bins = BinService(db)
         self.ledger = _ledger.ledger_poster
 
     def seed_reasons(self, org_id: int) -> None:
@@ -116,19 +119,25 @@ class InventoryService:
         ):
             raise NotFoundError("Location not found")
 
-    def _level(self, org_id: int, product_id: int, location_id: int) -> StockLevel:
-        level = self.db.scalar(
-            select(StockLevel)
-            .where(
-                StockLevel.org_id == org_id,
-                StockLevel.product_id == product_id,
-                StockLevel.location_id == location_id,
-            )
-            .with_for_update()
+    def _level(
+        self, org_id: int, product_id: int, location_id: int, bin_id: int | None = None
+    ) -> StockLevel:
+        stmt = select(StockLevel).where(
+            StockLevel.org_id == org_id,
+            StockLevel.product_id == product_id,
+            StockLevel.location_id == location_id,
         )
+        stmt = stmt.where(
+            StockLevel.bin_id.is_(None) if bin_id is None else StockLevel.bin_id == bin_id
+        )
+        level = self.db.scalar(stmt.with_for_update())
         if level is None:
             level = StockLevel(
-                org_id=org_id, product_id=product_id, location_id=location_id, quantity=_ZERO
+                org_id=org_id,
+                product_id=product_id,
+                location_id=location_id,
+                bin_id=bin_id,
+                quantity=_ZERO,
             )
             self.db.add(level)
             self.db.flush()
@@ -136,12 +145,26 @@ class InventoryService:
 
     def _on_hand_at(self, org_id: int, product_id: int, location_id: int) -> Decimal:
         qty = self.db.scalar(
-            select(StockLevel.quantity).where(
+            select(func.coalesce(func.sum(StockLevel.quantity), 0)).where(
                 StockLevel.org_id == org_id,
                 StockLevel.product_id == product_id,
                 StockLevel.location_id == location_id,
             )
         )
+        return qty if qty is not None else _ZERO
+
+    def _on_hand_in_bin(
+        self, org_id: int, product_id: int, location_id: int, bin_id: int | None
+    ) -> Decimal:
+        stmt = select(StockLevel.quantity).where(
+            StockLevel.org_id == org_id,
+            StockLevel.product_id == product_id,
+            StockLevel.location_id == location_id,
+        )
+        stmt = stmt.where(
+            StockLevel.bin_id.is_(None) if bin_id is None else StockLevel.bin_id == bin_id
+        )
+        qty = self.db.scalar(stmt)
         return qty if qty is not None else _ZERO
 
     def _apply(
@@ -155,11 +178,13 @@ class InventoryService:
         reason=None,
         unit_cost=None,
         value_delta=None,
+        bin_id=None,
     ) -> StockMovement:
         movement = StockMovement(
             org_id=org_id,
             product_id=product_id,
             location_id=location_id,
+            bin_id=bin_id,
             qty_delta=qty_delta,
             type=type_,
             note=note,
@@ -168,7 +193,7 @@ class InventoryService:
             value_delta=value_delta,
         )
         self.db.add(movement)
-        level = self._level(org_id, product_id, location_id)
+        level = self._level(org_id, product_id, location_id, bin_id)
         level.quantity = level.quantity + qty_delta
         return movement
 
@@ -182,8 +207,10 @@ class InventoryService:
         reference_type,
         reference_id,
         unit_cost=None,
+        bin_id=None,
     ) -> None:
-        level = self._level(org_id, product_id, location_id)
+        self.bins.validate_for_location(org_id, location_id, bin_id)
+        level = self._level(org_id, product_id, location_id, bin_id)
         new_quantity = level.quantity + qty_delta
         if new_quantity < _ZERO:
             raise BadRequestError("Not enough stock at the selected location")
@@ -192,6 +219,7 @@ class InventoryService:
                 org_id=org_id,
                 product_id=product_id,
                 location_id=location_id,
+                bin_id=bin_id,
                 qty_delta=qty_delta,
                 type=type_,
                 reference_type=reference_type,
@@ -213,6 +241,7 @@ class InventoryService:
 
     def adjust(self, org_id: int, payload: StockAdjustInput) -> None:
         product = self._validate(org_id, payload.product_id, payload.location_id)
+        self.bins.validate_for_location(org_id, payload.location_id, payload.bin_id)
         if payload.mode == "value":
             value = payload.value_delta or _ZERO
             if value == _ZERO:
@@ -226,6 +255,7 @@ class InventoryService:
                 payload.note,
                 reason=payload.reason,
                 value_delta=value,
+                bin_id=payload.bin_id,
             )
         else:
             if payload.qty_delta == _ZERO:
@@ -242,6 +272,7 @@ class InventoryService:
                 payload.note,
                 reason=payload.reason,
                 unit_cost=unit_cost,
+                bin_id=payload.bin_id,
             )
             value = (unit_cost or _ZERO) * payload.qty_delta
         self.db.flush()
@@ -257,11 +288,18 @@ class InventoryService:
         self.db.commit()
 
     def transfer(self, org_id: int, payload: StockTransferInput) -> None:
-        if payload.from_location_id == payload.to_location_id:
-            raise BadRequestError("Source and destination locations must differ")
+        if (
+            payload.from_location_id == payload.to_location_id
+            and payload.from_bin_id == payload.to_bin_id
+        ):
+            raise BadRequestError("Source and destination must differ")
         product = self._validate(org_id, payload.product_id, payload.from_location_id)
         self._validate_location(org_id, payload.to_location_id)
-        available = self._on_hand_at(org_id, payload.product_id, payload.from_location_id)
+        self.bins.validate_for_location(org_id, payload.from_location_id, payload.from_bin_id)
+        self.bins.validate_for_location(org_id, payload.to_location_id, payload.to_bin_id)
+        available = self._on_hand_in_bin(
+            org_id, payload.product_id, payload.from_location_id, payload.from_bin_id
+        )
         if available < payload.quantity:
             raise BadRequestError("Not enough stock at the source location")
         self._apply(
@@ -271,6 +309,7 @@ class InventoryService:
             -payload.quantity,
             "transfer",
             payload.note,
+            bin_id=payload.from_bin_id,
         )
         self._apply(
             org_id,
@@ -279,14 +318,15 @@ class InventoryService:
             payload.quantity,
             "transfer",
             payload.note,
+            bin_id=payload.to_bin_id,
         )
         self._record(org_id, "transferred", product, payload.quantity, payload.to_location_id)
         self.db.commit()
 
     def _opening_state(
         self, org_id: int, product_id: int
-    ) -> dict[int, tuple[Decimal, Decimal, Decimal | None]]:
-        """Return quantity, recognized value and latest rate per location."""
+    ) -> dict[tuple[int, int | None], tuple[Decimal, Decimal, Decimal | None]]:
+        """Return quantity, recognized value and latest rate per warehouse/bin."""
         movements = self.db.scalars(
             select(StockMovement)
             .where(
@@ -296,16 +336,17 @@ class InventoryService:
             )
             .order_by(StockMovement.id)
         )
-        state: dict[int, tuple[Decimal, Decimal, Decimal | None]] = {}
+        state: dict[tuple[int, int | None], tuple[Decimal, Decimal, Decimal | None]] = {}
         for movement in movements:
-            quantity, value, unit_cost = state.get(movement.location_id, (_ZERO, _ZERO, None))
+            key = (movement.location_id, movement.bin_id)
+            quantity, value, unit_cost = state.get(key, (_ZERO, _ZERO, None))
             quantity += movement.qty_delta
             if movement.value_delta is not None:
                 value += movement.value_delta
             elif movement.unit_cost is not None:
                 value += movement.qty_delta * movement.unit_cost
             unit_cost = movement.unit_cost
-            state[movement.location_id] = (quantity, value, unit_cost)
+            state[key] = (quantity, value, unit_cost)
         return state
 
     def _opening_editable(self, org_id: int, product_id: int) -> bool:
@@ -335,11 +376,14 @@ class InventoryService:
             entries=[
                 OpeningStockLocationRead(
                     location_id=location_id,
+                    bin_id=bin_id,
                     quantity=quantity,
                     unit_cost=unit_cost,
                     value=value,
                 )
-                for location_id, (quantity, value, unit_cost) in sorted(state.items())
+                for (location_id, bin_id), (quantity, value, unit_cost) in sorted(
+                    state.items(), key=lambda row: (row[0][0], row[0][1] or 0)
+                )
                 if quantity != _ZERO or value != _ZERO
             ],
         )
@@ -362,19 +406,22 @@ class InventoryService:
                 "use Adjust Stock instead"
             )
 
-        requested: dict[int, tuple[Decimal, Decimal | None]] = {}
+        requested: dict[tuple[int, int | None], tuple[Decimal, Decimal | None]] = {}
         for entry in payload.entries:
-            if entry.location_id in requested:
-                raise BadRequestError("Each warehouse can appear only once")
+            key = (entry.location_id, entry.bin_id)
+            if key in requested:
+                raise BadRequestError("Each warehouse and bin combination can appear only once")
             self._validate_location(org_id, entry.location_id)
-            requested[entry.location_id] = (entry.quantity, entry.unit_cost)
+            self.bins.validate_for_location(org_id, entry.location_id, entry.bin_id)
+            requested[key] = (entry.quantity, entry.unit_cost)
 
         current = self._opening_state(org_id, product.id)
         movements: list[StockMovement] = []
         value_delta = _ZERO
-        for location_id in sorted(requested):
-            old_quantity, old_value, _ = current.get(location_id, (_ZERO, _ZERO, None))
-            new_quantity, new_cost = requested[location_id]
+        for location_id, bin_id in sorted(requested, key=lambda key: (key[0], key[1] or 0)):
+            key = (location_id, bin_id)
+            old_quantity, old_value, _ = current.get(key, (_ZERO, _ZERO, None))
+            new_quantity, new_cost = requested[key]
             new_value = new_quantity * new_cost if new_cost is not None else _ZERO
             quantity_delta = new_quantity - old_quantity
             location_value_delta = new_value - old_value
@@ -391,6 +438,7 @@ class InventoryService:
                 value_delta=(
                     location_value_delta if new_cost is not None or old_value != _ZERO else None
                 ),
+                bin_id=bin_id,
             )
             movements.append(movement)
             value_delta += location_value_delta
@@ -422,15 +470,17 @@ class InventoryService:
 
     def item_stock(self, org_id: int, product_id: int) -> ItemStockRead:
         rows = self.db.execute(
-            select(StockLevel.location_id, StockLevel.quantity).where(
+            select(StockLevel.location_id, StockLevel.bin_id, StockLevel.quantity).where(
                 StockLevel.org_id == org_id, StockLevel.product_id == product_id
             )
         ).all()
         by_location: dict[int, Decimal] = {}
+        by_bin: list[StockByBin] = []
         total = _ZERO
-        for location_id, quantity in rows:
+        for location_id, bin_id, quantity in rows:
             total += quantity
             by_location[location_id] = by_location.get(location_id, _ZERO) + quantity
+            by_bin.append(StockByBin(location_id=location_id, bin_id=bin_id, quantity=quantity))
         opening = self.db.scalar(
             select(func.coalesce(func.sum(StockMovement.qty_delta), 0)).where(
                 StockMovement.org_id == org_id,
@@ -450,6 +500,7 @@ class InventoryService:
             by_location=[
                 StockByLocation(location_id=k, quantity=v) for k, v in by_location.items()
             ],
+            by_bin=by_bin,
         )
 
     def _open_order_qty(self, org_id: int, product_id: int, doc_type: DocumentType) -> Decimal:
@@ -468,9 +519,29 @@ class InventoryService:
         )
         return qty if qty is not None else _ZERO
 
-    def on_hand(self, org_id: int, product_id: int, location_id: int) -> Decimal:
+    def on_hand(
+        self,
+        org_id: int,
+        product_id: int,
+        location_id: int,
+        bin_id: int | None = None,
+        *,
+        unbinned: bool = False,
+    ) -> Decimal:
         self._validate_location(org_id, location_id)
-        return self._on_hand_at(org_id, product_id, location_id)
+        if unbinned:
+            return self._on_hand_in_bin(org_id, product_id, location_id, None)
+        if bin_id is None:
+            return self._on_hand_at(org_id, product_id, location_id)
+        self.bins.validate_for_location(org_id, location_id, bin_id, active=False)
+        return self._on_hand_in_bin(org_id, product_id, location_id, bin_id)
+
+    def on_hand_in_bin(
+        self, org_id: int, product_id: int, location_id: int, bin_id: int | None
+    ) -> Decimal:
+        self._validate_location(org_id, location_id)
+        self.bins.validate_for_location(org_id, location_id, bin_id)
+        return self._on_hand_in_bin(org_id, product_id, location_id, bin_id)
 
     def movements(
         self, org_id: int, product_id: int, query

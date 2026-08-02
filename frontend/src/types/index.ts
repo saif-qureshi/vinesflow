@@ -55,6 +55,8 @@ export type {
 } from "./expense";
 export type { Media, MediaInput } from "./media";
 export type {
+  Bin,
+  BinInput,
   InventoryItem,
   ItemStock,
   OpeningStock,

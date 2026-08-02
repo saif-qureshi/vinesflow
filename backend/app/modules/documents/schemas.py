@@ -11,6 +11,7 @@ from app.core.pagination import ListQuery
 
 class DocumentLineInput(BaseModel):
     product_id: int | None = None
+    bin_id: int | None = None
     description: str = Field(min_length=1, max_length=500)
     quantity: Decimal = Field(gt=0)
     unit_price: Decimal = Field(ge=0)
@@ -19,7 +20,7 @@ class DocumentLineInput(BaseModel):
     tax_rate_id: int | None = None
 
     @model_validator(mode="after")
-    def _cap_percentage(self) -> "DocumentLineInput":
+    def _cap_percentage(self) -> DocumentLineInput:
         if self.discount_type == "percent" and self.discount_value > 100:
             raise ValueError("A percentage discount cannot exceed 100%")
         return self
@@ -87,6 +88,7 @@ class DocumentLineRead(BaseModel):
 
     id: int
     product_id: int | None = None
+    bin_id: int | None = None
     description: str
     quantity: Decimal
     unit_price: Decimal

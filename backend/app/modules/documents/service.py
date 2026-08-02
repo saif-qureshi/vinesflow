@@ -186,9 +186,9 @@ class DocumentService:
             self.db.add(doc)
             self.db.flush()
             savepoint.commit()
-        except IntegrityError:
+        except IntegrityError as exc:
             savepoint.rollback()
-            raise ConflictError(f"Number '{number}' is already in use")
+            raise ConflictError(f"Number '{number}' is already in use") from exc
 
     def next_number(self, org_id: int, doc_type: DocumentType) -> str:
         prefix, start, restart = numbering_format(
@@ -297,6 +297,7 @@ class DocumentService:
             lines.append(
                 DocumentLine(
                     product_id=line.product_id,
+                    bin_id=line.bin_id,
                     description=line.description,
                     quantity=line.quantity,
                     unit_price=line.unit_price,
@@ -313,6 +314,17 @@ class DocumentService:
             discount_total += discount
             tax_total += tax
         return lines, subtotal, discount_total, tax_total
+
+    def _validate_line_bins(
+        self, org_id: int, warehouse_id: int | None, lines: list[DocumentLine]
+    ) -> None:
+        bin_ids = {line.bin_id for line in lines if line.bin_id is not None}
+        if not bin_ids:
+            return
+        if warehouse_id is None:
+            raise BadRequestError("Select a warehouse before selecting a bin")
+        for bin_id in bin_ids:
+            self.inventory.bins.validate_for_location(org_id, warehouse_id, bin_id)
 
     def _apply_totals(
         self,
@@ -468,9 +480,7 @@ class DocumentService:
             issue_date=issue_date,
             due_date=due_date,
             expected_shipment_date=(
-                payload.expected_shipment_date
-                if doc_type == DocumentType.SALES_ORDER
-                else None
+                payload.expected_shipment_date if doc_type == DocumentType.SALES_ORDER else None
             ),
             reference=payload.reference,
             notes=payload.notes,
@@ -488,6 +498,7 @@ class DocumentService:
             ),
         )
         lines, subtotal, discount_total, tax_total = self._build_lines(org_id, payload.lines)
+        self._validate_line_bins(org_id, doc.warehouse_id, lines)
         doc.lines = lines
         further_total = _ZERO
         if doc_type in (DocumentType.INVOICE, DocumentType.CREDIT_NOTE) and self._org_fbr_enabled(
@@ -585,6 +596,7 @@ class DocumentService:
             doc.adjustment = _q(payload.adjustment)
         if payload.lines is not None:
             lines, subtotal, discount_total, tax_total = self._build_lines(org_id, payload.lines)
+            self._validate_line_bins(org_id, doc.warehouse_id, lines)
             doc.lines = lines
             further_total = _ZERO
             if doc_type in (
@@ -595,6 +607,7 @@ class DocumentService:
                 tax_total, further_total = self._apply_fbr_tax(org_id, lines, party)
             self._apply_totals(doc, subtotal, discount_total, tax_total, further_total)
         else:
+            self._validate_line_bins(org_id, doc.warehouse_id, list(doc.lines))
             self._apply_totals(
                 doc, doc.subtotal, doc.discount_total, doc.tax_total, doc.further_tax_total
             )
@@ -771,6 +784,7 @@ class DocumentService:
         line_inputs = [
             DocumentLineInput(
                 product_id=line.product_id,
+                bin_id=line.bin_id,
                 description=line.description,
                 quantity=line.quantity,
                 unit_price=line.unit_price,
@@ -962,12 +976,13 @@ class DocumentService:
                 )
             )
         }
-        required: dict[int, Decimal] = {}
+        required: dict[tuple[int, int | None], Decimal] = {}
         for line in doc.lines:
             if line.product_id in products:
-                required[line.product_id] = required.get(line.product_id, _ZERO) + line.quantity
-        for product_id, quantity in required.items():
-            available = self.inventory.on_hand(org_id, product_id, doc.warehouse_id)
+                key = (line.product_id, line.bin_id)
+                required[key] = required.get(key, _ZERO) + line.quantity
+        for (product_id, bin_id), quantity in required.items():
+            available = self.inventory.on_hand_in_bin(org_id, product_id, doc.warehouse_id, bin_id)
             if available < quantity:
                 raise BadRequestError(
                     f"Not enough stock for {products[product_id].name} at the selected warehouse"
@@ -1006,4 +1021,5 @@ class DocumentService:
                 reference_type=doc.type,
                 reference_id=doc.id,
                 unit_cost=unit_cost,
+                bin_id=line.bin_id,
             )

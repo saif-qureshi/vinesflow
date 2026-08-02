@@ -5,10 +5,11 @@ import { DatePicker, InputNumber, Spin } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 
 import { App, Form, Modal } from "@/components/ui";
+import { useBins } from "@/hooks/useBins";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useOpeningStock, useSetOpeningStock } from "@/hooks/useInventory";
 import { apiErrorMessage } from "@/lib/api";
-import type { Warehouse } from "@/types";
+import type { Bin, Warehouse } from "@/types";
 
 interface RowValue {
   quantity?: number | null;
@@ -17,8 +18,11 @@ interface RowValue {
 
 interface FormValues {
   date: Dayjs;
-  entries: Record<number, RowValue | undefined>;
+  entries: Record<string, RowValue | undefined>;
 }
+
+const entryKey = (locationId: number, binId: number | null) =>
+  `${locationId}:${binId ?? "unassigned"}`;
 
 export function OpeningStockModal({
   item,
@@ -32,6 +36,7 @@ export function OpeningStockModal({
   const { message } = App.useApp();
   const { currency, money } = useCurrency();
   const opening = useOpeningStock(item?.id ?? null);
+  const bins = useBins();
   const saveOpening = useSetOpeningStock();
   const [form] = Form.useForm<FormValues>();
   const open = item != null;
@@ -44,7 +49,7 @@ export function OpeningStockModal({
       date: dayjs(),
       entries: Object.fromEntries(
         (opening.data?.entries ?? []).map((entry) => [
-          entry.location_id,
+          entryKey(entry.location_id, entry.bin_id),
           {
             quantity: Number(entry.quantity),
             unit_cost: entry.unit_cost == null ? null : Number(entry.unit_cost),
@@ -54,13 +59,31 @@ export function OpeningStockModal({
     });
   }, [form, open, opening.data]);
 
-  const openingLocations = useMemo(
-    () => new Set((opening.data?.entries ?? []).map((entry) => entry.location_id)),
+  const openingKeys = useMemo(
+    () =>
+      new Set(
+        (opening.data?.entries ?? []).map((entry) =>
+          entryKey(entry.location_id, entry.bin_id),
+        ),
+      ),
     [opening.data],
   );
-  const visibleWarehouses = warehouses.filter(
-    (warehouse) => warehouse.is_active || openingLocations.has(warehouse.id),
-  );
+  const visibleRows = useMemo(() => {
+    const result: { key: string; warehouse: Warehouse; bin: Bin | null }[] = [];
+    for (const warehouse of warehouses) {
+      const unassignedKey = entryKey(warehouse.id, null);
+      if (warehouse.is_active || openingKeys.has(unassignedKey)) {
+        result.push({ key: unassignedKey, warehouse, bin: null });
+      }
+      for (const bin of (bins.data ?? []).filter((row) => row.location_id === warehouse.id)) {
+        const key = entryKey(warehouse.id, bin.id);
+        if ((warehouse.is_active && bin.is_active) || openingKeys.has(key)) {
+          result.push({ key, warehouse, bin });
+        }
+      }
+    }
+    return result;
+  }, [bins.data, openingKeys, warehouses]);
 
   const rows = Form.useWatch("entries", form) ?? {};
 
@@ -70,12 +93,13 @@ export function OpeningStockModal({
       await saveOpening.mutateAsync({
         product_id: item.id,
         date: values.date.format("YYYY-MM-DD"),
-        entries: warehouses
-          .filter((warehouse) => warehouse.is_active)
-          .map((warehouse) => ({
+        entries: visibleRows
+          .filter(({ warehouse, bin }) => warehouse.is_active && (bin == null || bin.is_active))
+          .map(({ key, warehouse, bin }) => ({
             location_id: warehouse.id,
-            quantity: Number(values.entries?.[warehouse.id]?.quantity || 0),
-            unit_cost: values.entries?.[warehouse.id]?.unit_cost ?? null,
+            bin_id: bin?.id ?? null,
+            quantity: Number(values.entries?.[key]?.quantity || 0),
+            unit_cost: values.entries?.[key]?.unit_cost ?? null,
           })),
       });
       message.success("Opening stock saved");
@@ -97,7 +121,7 @@ export function OpeningStockModal({
       destroyOnHidden
       width={760}
     >
-      {opening.isLoading ? (
+      {opening.isLoading || bins.isLoading ? (
         <div className="flex min-h-48 items-center justify-center">
           <Spin />
         </div>
@@ -127,33 +151,32 @@ export function OpeningStockModal({
 
           <div className="overflow-hidden rounded-lg border border-gray-200">
             <div className="hidden grid-cols-[minmax(0,1fr)_150px_180px_120px] gap-4 bg-slate-50 px-4 py-2 text-xs font-medium uppercase tracking-wide text-gray-500 sm:grid">
-              <span>Warehouse</span>
+              <span>Warehouse / bin</span>
               <span>Quantity</span>
               <span>Rate per unit</span>
               <span className="text-right">Value</span>
             </div>
-            {visibleWarehouses.map((warehouse) => {
-              const row = rows[warehouse.id] ?? {};
+            {visibleRows.map(({ key, warehouse, bin }) => {
+              const row = rows[key] ?? {};
               const value = Number(row.quantity || 0) * Number(row.unit_cost || 0);
-              const disabled = !editable || !warehouse.is_active;
+              const disabled = !editable || !warehouse.is_active || bin?.is_active === false;
               return (
                 <div
-                  key={warehouse.id}
+                  key={key}
                   className="grid grid-cols-1 items-center gap-3 border-t border-gray-100 px-4 py-3 first:border-t-0 sm:grid-cols-[minmax(0,1fr)_150px_180px_120px] sm:gap-4"
                 >
                   <div>
-                    <div className="text-sm font-medium text-slate-800">{warehouse.name}</div>
+                    <div className="text-sm font-medium text-slate-800">
+                      {warehouse.name}
+                    </div>
                     <div className="text-xs text-gray-400">
-                      {warehouse.is_default
-                        ? "Default warehouse"
-                        : warehouse.is_active
-                          ? "Active"
-                          : "Inactive"}
+                      {bin ? `${bin.code} — ${bin.name}` : "Unassigned to a bin"}
+                      {disabled && editable ? " · Inactive" : ""}
                     </div>
                   </div>
                   <label>
                     <span className="mb-1 block text-xs text-gray-500 sm:hidden">Quantity</span>
-                    <Form.Item name={["entries", warehouse.id, "quantity"]} noStyle>
+                    <Form.Item name={["entries", key, "quantity"]} noStyle>
                       <InputNumber
                         className="!w-full"
                         min={0}
@@ -169,7 +192,7 @@ export function OpeningStockModal({
                     <span className="mb-1 block text-xs text-gray-500 sm:hidden">
                       Rate per unit
                     </span>
-                    <Form.Item name={["entries", warehouse.id, "unit_cost"]} noStyle>
+                    <Form.Item name={["entries", key, "unit_cost"]} noStyle>
                       <InputNumber
                         className="!w-full"
                         min={0}
@@ -188,7 +211,7 @@ export function OpeningStockModal({
                 </div>
               );
             })}
-            {!visibleWarehouses.length && (
+            {!visibleRows.length && (
               <div className="px-4 py-8 text-center text-sm text-gray-500">
                 Create an active warehouse before setting opening stock.
               </div>

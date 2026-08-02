@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Checkbox, Switch } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Boxes, Pencil, Plus, Trash2 } from "lucide-react";
 
 import {
   App,
@@ -35,6 +36,7 @@ interface FormValues {
 }
 
 export default function WarehousesPage() {
+  const router = useRouter();
   const { message, modal } = App.useApp();
   const can = useCan();
   const { data, isLoading } = useWarehouses();
@@ -125,10 +127,18 @@ export default function WarehousesPage() {
     {
       title: "",
       key: "actions",
-      width: 96,
+      width: 132,
       align: "right",
       render: (_, w) => (
         <div className="flex justify-end gap-1">
+          {canEdit && (
+            <Button
+              type="text"
+              size="small"
+              icon={<Boxes size={14} />}
+              onClick={() => router.push(`/inventory/warehouses/${w.id}/bins`)}
+            />
+          )}
           {canEdit && (
             <Button type="text" size="small" icon={<Pencil size={14} />} onClick={() => startEdit(w)} />
           )}

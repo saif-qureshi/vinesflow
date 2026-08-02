@@ -18,6 +18,22 @@ export interface WarehouseInput {
   is_active?: boolean;
 }
 
+export interface Bin {
+  id: number;
+  location_id: number;
+  code: string;
+  name: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface BinInput {
+  location_id: number;
+  code: string;
+  name: string;
+  is_active?: boolean;
+}
+
 export interface InventoryItem {
   id: number;
   name: string;
@@ -33,6 +49,7 @@ export interface StockMovement {
   id: number;
   product_id: number;
   location_id: number;
+  bin_id: number | null;
   qty_delta: string;
   type: string;
   reason: string | null;
@@ -50,10 +67,12 @@ export interface ItemStock {
   to_be_invoiced: string;
   to_be_billed: string;
   by_location: { location_id: number; quantity: string }[];
+  by_bin: { location_id: number; bin_id: number | null; quantity: string }[];
 }
 
 export interface OpeningStockLocation {
   location_id: number;
+  bin_id: number | null;
   quantity: string;
   unit_cost: string | null;
   value: string;
@@ -70,6 +89,7 @@ export interface OpeningStockInput {
   date?: string | null;
   entries: {
     location_id: number;
+    bin_id?: number | null;
     quantity: number;
     unit_cost?: number | null;
   }[];

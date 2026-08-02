@@ -15,6 +15,7 @@ export interface DocumentParty {
 export interface DocumentLine {
   id: number;
   product_id: number | null;
+  bin_id: number | null;
   description: string;
   quantity: string;
   unit_price: string;
@@ -93,6 +94,7 @@ export interface DocumentSummary {
 
 export interface DocumentLineInput {
   product_id?: number | null;
+  bin_id?: number | null;
   description: string;
   quantity: number;
   unit_price: number;

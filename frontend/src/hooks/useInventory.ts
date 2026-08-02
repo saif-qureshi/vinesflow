@@ -69,14 +69,26 @@ export function useOpeningStock(productId: number | null) {
   });
 }
 
-export function useOnHand(productId: number | null, locationId: number | null | undefined) {
+export function useOnHand(
+  productId: number | null,
+  locationId: number | null | undefined,
+  binId?: number | null,
+  exactBin = false,
+) {
   const token = useSessionStore((s) => s.accessToken);
   const orgId = useSessionStore((s) => s.currentOrgId);
   return useQuery({
-    queryKey: ["on-hand", orgId, productId, locationId ?? null],
+    queryKey: ["on-hand", orgId, productId, locationId ?? null, binId ?? null, exactBin],
     queryFn: async () =>
-      (await api.get<{ quantity: string }>(`/inventory/${productId}/on-hand?location_id=${locationId}`))
-        .data.quantity,
+      (
+        await api.get<{ quantity: string }>(`/inventory/${productId}/on-hand`, {
+          params: {
+            location_id: locationId,
+            ...(binId != null ? { bin_id: binId } : {}),
+            ...(exactBin && binId == null ? { unbinned: true } : {}),
+          },
+        })
+      ).data.quantity,
     enabled: !!token && !!orgId && !!productId && !!locationId,
   });
 }
@@ -96,6 +108,7 @@ export function useItemMovements(productId: number | null, limit = 50) {
 interface AdjustInput {
   product_id: number;
   location_id: number;
+  bin_id?: number | null;
   mode?: "quantity" | "value";
   qty_delta?: number;
   value_delta?: number | null;
@@ -110,6 +123,8 @@ interface TransferInput {
   product_id: number;
   from_location_id: number;
   to_location_id: number;
+  from_bin_id?: number | null;
+  to_bin_id?: number | null;
   quantity: number;
   note?: string | null;
 }

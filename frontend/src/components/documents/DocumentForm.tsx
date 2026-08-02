@@ -21,6 +21,7 @@ import {
   Typography,
 } from "@/components/ui";
 import { useCurrency } from "@/hooks/useCurrency";
+import { useBins } from "@/hooks/useBins";
 import {
   useCreateDocument,
   useFinalizeDocument,
@@ -44,6 +45,7 @@ import type { DiscountType, DocumentInput, DocumentRecord } from "@/types";
 interface LineRow {
   key: string;
   product_id: number | null;
+  bin_id: number | null;
   description: string;
   quantity: number;
   unit_price: number;
@@ -81,6 +83,7 @@ const newKey = () => `line-${counter++}`;
 const emptyLine = (): LineRow => ({
   key: newKey(),
   product_id: null,
+  bin_id: null,
   description: "",
   quantity: 1,
   unit_price: 0,
@@ -118,6 +121,7 @@ export function DocumentForm({
   const { data: taxRates } = useTaxRates();
   const { data: warehouses } = useWarehouses();
   const warehouseId = Form.useWatch("warehouse_id", form);
+  const { data: bins } = useBins(warehouseId, true, warehouseId != null);
   const [itemSearch, setItemSearch] = useState("");
   const { data: sellable } = useSellableItems(itemSearch, warehouseId);
   const parties = useParties(config.partyRole);
@@ -138,6 +142,7 @@ export function DocumentForm({
       ? document.lines.map((l) => ({
           key: newKey(),
           product_id: l.product_id,
+          bin_id: l.bin_id,
           description: l.description,
           quantity: Number(l.quantity),
           unit_price: Number(l.unit_price),
@@ -158,6 +163,7 @@ export function DocumentForm({
   const [discountMode, setDiscountMode] = useState<DiscountType>(
     () => document?.lines[0]?.discount_type ?? "amount",
   );
+  const previousWarehouseId = useRef<number | null | undefined>(document?.warehouse_id);
 
   const lineProductIds = useMemo(
     () => lines.map((l) => l.product_id).filter((id): id is number => id != null),
@@ -175,6 +181,14 @@ export function DocumentForm({
     const preferred = warehouses.find((w) => w.is_default) ?? warehouses[0];
     if (preferred) form.setFieldValue("warehouse_id", preferred.id);
   }, [warehouses, isEdit, form]);
+
+  useEffect(() => {
+    if (previousWarehouseId.current === warehouseId) return;
+    if (previousWarehouseId.current !== undefined) {
+      setLines((prev) => prev.map((line) => ({ ...line, bin_id: null })));
+    }
+    previousWarehouseId.current = warehouseId;
+  }, [warehouseId]);
 
   useEffect(() => {
     if (isEdit || !nextNumber.data?.number || form.getFieldValue("number")) return;
@@ -336,6 +350,29 @@ export function DocumentForm({
         />
       ),
     },
+    ...((bins?.length ?? 0) > 0
+      ? ([
+          {
+            title: "Bin",
+            key: "bin",
+            width: 170,
+            render: (_: unknown, row: LineRow) => (
+              <Select
+                value={row.bin_id ?? undefined}
+                onChange={(value) => patchLine(row.key, { bin_id: value ?? null })}
+                options={(bins ?? []).map((bin) => ({
+                  value: bin.id,
+                  label: `${bin.code} · ${bin.name}`,
+                }))}
+                placeholder="Unassigned"
+                disabled={!row.track_inventory}
+                allowClear
+                className="w-full"
+              />
+            ),
+          },
+        ] as ColumnsType<LineRow>)
+      : []),
     {
       title: "Qty",
       key: "quantity",
@@ -526,6 +563,7 @@ export function DocumentForm({
         : {}),
       lines: clean.map((l) => ({
         product_id: l.product_id,
+        bin_id: l.bin_id,
         description: l.description.trim() || "Item",
         quantity: l.quantity,
         unit_price: l.unit_price,

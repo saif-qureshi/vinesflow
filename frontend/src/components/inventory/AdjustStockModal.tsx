@@ -6,6 +6,7 @@ import dayjs, { type Dayjs } from "dayjs";
 
 import { App, Form, Modal, TextArea } from "@/components/ui";
 import { useAccounts } from "@/hooks/useAccounting";
+import { useBins } from "@/hooks/useBins";
 import { useAdjustStock, useOnHand } from "@/hooks/useInventory";
 import { useReasons } from "@/hooks/useReasons";
 import { apiErrorMessage } from "@/lib/api";
@@ -14,6 +15,7 @@ import type { InventoryItem, Warehouse } from "@/types";
 interface FormValues {
   mode: "quantity" | "value";
   location_id: number;
+  bin_id?: number | null;
   date: Dayjs;
   account_id?: number;
   qty_delta?: number;
@@ -46,8 +48,15 @@ export function AdjustStockModal({
 
   const mode = Form.useWatch("mode", form) ?? "quantity";
   const locationId = Form.useWatch("location_id", form);
+  const binId = Form.useWatch("bin_id", form);
   const qtyDelta = Form.useWatch("qty_delta", form);
-  const { data: available } = useOnHand(open ? item?.id ?? null : null, locationId);
+  const bins = useBins(locationId, true);
+  const { data: available } = useOnHand(
+    open ? item?.id ?? null : null,
+    locationId,
+    binId,
+    true,
+  );
   const availableQty = num(available);
   const newOnHand = availableQty + num(qtyDelta);
   const uom = item?.uom_symbol ?? "";
@@ -77,6 +86,7 @@ export function AdjustStockModal({
       await adjust.mutateAsync({
         product_id: item.id,
         location_id: values.location_id,
+        bin_id: values.bin_id ?? null,
         mode: values.mode,
         qty_delta: values.mode === "quantity" ? values.qty_delta : 0,
         value_delta: values.mode === "value" ? values.value_delta : null,
@@ -104,7 +114,15 @@ export function AdjustStockModal({
       destroyOnHidden
       width={600}
     >
-      <Form<FormValues> form={form} layout="vertical" onFinish={submit} className="pt-2">
+      <Form<FormValues>
+        form={form}
+        layout="vertical"
+        onFinish={submit}
+        onValuesChange={(changed) => {
+          if ("location_id" in changed) form.setFieldValue("bin_id", undefined);
+        }}
+        className="pt-2"
+      >
         <Form.Item name="mode">
           <Radio.Group optionType="button" buttonStyle="solid">
             <Radio value="quantity">Quantity adjustment</Radio>
@@ -112,13 +130,26 @@ export function AdjustStockModal({
           </Radio.Group>
         </Form.Item>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className={`grid grid-cols-1 gap-4 ${bins.data?.length ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
           <Form.Item name="date" label="Date" rules={[{ required: true }]}>
             <DatePicker className="!w-full" format="DD MMM YYYY" allowClear={false} />
           </Form.Item>
           <Form.Item name="location_id" label="Warehouse" rules={[{ required: true }]}>
             <Select options={warehouses.map((w) => ({ value: w.id, label: w.name }))} />
           </Form.Item>
+          {!!bins.data?.length && (
+            <Form.Item name="bin_id" label="Bin">
+              <Select
+                allowClear
+                placeholder="Unassigned"
+                loading={bins.isLoading}
+                options={bins.data.map((bin) => ({
+                  value: bin.id,
+                  label: `${bin.code} — ${bin.name}`,
+                }))}
+              />
+            </Form.Item>
+          )}
         </div>
 
         <Form.Item

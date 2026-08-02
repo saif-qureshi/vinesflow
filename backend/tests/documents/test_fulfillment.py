@@ -9,7 +9,8 @@ from app.modules.documents.enums import DocumentStatus, DocumentType
 from app.modules.documents.models import TaxRate
 from app.modules.documents.schemas import DocumentCreate, DocumentLineInput, DocumentUpdate
 from app.modules.documents.service import DocumentService
-from app.modules.inventory.schemas import StockAdjustInput
+from app.modules.inventory.models import StockMovement
+from app.modules.inventory.schemas import BinCreate, StockAdjustInput
 from app.modules.inventory.service import InventoryService
 from app.modules.locations.models import Location
 from app.modules.orgs.service import OrgService
@@ -81,6 +82,47 @@ def test_delivery_challan_ships_stock(db):
     svc.finalize(org_id, challan.id)
     assert challan.stock_posted is True
     assert InventoryService(db).item_stock(org_id, pid).on_hand == Decimal(15)
+
+
+def test_delivery_challan_ships_from_selected_bin(db):
+    org_id, loc_id, party_id, pid, tax_id = _setup(db)
+    inventory = InventoryService(db)
+    bin_ = inventory.bins.create(org_id, BinCreate(location_id=loc_id, code="A-01", name="Rack A"))
+    inventory.adjust(
+        org_id,
+        StockAdjustInput(product_id=pid, location_id=loc_id, bin_id=bin_.id, qty_delta=Decimal(6)),
+    )
+    svc = DocumentService(db)
+    challan = svc.create(
+        org_id,
+        DocumentType.DELIVERY_CHALLAN,
+        DocumentCreate(
+            party_id=party_id,
+            warehouse_id=loc_id,
+            lines=[
+                DocumentLineInput(
+                    product_id=pid,
+                    bin_id=bin_.id,
+                    description="Widget",
+                    quantity=Decimal(5),
+                    unit_price=Decimal(100),
+                    tax_rate_id=tax_id,
+                )
+            ],
+        ),
+    )
+
+    svc.finalize(org_id, challan.id)
+
+    assert inventory.on_hand(org_id, pid, loc_id, bin_.id) == Decimal(1)
+    movement = db.scalar(
+        select(StockMovement).where(
+            StockMovement.reference_type == DocumentType.DELIVERY_CHALLAN,
+            StockMovement.reference_id == challan.id,
+        )
+    )
+    assert movement is not None
+    assert movement.bin_id == bin_.id
 
 
 def test_order_to_challan_to_invoice_moves_stock_once(db):

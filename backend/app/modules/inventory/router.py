@@ -8,7 +8,11 @@ from app.api.deps import require_permission
 from app.core.container import Provide
 from app.core.pagination import CursorPage, CursorParams
 from app.core.responses import EnvelopeRoute
+from app.modules.inventory.bin_service import BinService
 from app.modules.inventory.schemas import (
+    BinCreate,
+    BinRead,
+    BinUpdate,
     InventoryItemRead,
     InventoryListQuery,
     ItemStockRead,
@@ -26,6 +30,45 @@ from app.modules.orgs.models import Membership
 
 router = APIRouter(prefix="/inventory", tags=["inventory"], route_class=EnvelopeRoute)
 Svc = Depends(Provide(InventoryService))
+Bins = Depends(Provide(BinService))
+
+
+@router.get("/bins", response_model=list[BinRead])
+def list_bins(
+    location_id: int | None = None,
+    active_only: bool = False,
+    membership: Membership = Depends(require_permission("inventory:read")),
+    svc: BinService = Bins,
+):
+    return svc.list(membership.org_id, location_id=location_id, active_only=active_only)
+
+
+@router.post("/bins", response_model=BinRead, status_code=status.HTTP_201_CREATED)
+def create_bin(
+    payload: BinCreate,
+    membership: Membership = Depends(require_permission("inventory:create")),
+    svc: BinService = Bins,
+):
+    return svc.create(membership.org_id, payload)
+
+
+@router.patch("/bins/{bin_id}", response_model=BinRead)
+def update_bin(
+    bin_id: int,
+    payload: BinUpdate,
+    membership: Membership = Depends(require_permission("inventory:update")),
+    svc: BinService = Bins,
+):
+    return svc.update(membership.org_id, bin_id, payload)
+
+
+@router.delete("/bins/{bin_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_bin(
+    bin_id: int,
+    membership: Membership = Depends(require_permission("inventory:delete")),
+    svc: BinService = Bins,
+) -> None:
+    svc.delete(membership.org_id, bin_id)
 
 
 @router.get("/reasons", response_model=list[ReasonRead])
@@ -113,10 +156,14 @@ def item_stock(
 def item_on_hand(
     product_id: int,
     location_id: int,
+    bin_id: int | None = None,
+    unbinned: bool = False,
     membership: Membership = Depends(require_permission("inventory:read")),
     svc: InventoryService = Svc,
 ) -> OnHandRead:
-    return OnHandRead(quantity=svc.on_hand(membership.org_id, product_id, location_id))
+    return OnHandRead(
+        quantity=svc.on_hand(membership.org_id, product_id, location_id, bin_id, unbinned=unbinned)
+    )
 
 
 @router.get("/{product_id}/movements", response_model=CursorPage[StockMovementRead])

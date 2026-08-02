@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from sqlalchemy import ForeignKey, Index, Numeric, String, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, Numeric, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base_class import AuditMixin, Base, TimestampMixin
@@ -18,6 +18,25 @@ class Reason(Base, TimestampMixin, AuditMixin):
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     is_system: Mapped[bool] = mapped_column(nullable=False, default=False)
+
+
+class Bin(Base, TimestampMixin, AuditMixin):
+    __tablename__ = "bins"
+    __table_args__ = (
+        UniqueConstraint("org_id", "location_id", "code", name="uq_bin_location_code"),
+        Index("ix_bins_org_location", "org_id", "location_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    location_id: Mapped[int] = mapped_column(
+        ForeignKey("locations.id", ondelete="CASCADE"), nullable=False
+    )
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    is_active: Mapped[bool] = mapped_column(nullable=False, default=True)
 
 
 class StockMovement(Base, TimestampMixin, AuditMixin):
@@ -36,6 +55,9 @@ class StockMovement(Base, TimestampMixin, AuditMixin):
     location_id: Mapped[int] = mapped_column(
         ForeignKey("locations.id", ondelete="CASCADE"), nullable=False
     )
+    bin_id: Mapped[int | None] = mapped_column(
+        ForeignKey("bins.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
     qty_delta: Mapped[Decimal] = mapped_column(Numeric(14, 3), nullable=False)
     type: Mapped[str] = mapped_column(String(20), nullable=False)
     reason: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -51,11 +73,22 @@ class StockLevel(Base, TimestampMixin):
 
     __tablename__ = "stock_levels"
     __table_args__ = (
-        UniqueConstraint(
+        Index(
+            "uq_stock_level_unbinned",
             "org_id",
             "product_id",
             "location_id",
-            name="uq_stock_level_org_product_location",
+            unique=True,
+            postgresql_where=text("bin_id IS NULL"),
+        ),
+        Index(
+            "uq_stock_level_binned",
+            "org_id",
+            "product_id",
+            "location_id",
+            "bin_id",
+            unique=True,
+            postgresql_where=text("bin_id IS NOT NULL"),
         ),
         Index("ix_stock_levels_org_product", "org_id", "product_id"),
     )
@@ -69,5 +102,8 @@ class StockLevel(Base, TimestampMixin):
     )
     location_id: Mapped[int] = mapped_column(
         ForeignKey("locations.id", ondelete="CASCADE"), nullable=False
+    )
+    bin_id: Mapped[int | None] = mapped_column(
+        ForeignKey("bins.id", ondelete="RESTRICT"), index=True, nullable=True
     )
     quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3), nullable=False, default=0)

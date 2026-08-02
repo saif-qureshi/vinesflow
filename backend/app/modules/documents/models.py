@@ -118,7 +118,9 @@ class Document(Base, TimestampMixin, AuditMixin):
     fbr_reason: Mapped[str | None] = mapped_column(String(100), nullable=True)
     fbr_reason_remarks: Mapped[str | None] = mapped_column(String(255), nullable=True)
     fbr_invoice_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    fbr_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    fbr_submitted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     fbr_response: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     subtotal: Mapped[Decimal] = mapped_column(_MONEY, default=0, nullable=False)
@@ -233,10 +235,15 @@ class DocumentLine(Base, TimestampMixin):
     product_id: Mapped[int | None] = mapped_column(
         ForeignKey("products.id", ondelete="SET NULL"), nullable=True
     )
+    bin_id: Mapped[int | None] = mapped_column(
+        ForeignKey("bins.id", ondelete="RESTRICT"), nullable=True
+    )
     description: Mapped[str] = mapped_column(String(500), nullable=False)
     quantity: Mapped[Decimal] = mapped_column(_QTY, nullable=False)
     unit_price: Mapped[Decimal] = mapped_column(_MONEY, nullable=False)
-    discount_type: Mapped[str] = mapped_column(String(10), default=DiscountType.AMOUNT, nullable=False)
+    discount_type: Mapped[str] = mapped_column(
+        String(10), default=DiscountType.AMOUNT, nullable=False
+    )
     discount_value: Mapped[Decimal] = mapped_column(_MONEY, default=0, nullable=False)
     discount: Mapped[Decimal] = mapped_column(_MONEY, default=0, nullable=False)
     tax_rate_id: Mapped[int | None] = mapped_column(

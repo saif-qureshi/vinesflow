@@ -23,7 +23,8 @@ migrate the ledger cleanly instead of twice.
 
 ## Target stock model
 
-Current: on-hand keyed by `(product_id, location_id)`.
+Current: on-hand is keyed by `(product_id, location_id, bin_id?)`; warehouse
+totals aggregate all bin and unassigned buckets.
 
 Target:
 
@@ -42,8 +43,9 @@ products         += tracking_mode  ('none' | 'lot' | 'serial')
   On-hand = count of `in_stock` serials. No `lot_id` on serial movements.
 - **`none`**: today's behaviour, unchanged.
 
-One migration introduces the tables + nullable columns; existing rows get
-`bin_id = lot_id = NULL`, `tracking_mode = 'none'` — fully backward compatible.
+The bin migration keeps existing rows at `bin_id = NULL`, so warehouse-only
+organizations remain fully backward compatible. Lot/serial adds its nullable
+dimension in a later migration.
 
 ---
 
@@ -84,10 +86,13 @@ count"). Builds on #3.
 
 ## Wave 2 — core-model extension (design once, migrate once)
 
-### 5. Bins / shelf sub-locations  (M–L)
-`bins` table under a location; add nullable `bin_id` to movements + levels.
-Adjust/transfer/count/receive/pick gain an optional bin. Warehouses without bins
-are unaffected. UI: manage bins under a warehouse; bin selector in stock ops.
+### 5. Bins / shelf sub-locations  (M–L) — implemented
+`bins` live under a warehouse, with nullable `bin_id` on movements, levels, and
+document lines. Bin selection is available for opening stock, adjustments,
+transfers, and inventory-posting documents; the item view shows stock and
+transactions per bin. Warehouses without bins continue using the unassigned
+bucket. Bins with inventory history are deactivated rather than deleted, and a
+bin containing stock cannot be deactivated.
 
 ### 6. Batch / lot / serial / expiry  (L, deepest)
 - `products.tracking_mode`; `stock_lots`; `serial_units`; `movements.lot_id`.

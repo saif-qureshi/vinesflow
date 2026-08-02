@@ -25,7 +25,7 @@ from app.modules.documents.models import (
 )
 from app.modules.expenses.models import Expense, ExpenseLine
 from app.modules.fbr.models import FbrReferenceData, FbrSubmissionAttempt
-from app.modules.inventory.models import Reason, StockLevel, StockMovement
+from app.modules.inventory.models import Bin, Reason, StockLevel, StockMovement
 from app.modules.locations.models import Location
 from app.modules.media.models import MediaAsset
 from app.modules.orgs.models import Membership, Organization

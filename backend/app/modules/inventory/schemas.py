@@ -13,6 +13,7 @@ from app.core.pagination import ListQuery
 class StockAdjustInput(BaseModel):
     product_id: int
     location_id: int
+    bin_id: int | None = None
     mode: Literal["quantity", "value"] = "quantity"
     qty_delta: Decimal = Decimal("0")
     value_delta: Decimal | None = None
@@ -27,12 +28,15 @@ class StockTransferInput(BaseModel):
     product_id: int
     from_location_id: int
     to_location_id: int
+    from_bin_id: int | None = None
+    to_bin_id: int | None = None
     quantity: Decimal = Field(gt=0)
     note: str | None = Field(default=None, max_length=255)
 
 
 class OpeningStockLineInput(BaseModel):
     location_id: int
+    bin_id: int | None = None
     quantity: Decimal = Field(ge=0)
     unit_cost: Decimal | None = Field(default=None, ge=0)
 
@@ -45,6 +49,7 @@ class OpeningStockInput(BaseModel):
 
 class OpeningStockLocationRead(BaseModel):
     location_id: int
+    bin_id: int | None = None
     quantity: Decimal
     unit_cost: Decimal | None = None
     value: Decimal
@@ -66,6 +71,7 @@ class StockMovementRead(BaseModel):
     id: int
     product_id: int
     location_id: int
+    bin_id: int | None = None
     qty_delta: Decimal
     type: str
     reason: str | None = None
@@ -106,6 +112,12 @@ class StockByLocation(BaseModel):
     quantity: Decimal
 
 
+class StockByBin(BaseModel):
+    location_id: int
+    bin_id: int | None = None
+    quantity: Decimal
+
+
 class ItemStockRead(BaseModel):
     on_hand: Decimal
     opening_stock: Decimal = Decimal("0")
@@ -116,3 +128,28 @@ class ItemStockRead(BaseModel):
     to_be_invoiced: Decimal = Decimal("0")
     to_be_billed: Decimal = Decimal("0")
     by_location: list[StockByLocation] = Field(default_factory=list)
+    by_bin: list[StockByBin] = Field(default_factory=list)
+
+
+class BinCreate(BaseModel):
+    location_id: int
+    code: str = Field(min_length=1, max_length=50)
+    name: str = Field(min_length=1, max_length=100)
+    is_active: bool = True
+
+
+class BinUpdate(BaseModel):
+    code: str | None = Field(default=None, min_length=1, max_length=50)
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    is_active: bool | None = None
+
+
+class BinRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    location_id: int
+    code: str
+    name: str
+    is_active: bool
+    created_at: datetime

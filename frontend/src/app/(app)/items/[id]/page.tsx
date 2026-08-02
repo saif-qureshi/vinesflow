@@ -14,6 +14,7 @@ import { ItemWarehouses } from "@/components/inventory/ItemWarehouses";
 import { StockOverview } from "@/components/inventory/StockOverview";
 import { ItemSalesChart } from "../ItemSalesChart";
 import { useCan } from "@/hooks/useSession";
+import { useBins } from "@/hooks/useBins";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useItemStock } from "@/hooks/useInventory";
 import { useWarehouses } from "@/hooks/useWarehouses";
@@ -40,6 +41,7 @@ export default function ViewItemPage() {
   const { data: p, isLoading } = useProduct(Number(id));
   const { data: stock } = useItemStock(p?.track_inventory ? Number(id) : null);
   const { data: warehouses } = useWarehouses();
+  const { data: bins } = useBins();
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [openingOpen, setOpeningOpen] = useState(false);
 
@@ -269,12 +271,24 @@ export default function ViewItemPage() {
                 {
                   key: "warehouses",
                   label: "Warehouses",
-                  children: <ItemWarehouses stock={stock} warehouses={warehouses ?? []} />,
+                  children: (
+                    <ItemWarehouses
+                      stock={stock}
+                      warehouses={warehouses ?? []}
+                      bins={bins ?? []}
+                    />
+                  ),
                 },
                 {
                   key: "transactions",
                   label: "Transactions",
-                  children: <ItemTransactions productId={p.id} warehouses={warehouses ?? []} />,
+                  children: (
+                    <ItemTransactions
+                      productId={p.id}
+                      warehouses={warehouses ?? []}
+                      bins={bins ?? []}
+                    />
+                  ),
                 },
               ]
             : []),

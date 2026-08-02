@@ -88,3 +88,49 @@ def test_opening_stock_can_be_set_until_an_inventory_transaction_exists(client, 
     assert locked.status_code == 409
     state = client.get(f"/api/v1/inventory/{pid}/opening", headers=hdr).json()["data"]
     assert state["editable"] is False
+
+
+def test_bin_crud_and_opening_stock_breakdown(client, setup):
+    hdr, pid, loc = setup["hdr"], setup["pid"], setup["loc_id"]
+    created = client.post(
+        "/api/v1/inventory/bins",
+        headers=hdr,
+        json={"location_id": loc, "code": " a-01 ", "name": "Rack A"},
+    )
+    assert created.status_code == 201, created.text
+    bin_id = created.json()["data"]["id"]
+    assert created.json()["data"]["code"] == "A-01"
+
+    duplicate = client.post(
+        "/api/v1/inventory/bins",
+        headers=hdr,
+        json={"location_id": loc, "code": "a-01", "name": "Duplicate"},
+    )
+    assert duplicate.status_code == 409
+
+    listed = client.get(f"/api/v1/inventory/bins?location_id={loc}", headers=hdr)
+    assert [row["id"] for row in listed.json()["data"]] == [bin_id]
+
+    opening = client.post(
+        "/api/v1/inventory/opening",
+        headers=hdr,
+        json={
+            "product_id": pid,
+            "entries": [
+                {"location_id": loc, "bin_id": bin_id, "quantity": 8, "unit_cost": 5},
+                {"location_id": loc, "quantity": 2, "unit_cost": 5},
+            ],
+        },
+    )
+    assert opening.status_code == 200, opening.text
+
+    stock = client.get(f"/api/v1/inventory/{pid}/stock", headers=hdr).json()["data"]
+    assert float(stock["on_hand"]) == 10
+    quantities = {(row["bin_id"]): float(row["quantity"]) for row in stock["by_bin"]}
+    assert quantities == {bin_id: 8, None: 2}
+
+    deactivate = client.patch(
+        f"/api/v1/inventory/bins/{bin_id}", headers=hdr, json={"is_active": False}
+    )
+    assert deactivate.status_code == 409
+    assert client.delete(f"/api/v1/inventory/bins/{bin_id}", headers=hdr).status_code == 409
