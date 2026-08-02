@@ -41,7 +41,50 @@ def test_adjust_reflects_in_stock_and_list(client, setup):
 def test_low_stock_filter(client, setup):
     hdr, pid, loc = setup["hdr"], setup["pid"], setup["loc_id"]
     client.post(
-        "/api/v1/inventory/adjust", headers=hdr, json={"product_id": pid, "location_id": loc, "qty_delta": 2}
+        "/api/v1/inventory/adjust",
+        headers=hdr,
+        json={"product_id": pid, "location_id": loc, "qty_delta": 2},
     )
     low = client.get("/api/v1/inventory?low_stock=true", headers=hdr).json()["data"]["items"]
     assert any(i["id"] == pid and i["is_low"] for i in low)
+
+
+def test_opening_stock_can_be_set_until_an_inventory_transaction_exists(client, setup):
+    hdr, pid, loc = setup["hdr"], setup["pid"], setup["loc_id"]
+    opening = client.post(
+        "/api/v1/inventory/opening",
+        headers=hdr,
+        json={
+            "product_id": pid,
+            "date": "2026-08-01",
+            "entries": [{"location_id": loc, "quantity": 12, "unit_cost": 25}],
+        },
+    )
+    assert opening.status_code == 200, opening.text
+    data = opening.json()["data"]
+    assert data["editable"] is True
+    assert float(data["entries"][0]["quantity"]) == 12
+    assert float(data["entries"][0]["value"]) == 300
+
+    stock = client.get(f"/api/v1/inventory/{pid}/stock", headers=hdr).json()["data"]
+    assert float(stock["opening_stock"]) == 12
+    assert float(stock["on_hand"]) == 12
+
+    adjusted = client.post(
+        "/api/v1/inventory/adjust",
+        headers=hdr,
+        json={"product_id": pid, "location_id": loc, "qty_delta": 1},
+    )
+    assert adjusted.status_code == 204
+
+    locked = client.post(
+        "/api/v1/inventory/opening",
+        headers=hdr,
+        json={
+            "product_id": pid,
+            "entries": [{"location_id": loc, "quantity": 15, "unit_cost": 25}],
+        },
+    )
+    assert locked.status_code == 409
+    state = client.get(f"/api/v1/inventory/{pid}/opening", headers=hdr).json()["data"]
+    assert state["editable"] is False

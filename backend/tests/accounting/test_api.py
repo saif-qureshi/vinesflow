@@ -151,6 +151,60 @@ def test_opening_balances_post_and_balance_to_obe(client, register, org_id_of, h
     assert dup.status_code == 409  # can only set opening balances once
 
 
+def test_opening_balances_reject_manual_inventory_value(client, register, org_id_of, h):
+    headers = _ctx(register, org_id_of, h)
+    code = _codes(client, headers)
+    res = client.post(
+        f"{BASE}/opening-balances",
+        headers=headers,
+        json={
+            "date": "2026-07-01",
+            "entries": [
+                {"account_id": code["1140"], "debit": "1000", "credit": "0"},
+                {"account_id": code["3300"], "debit": "0", "credit": "1000"},
+            ],
+        },
+    )
+    assert res.status_code == 400
+    assert "item opening stock" in res.json()["error"]["message"]
+
+
+def test_stock_opening_does_not_block_other_account_opening_balances(
+    client, register, org_id_of, h
+):
+    headers = _ctx(register, org_id_of, h)
+    code = _codes(client, headers)
+    uoms = client.get("/api/v1/uoms", headers=headers).json()["data"]
+    uom_id = next(uom["id"] for uom in uoms if uom["symbol"] == "pc")
+    product_id = client.post(
+        "/api/v1/products",
+        headers=headers,
+        json={"name": "Opening item", "uom_id": uom_id, "track_inventory": True},
+    ).json()["data"]["id"]
+    location_id = client.get("/api/v1/locations", headers=headers).json()["data"][0]["id"]
+    stock = client.post(
+        "/api/v1/inventory/opening",
+        headers=headers,
+        json={
+            "product_id": product_id,
+            "date": "2026-07-01",
+            "entries": [{"location_id": location_id, "quantity": 5, "unit_cost": 100}],
+        },
+    )
+    assert stock.status_code == 200, stock.text
+
+    balances = client.post(
+        f"{BASE}/opening-balances",
+        headers=headers,
+        json={
+            "date": "2026-07-01",
+            "entries": [{"account_id": code["1110"], "debit": "1000", "credit": "0"}],
+        },
+    )
+    assert balances.status_code == 201, balances.text
+    assert balances.json()["data"]["source_type"] == "opening_balances"
+
+
 def test_manual_journal_cancel_draft(client, register, org_id_of, h):
     headers = _ctx(register, org_id_of, h)
     code = _codes(client, headers)

@@ -52,6 +52,29 @@ export interface ItemStock {
   by_location: { location_id: number; quantity: string }[];
 }
 
+export interface OpeningStockLocation {
+  location_id: number;
+  quantity: string;
+  unit_cost: string | null;
+  value: string;
+}
+
+export interface OpeningStock {
+  product_id: number;
+  editable: boolean;
+  entries: OpeningStockLocation[];
+}
+
+export interface OpeningStockInput {
+  product_id: number;
+  date?: string | null;
+  entries: {
+    location_id: number;
+    quantity: number;
+    unit_cost?: number | null;
+  }[];
+}
+
 export interface Reason {
   id: number;
   name: string;

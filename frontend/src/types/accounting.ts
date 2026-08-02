@@ -72,14 +72,14 @@ export interface VoucherSummary {
   description: string | null;
   total_debit: string;
   status: VoucherStatus;
+  source_type: string | null;
+  source_id: number | null;
 }
 
 export interface Voucher extends VoucherSummary {
   document_date: string;
   total_credit: string;
   reversed_from_id: number | null;
-  source_type: string | null;
-  source_id: number | null;
   created_at: string;
   lines: VoucherLine[];
 }

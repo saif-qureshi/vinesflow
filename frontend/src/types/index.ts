@@ -57,6 +57,9 @@ export type { Media, MediaInput } from "./media";
 export type {
   InventoryItem,
   ItemStock,
+  OpeningStock,
+  OpeningStockInput,
+  OpeningStockLocation,
   Reason,
   StockMovement,
   Warehouse,

@@ -361,6 +361,46 @@ class RealLedgerPoster:
             source_id=source_id,
         )
 
+    def post_opening_stock(
+        self,
+        db: Session,
+        *,
+        org_id,
+        value,
+        posting_date,
+        source_id,
+        product_name,
+    ) -> None:
+        """Recognize migrated stock without creating a purchase or payable."""
+        if value == _ZERO:
+            return
+        source_type = "stock_opening"
+        if self._already_posted(db, org_id, source_type, source_id):
+            return
+        inventory = self._account(db, org_id, "inventory")
+        equity = self._account(db, org_id, "opening_balance_equity")
+        if value > _ZERO:
+            lines = [
+                JournalLine(account_id=inventory, debit=value),
+                JournalLine(account_id=equity, credit=value),
+            ]
+        else:
+            reduction = -value
+            lines = [
+                JournalLine(account_id=equity, debit=reduction),
+                JournalLine(account_id=inventory, credit=reduction),
+            ]
+        self._post(
+            db,
+            org_id,
+            voucher_type=VoucherType.OPENING,
+            posting_date=posting_date,
+            lines=lines,
+            description=f"Opening stock — {product_name}",
+            source_type=source_type,
+            source_id=source_id,
+        )
+
     # --- expenses ---------------------------------------------------------
 
     def post_expense(self, db: Session, expense) -> None:

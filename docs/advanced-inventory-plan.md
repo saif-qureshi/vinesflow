@@ -49,14 +49,14 @@ One migration introduces the tables + nullable columns; existing rows get
 
 ## Wave 1 — no core-model change (ship fast)
 
-### 1. Opening-stock UI  (S)
-Wire the existing `POST /inventory/opening` to the **item form**: an *Opening
-Stock* section shown only when Track Inventory is on, with a qty per warehouse
-and an optional **rate/unit** (stored as `movement.unit_cost`, ready for Books).
-Editable only **before the first transaction** — once any non-opening movement
-exists for the item, lock it and point to Adjust Stock.
-- Backend: extend `OpeningStockInput` with `unit_cost`; add a "has movements"
-  guard. Frontend: item-form section + per-warehouse rows.
+### 1. Opening-stock UI  (S) — implemented
+`POST /inventory/opening` and `GET /inventory/{product_id}/opening` back an
+*Opening Stock* action on the item view, beside Adjust Stock. Inventory-tracked
+goods accept a quantity and optional **rate/unit** per warehouse. Each correction appends an
+`opening` movement; it never rewrites stock history. A supplied rate also posts
+Inventory Asset against Opening Balance Equity, without creating a purchase or
+payable. Opening stock locks after the first non-opening movement and directs
+the user to Adjust Stock.
 
 ### 2. Low-stock alerts  (S–M)
 A `notifications` table (`org, type, title, body, entity_type, entity_id,

@@ -13,7 +13,11 @@ from app.modules.documents.models import TaxRate
 from app.modules.documents.schemas import DocumentCreate, DocumentLineInput
 from app.modules.documents.service import DocumentService
 from app.modules.inventory.models import StockLevel
-from app.modules.inventory.schemas import StockAdjustInput
+from app.modules.inventory.schemas import (
+    OpeningStockInput,
+    OpeningStockLineInput,
+    StockAdjustInput,
+)
 from app.modules.inventory.service import InventoryService
 from app.modules.locations.models import Location
 from app.modules.orgs.service import OrgService
@@ -218,6 +222,80 @@ def test_stock_gain_posts_to_chosen_account_at_given_cost(db):
     )
     assert _bal(db, org_id, "inventory") == Decimal("200")  # 4 * 50, debited
     assert _bal(db, org_id, "cogs") == Decimal("-200")  # credited to the chosen account
+    assert _tb_balances(db, org_id)
+
+
+def test_opening_stock_posts_inventory_against_opening_balance_equity(db):
+    org_id, _cust_id, pid = _setup(db)
+    loc_id = db.scalar(select(Location.id).where(Location.org_id == org_id))
+    service = InventoryService(db)
+
+    service.set_opening_stock(
+        org_id,
+        OpeningStockInput(
+            product_id=pid,
+            date="2026-08-01",
+            entries=[
+                OpeningStockLineInput(
+                    location_id=loc_id,
+                    quantity=Decimal("5"),
+                    unit_cost=Decimal("60"),
+                )
+            ],
+        ),
+    )
+
+    voucher = db.scalar(
+        select(AccountingVoucher).where(
+            AccountingVoucher.org_id == org_id,
+            AccountingVoucher.source_type == "stock_opening",
+        )
+    )
+    assert voucher is not None
+    assert voucher.voucher_type == VoucherType.OPENING
+    assert _bal(db, org_id, "inventory") == Decimal("300")
+    assert _bal(db, org_id, "opening_balance_equity") == Decimal("-300")
+    assert _tb_balances(db, org_id)
+
+    # Before another inventory transaction, changing the opening balance posts only the delta.
+    service.set_opening_stock(
+        org_id,
+        OpeningStockInput(
+            product_id=pid,
+            date="2026-08-01",
+            entries=[
+                OpeningStockLineInput(
+                    location_id=loc_id,
+                    quantity=Decimal("6"),
+                    unit_cost=Decimal("70"),
+                )
+            ],
+        ),
+    )
+    assert service.item_stock(org_id, pid).on_hand == Decimal("6")
+    assert _bal(db, org_id, "inventory") == Decimal("420")
+    assert _bal(db, org_id, "opening_balance_equity") == Decimal("-420")
+    assert _tb_balances(db, org_id)
+
+    # Clearing a previously supplied rate keeps quantity but removes recognized value.
+    result = service.set_opening_stock(
+        org_id,
+        OpeningStockInput(
+            product_id=pid,
+            date="2026-08-01",
+            entries=[
+                OpeningStockLineInput(
+                    location_id=loc_id,
+                    quantity=Decimal("6"),
+                    unit_cost=None,
+                )
+            ],
+        ),
+    )
+    assert result.entries[0].unit_cost is None
+    assert service.item_stock(org_id, pid).on_hand == Decimal("6")
+    assert _bal(db, org_id, "inventory") == Decimal("0")
+    assert _bal(db, org_id, "opening_balance_equity") == Decimal("0")
     assert _tb_balances(db, org_id)
 
 

@@ -7,6 +7,7 @@ import { ArrowLeft, Pencil, SlidersHorizontal, Trash2 } from "lucide-react";
 
 import { App, Button, Card, Popconfirm, Table, Tag, Typography } from "@/components/ui";
 import { AdjustStockModal } from "@/components/inventory/AdjustStockModal";
+import { OpeningStockModal } from "@/components/inventory/OpeningStockModal";
 import { ItemHistory } from "@/components/inventory/ItemHistory";
 import { ItemTransactions } from "@/components/inventory/ItemTransactions";
 import { ItemWarehouses } from "@/components/inventory/ItemWarehouses";
@@ -40,6 +41,7 @@ export default function ViewItemPage() {
   const { data: stock } = useItemStock(p?.track_inventory ? Number(id) : null);
   const { data: warehouses } = useWarehouses();
   const [adjustOpen, setAdjustOpen] = useState(false);
+  const [openingOpen, setOpeningOpen] = useState(false);
 
   if (isLoading || !p) {
     return (
@@ -217,9 +219,20 @@ export default function ViewItemPage() {
               className="border-gray-100"
               extra={
                 can("inventory:update") ? (
-                  <Button size="small" icon={<SlidersHorizontal size={14} />} onClick={() => setAdjustOpen(true)}>
-                    Adjust
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {p.nature === "good" && p.type === "single" && (
+                      <Button size="small" onClick={() => setOpeningOpen(true)}>
+                        Opening stock
+                      </Button>
+                    )}
+                    <Button
+                      size="small"
+                      icon={<SlidersHorizontal size={14} />}
+                      onClick={() => setAdjustOpen(true)}
+                    >
+                      Adjust
+                    </Button>
+                  </div>
                 ) : undefined
               }
             >
@@ -286,6 +299,13 @@ export default function ViewItemPage() {
         }
         warehouses={warehouses ?? []}
         onClose={() => setAdjustOpen(false)}
+      />
+      <OpeningStockModal
+        item={
+          openingOpen ? { id: p.id, name: p.name, uom: p.uom?.symbol ?? "" } : null
+        }
+        warehouses={warehouses ?? []}
+        onClose={() => setOpeningOpen(false)}
       />
     </div>
   );

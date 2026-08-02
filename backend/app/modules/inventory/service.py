@@ -17,6 +17,9 @@ from app.modules.inventory.schemas import (
     InventoryItemRead,
     InventoryListQuery,
     ItemStockRead,
+    OpeningStockInput,
+    OpeningStockLocationRead,
+    OpeningStockRead,
     ReasonCreate,
     StockAdjustInput,
     StockByLocation,
@@ -279,6 +282,143 @@ class InventoryService:
         )
         self._record(org_id, "transferred", product, payload.quantity, payload.to_location_id)
         self.db.commit()
+
+    def _opening_state(
+        self, org_id: int, product_id: int
+    ) -> dict[int, tuple[Decimal, Decimal, Decimal | None]]:
+        """Return quantity, recognized value and latest rate per location."""
+        movements = self.db.scalars(
+            select(StockMovement)
+            .where(
+                StockMovement.org_id == org_id,
+                StockMovement.product_id == product_id,
+                StockMovement.type == "opening",
+            )
+            .order_by(StockMovement.id)
+        )
+        state: dict[int, tuple[Decimal, Decimal, Decimal | None]] = {}
+        for movement in movements:
+            quantity, value, unit_cost = state.get(movement.location_id, (_ZERO, _ZERO, None))
+            quantity += movement.qty_delta
+            if movement.value_delta is not None:
+                value += movement.value_delta
+            elif movement.unit_cost is not None:
+                value += movement.qty_delta * movement.unit_cost
+            unit_cost = movement.unit_cost
+            state[movement.location_id] = (quantity, value, unit_cost)
+        return state
+
+    def _opening_editable(self, org_id: int, product_id: int) -> bool:
+        return (
+            self.db.scalar(
+                select(StockMovement.id)
+                .where(
+                    StockMovement.org_id == org_id,
+                    StockMovement.product_id == product_id,
+                    StockMovement.type != "opening",
+                )
+                .limit(1)
+            )
+            is None
+        )
+
+    def opening_stock(self, org_id: int, product_id: int) -> OpeningStockRead:
+        product = self.db.scalar(
+            select(Product).where(Product.id == product_id, Product.org_id == org_id)
+        )
+        if product is None:
+            raise NotFoundError("Item not found")
+        state = self._opening_state(org_id, product_id)
+        return OpeningStockRead(
+            product_id=product_id,
+            editable=self._opening_editable(org_id, product_id),
+            entries=[
+                OpeningStockLocationRead(
+                    location_id=location_id,
+                    quantity=quantity,
+                    unit_cost=unit_cost,
+                    value=value,
+                )
+                for location_id, (quantity, value, unit_cost) in sorted(state.items())
+                if quantity != _ZERO or value != _ZERO
+            ],
+        )
+
+    def set_opening_stock(self, org_id: int, payload: OpeningStockInput) -> OpeningStockRead:
+        product = self.db.scalar(
+            select(Product)
+            .where(Product.id == payload.product_id, Product.org_id == org_id)
+            .with_for_update()
+        )
+        if product is None:
+            raise NotFoundError("Item not found")
+        if product.type == "variable":
+            raise BadRequestError("Set opening stock on each variant, not the variant group")
+        if product.nature != "good" or not product.track_inventory:
+            raise BadRequestError("Opening stock is only available for inventory-tracked goods")
+        if not self._opening_editable(org_id, product.id):
+            raise ConflictError(
+                "Opening stock is locked because this item already has inventory transactions; "
+                "use Adjust Stock instead"
+            )
+
+        requested: dict[int, tuple[Decimal, Decimal | None]] = {}
+        for entry in payload.entries:
+            if entry.location_id in requested:
+                raise BadRequestError("Each warehouse can appear only once")
+            self._validate_location(org_id, entry.location_id)
+            requested[entry.location_id] = (entry.quantity, entry.unit_cost)
+
+        current = self._opening_state(org_id, product.id)
+        movements: list[StockMovement] = []
+        value_delta = _ZERO
+        for location_id in sorted(requested):
+            old_quantity, old_value, _ = current.get(location_id, (_ZERO, _ZERO, None))
+            new_quantity, new_cost = requested[location_id]
+            new_value = new_quantity * new_cost if new_cost is not None else _ZERO
+            quantity_delta = new_quantity - old_quantity
+            location_value_delta = new_value - old_value
+            if quantity_delta == _ZERO and location_value_delta == _ZERO:
+                continue
+            movement = self._apply(
+                org_id,
+                product.id,
+                location_id,
+                quantity_delta,
+                "opening",
+                "Opening stock",
+                unit_cost=new_cost,
+                value_delta=(
+                    location_value_delta if new_cost is not None or old_value != _ZERO else None
+                ),
+            )
+            movements.append(movement)
+            value_delta += location_value_delta
+
+        if movements:
+            self.db.flush()
+            source_id = movements[0].id
+            for movement in movements:
+                movement.reference_type = "stock_opening"
+                movement.reference_id = source_id
+            self.activity.record(
+                org_id,
+                "set opening stock",
+                "product",
+                product.name,
+                entity_id=product.id,
+                context={"value_delta": str(value_delta)},
+            )
+            self.ledger.post_opening_stock(
+                self.db,
+                org_id=org_id,
+                value=value_delta,
+                posting_date=payload.date or date.today(),
+                source_id=source_id,
+                product_name=product.name,
+            )
+        self.db.commit()
+        return self.opening_stock(org_id, product.id)
 
     def item_stock(self, org_id: int, product_id: int) -> ItemStockRead:
         rows = self.db.execute(

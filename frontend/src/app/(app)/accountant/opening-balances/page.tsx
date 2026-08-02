@@ -20,10 +20,18 @@ export default function OpeningBalancesPage() {
   const [date, setDate] = useState<Dayjs>(dayjs());
   const [amounts, setAmounts] = useState<Record<number, { debit?: number; credit?: number }>>({});
 
-  const alreadySet = (vouchers.data ?? []).find((v) => v.voucher_type === "opening");
+  const alreadySet = (vouchers.data ?? []).find(
+    (voucher) =>
+      voucher.voucher_type === "opening" &&
+      (voucher.source_type == null || voucher.source_type === "opening_balances"),
+  );
 
   const rows = (accounts.data ?? []).filter(
-    (a) => a.is_postable && BALANCE_SHEET.has(a.account_type) && a.code !== "3300",
+    (a) =>
+      a.is_postable &&
+      BALANCE_SHEET.has(a.account_type) &&
+      a.code !== "3300" &&
+      a.code !== "1140",
   );
 
   const totalDebit = rows.reduce((s, a) => s + Number(amounts[a.id]?.debit || 0), 0);
@@ -82,6 +90,10 @@ export default function OpeningBalancesPage() {
         }
       />
       <Card>
+        <p className="mb-4 text-sm text-gray-500">
+          Inventory Asset is calculated from item opening stock and is excluded here to prevent
+          duplicate valuation.
+        </p>
         <table className="w-full text-sm">
           <thead>
             <tr className="text-xs text-gray-400">

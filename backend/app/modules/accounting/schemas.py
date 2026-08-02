@@ -84,6 +84,8 @@ class VoucherSummary(BaseModel):
     description: str | None
     total_debit: Decimal
     status: VoucherStatus
+    source_type: str | None
+    source_id: int | None
 
 
 class AccountRead(BaseModel):

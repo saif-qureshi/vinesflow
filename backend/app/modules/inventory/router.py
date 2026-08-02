@@ -13,6 +13,8 @@ from app.modules.inventory.schemas import (
     InventoryListQuery,
     ItemStockRead,
     OnHandRead,
+    OpeningStockInput,
+    OpeningStockRead,
     ReasonCreate,
     ReasonRead,
     StockAdjustInput,
@@ -78,6 +80,24 @@ def transfer_stock(
     svc: InventoryService = Svc,
 ) -> None:
     svc.transfer(membership.org_id, payload)
+
+
+@router.post("/opening", response_model=OpeningStockRead)
+def set_opening_stock(
+    payload: OpeningStockInput,
+    membership: Membership = Depends(require_permission("inventory:update")),
+    svc: InventoryService = Svc,
+) -> OpeningStockRead:
+    return svc.set_opening_stock(membership.org_id, payload)
+
+
+@router.get("/{product_id}/opening", response_model=OpeningStockRead)
+def get_opening_stock(
+    product_id: int,
+    membership: Membership = Depends(require_permission("inventory:read")),
+    svc: InventoryService = Svc,
+) -> OpeningStockRead:
+    return svc.opening_stock(membership.org_id, product_id)
 
 
 @router.get("/{product_id}/stock", response_model=ItemStockRead)

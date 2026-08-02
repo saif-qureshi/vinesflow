@@ -31,6 +31,31 @@ class StockTransferInput(BaseModel):
     note: str | None = Field(default=None, max_length=255)
 
 
+class OpeningStockLineInput(BaseModel):
+    location_id: int
+    quantity: Decimal = Field(ge=0)
+    unit_cost: Decimal | None = Field(default=None, ge=0)
+
+
+class OpeningStockInput(BaseModel):
+    product_id: int
+    date: date_cls | None = None
+    entries: list[OpeningStockLineInput] = Field(default_factory=list)
+
+
+class OpeningStockLocationRead(BaseModel):
+    location_id: int
+    quantity: Decimal
+    unit_cost: Decimal | None = None
+    value: Decimal
+
+
+class OpeningStockRead(BaseModel):
+    product_id: int
+    editable: bool
+    entries: list[OpeningStockLocationRead] = Field(default_factory=list)
+
+
 class OnHandRead(BaseModel):
     quantity: Decimal
 

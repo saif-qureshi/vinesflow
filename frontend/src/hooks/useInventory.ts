@@ -9,7 +9,13 @@ import {
 
 import { api } from "@/lib/api";
 import { useSessionStore } from "@/stores/session";
-import type { InventoryItem, ItemStock, StockMovement } from "@/types";
+import type {
+  InventoryItem,
+  ItemStock,
+  OpeningStock,
+  OpeningStockInput,
+  StockMovement,
+} from "@/types";
 
 interface InventoryPage {
   items: InventoryItem[];
@@ -48,6 +54,17 @@ export function useItemStock(productId: number | null) {
   return useQuery({
     queryKey: ["item-stock", orgId, productId],
     queryFn: async () => (await api.get<ItemStock>(`/inventory/${productId}/stock`)).data,
+    enabled: !!token && !!orgId && !!productId,
+  });
+}
+
+export function useOpeningStock(productId: number | null) {
+  const token = useSessionStore((s) => s.accessToken);
+  const orgId = useSessionStore((s) => s.currentOrgId);
+  return useQuery({
+    queryKey: ["opening-stock", orgId, productId],
+    queryFn: async () =>
+      (await api.get<OpeningStock>(`/inventory/${productId}/opening`)).data,
     enabled: !!token && !!orgId && !!productId,
   });
 }
@@ -105,6 +122,7 @@ function useInvalidate() {
     if (productId) {
       qc.invalidateQueries({ queryKey: ["item-stock", orgId, productId] });
       qc.invalidateQueries({ queryKey: ["item-movements", orgId, productId] });
+      qc.invalidateQueries({ queryKey: ["opening-stock", orgId, productId] });
     }
   };
 }
@@ -122,5 +140,14 @@ export function useTransferStock() {
   return useMutation({
     mutationFn: (payload: TransferInput) => api.post("/inventory/transfer", payload),
     onSuccess: (_r, vars) => invalidate(vars.product_id),
+  });
+}
+
+export function useSetOpeningStock() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: (payload: OpeningStockInput) =>
+      api.post<OpeningStock>("/inventory/opening", payload),
+    onSuccess: (_response, payload) => invalidate(payload.product_id),
   });
 }

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
@@ -118,6 +118,10 @@ class VoucherService:
                 AccountingVoucher.org_id == org_id,
                 AccountingVoucher.voucher_type == VoucherType.OPENING,
                 AccountingVoucher.status == VoucherStatus.POSTED,
+                or_(
+                    AccountingVoucher.source_type.is_(None),
+                    AccountingVoucher.source_type == "opening_balances",
+                ),
             )
             .limit(1)
         ):
@@ -130,6 +134,14 @@ class VoucherService:
         ]
         if not lines:
             raise BadRequestError("Enter at least one opening balance")
+
+        inventory_account = int(
+            SettingsService(self.db).get(org_id, ACCOUNTING_SETTINGS_GROUP, "inventory")
+        )
+        if any(line.account_id == inventory_account for line in lines):
+            raise BadRequestError(
+                "Enter inventory through item opening stock so quantity and accounting stay aligned"
+            )
 
         net = sum((line.debit - line.credit for line in lines), _ZERO)
         if net != _ZERO:
@@ -149,6 +161,8 @@ class VoucherService:
             posting_date=payload.date,
             lines=lines,
             description="Opening balances",
+            source_type="opening_balances",
+            source_id=org_id,
             allow_control_accounts=True,
         )
         self.db.commit()
