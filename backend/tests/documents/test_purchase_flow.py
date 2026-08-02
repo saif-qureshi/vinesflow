@@ -1,13 +1,15 @@
 from decimal import Decimal
 
+import pytest
 from sqlalchemy import select
 
+from app.core.exceptions import BadRequestError
 from app.core.security import hash_password
 from app.modules.documents.enums import DocumentStatus, DocumentType
 from app.modules.documents.models import TaxRate
-from app.modules.documents.schemas import DocumentCreate, DocumentLineInput
+from app.modules.documents.schemas import DocumentCreate, DocumentLineInput, DocumentUpdate
 from app.modules.documents.service import DocumentService
-from app.modules.inventory.schemas import StockAdjustInput
+from app.modules.inventory.schemas import BinCreate, StockAdjustInput
 from app.modules.inventory.service import InventoryService
 from app.modules.locations.models import Location
 from app.modules.orgs.service import OrgService
@@ -79,6 +81,70 @@ def test_goods_receipt_receives_stock(db):
     svc.finalize(org_id, grn.id)
     assert grn.stock_posted is True
     assert InventoryService(db).item_stock(org_id, pid).on_hand == Decimal(16)
+
+
+def test_purchase_order_does_not_accept_bin_and_receipt_selects_it(db):
+    org_id, loc_id, vendor_id, pid, tax_id = _setup(db)
+    inventory = InventoryService(db)
+    bin_ = inventory.bins.create(
+        org_id, BinCreate(location_id=loc_id, code="A-01", name="Rack A")
+    )
+    svc = DocumentService(db)
+
+    with pytest.raises(BadRequestError, match="not on orders"):
+        svc.create(
+            org_id,
+            DocumentType.PURCHASE_ORDER,
+            DocumentCreate(
+                party_id=vendor_id,
+                warehouse_id=loc_id,
+                lines=[
+                    DocumentLineInput(
+                        product_id=pid,
+                        bin_id=bin_.id,
+                        description="Widget",
+                        quantity=Decimal(6),
+                        unit_price=Decimal(60),
+                        tax_rate_id=tax_id,
+                    )
+                ],
+            ),
+        )
+
+    order = _create(
+        svc,
+        org_id,
+        DocumentType.PURCHASE_ORDER,
+        vendor_id,
+        pid,
+        tax_id,
+        warehouse_id=loc_id,
+    )
+    svc.finalize(org_id, order.id)
+    receipt = svc.convert(
+        org_id, order.id, DocumentType.PURCHASE_ORDER, DocumentType.GOODS_RECEIPT
+    )
+    assert receipt.lines[0].bin_id is None
+
+    svc.update(
+        org_id,
+        receipt.id,
+        DocumentType.GOODS_RECEIPT,
+        DocumentUpdate(
+            lines=[
+                DocumentLineInput(
+                    product_id=pid,
+                    bin_id=bin_.id,
+                    description="Widget",
+                    quantity=Decimal(6),
+                    unit_price=Decimal(60),
+                    tax_rate_id=tax_id,
+                )
+            ]
+        ),
+    )
+    svc.finalize(org_id, receipt.id)
+    assert inventory.on_hand(org_id, pid, loc_id, bin_.id) == Decimal(6)
 
 
 def test_po_to_grn_to_bill_receives_once(db):

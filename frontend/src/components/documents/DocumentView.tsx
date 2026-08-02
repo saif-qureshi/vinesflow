@@ -81,6 +81,7 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
   const fbrEnabled = !!currentMembership?.organization.fbr_enabled;
   const showFbrValidate =
     fbrEnabled && (config.kind === "invoice" || config.kind === "credit_note");
+  const supportsBins = config.kind !== "sales_order" && config.kind !== "purchase_order";
 
   if (isLoading || !doc) {
     return (
@@ -140,7 +141,7 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
 
   const columns: ColumnsType<DocumentLine> = [
     { title: "Description", key: "description", render: (_, l) => l.description },
-    ...((bins?.length ?? 0) > 0 || doc.lines.some((line) => line.bin_id != null)
+    ...((supportsBins && (bins?.length ?? 0) > 0) || doc.lines.some((line) => line.bin_id != null)
       ? ([
           {
             title: "Bin",

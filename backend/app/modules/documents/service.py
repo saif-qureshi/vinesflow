@@ -82,6 +82,13 @@ SALES_TYPES = {
 
 FINANCIAL_TYPES = {DocumentType.INVOICE, DocumentType.BILL}
 FBR_TYPES = {DocumentType.INVOICE, DocumentType.CREDIT_NOTE}
+BIN_ENABLED_TYPES = {
+    DocumentType.DELIVERY_CHALLAN,
+    DocumentType.INVOICE,
+    DocumentType.CREDIT_NOTE,
+    DocumentType.GOODS_RECEIPT,
+    DocumentType.BILL,
+}
 
 
 def _q(value: Decimal) -> Decimal:
@@ -316,11 +323,31 @@ class DocumentService:
         return lines, subtotal, discount_total, tax_total
 
     def _validate_line_bins(
-        self, org_id: int, warehouse_id: int | None, lines: list[DocumentLine]
+        self,
+        org_id: int,
+        doc_type: DocumentType,
+        warehouse_id: int | None,
+        lines: list[DocumentLine],
     ) -> None:
         bin_ids = {line.bin_id for line in lines if line.bin_id is not None}
         if not bin_ids:
             return
+        if doc_type not in BIN_ENABLED_TYPES:
+            raise BadRequestError(
+                "Bins are selected when goods are received or dispatched, not on orders"
+            )
+        product_ids = {line.product_id for line in lines if line.bin_id is not None}
+        tracked_ids = set(
+            self.db.scalars(
+                select(Product.id).where(
+                    Product.org_id == org_id,
+                    Product.id.in_([product_id for product_id in product_ids if product_id]),
+                    Product.track_inventory.is_(True),
+                )
+            )
+        )
+        if None in product_ids or tracked_ids != product_ids:
+            raise BadRequestError("Bins can only be selected for inventory-tracked items")
         if warehouse_id is None:
             raise BadRequestError("Select a warehouse before selecting a bin")
         for bin_id in bin_ids:
@@ -498,7 +525,7 @@ class DocumentService:
             ),
         )
         lines, subtotal, discount_total, tax_total = self._build_lines(org_id, payload.lines)
-        self._validate_line_bins(org_id, doc.warehouse_id, lines)
+        self._validate_line_bins(org_id, doc_type, doc.warehouse_id, lines)
         doc.lines = lines
         further_total = _ZERO
         if doc_type in (DocumentType.INVOICE, DocumentType.CREDIT_NOTE) and self._org_fbr_enabled(
@@ -596,7 +623,7 @@ class DocumentService:
             doc.adjustment = _q(payload.adjustment)
         if payload.lines is not None:
             lines, subtotal, discount_total, tax_total = self._build_lines(org_id, payload.lines)
-            self._validate_line_bins(org_id, doc.warehouse_id, lines)
+            self._validate_line_bins(org_id, doc_type, doc.warehouse_id, lines)
             doc.lines = lines
             further_total = _ZERO
             if doc_type in (
@@ -607,7 +634,7 @@ class DocumentService:
                 tax_total, further_total = self._apply_fbr_tax(org_id, lines, party)
             self._apply_totals(doc, subtotal, discount_total, tax_total, further_total)
         else:
-            self._validate_line_bins(org_id, doc.warehouse_id, list(doc.lines))
+            self._validate_line_bins(org_id, doc_type, doc.warehouse_id, list(doc.lines))
             self._apply_totals(
                 doc, doc.subtotal, doc.discount_total, doc.tax_total, doc.further_tax_total
             )
@@ -781,10 +808,14 @@ class DocumentService:
         if target_type == DocumentType.CREDIT_NOTE and self._org_fbr_enabled(org_id):
             self._guard_fbr_credit_note(org_id, source)
 
+        target_cls = DOCUMENT_CLASSES[target_type]
+        preserve_bins = (
+            source.stock_posted and source.stock_direction == target_cls.stock_direction
+        )
         line_inputs = [
             DocumentLineInput(
                 product_id=line.product_id,
-                bin_id=line.bin_id,
+                bin_id=line.bin_id if preserve_bins else None,
                 description=line.description,
                 quantity=line.quantity,
                 unit_price=line.unit_price,

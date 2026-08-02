@@ -117,11 +117,12 @@ export function DocumentForm({
   const update = useUpdateDocument(config.apiPath);
   const finalize = useFinalizeDocument(config.apiPath);
   const saveModeRef = useRef<"draft" | "finalize">("draft");
+  const usesBins = config.kind !== "sales_order" && config.kind !== "purchase_order";
 
   const { data: taxRates } = useTaxRates();
   const { data: warehouses } = useWarehouses();
   const warehouseId = Form.useWatch("warehouse_id", form);
-  const { data: bins } = useBins(warehouseId, true, warehouseId != null);
+  const { data: bins } = useBins(warehouseId, true, usesBins && warehouseId != null);
   const [itemSearch, setItemSearch] = useState("");
   const { data: sellable } = useSellableItems(itemSearch, warehouseId);
   const parties = useParties(config.partyRole);
@@ -142,7 +143,7 @@ export function DocumentForm({
       ? document.lines.map((l) => ({
           key: newKey(),
           product_id: l.product_id,
-          bin_id: l.bin_id,
+          bin_id: usesBins ? l.bin_id : null,
           description: l.description,
           quantity: Number(l.quantity),
           unit_price: Number(l.unit_price),
@@ -207,6 +208,10 @@ export function DocumentForm({
     value: i.id,
     label: i.sku ? `${i.name} · ${i.sku}` : i.name,
   }));
+  const lineTracksInventory = (row: LineRow) => {
+    const item = (sellable ?? []).find((candidate) => candidate.id === row.product_id);
+    return item?.track_inventory ?? (row.track_inventory || row.product_id != null);
+  };
 
   const rateOf = (id: number | null) =>
     id == null ? 0 : Number((taxRates ?? []).find((t) => t.id === id)?.rate ?? 0);
@@ -278,6 +283,7 @@ export function DocumentForm({
       fbr_rate: item?.fbr_rate ?? null,
       stock: item?.stock != null ? Number(item.stock) : null,
       track_inventory: item?.track_inventory ?? false,
+      bin_id: null,
       image_url: item?.image_url ?? null,
     });
     setItemSearch("");
@@ -292,7 +298,15 @@ export function DocumentForm({
         <Select
           value={row.product_id ?? undefined}
           onChange={(v) =>
-            v == null ? patchLine(row.key, { product_id: null }) : pickItem(row.key, v)
+            v == null
+              ? patchLine(row.key, {
+                  product_id: null,
+                  bin_id: null,
+                  stock: null,
+                  track_inventory: false,
+                  image_url: null,
+                })
+              : pickItem(row.key, v)
           }
           onSearch={setItemSearch}
           onOpenChange={(open) => open && setItemSearch("")}
@@ -350,7 +364,7 @@ export function DocumentForm({
         />
       ),
     },
-    ...((bins?.length ?? 0) > 0
+    ...(usesBins && (bins?.length ?? 0) > 0
       ? ([
           {
             title: "Bin",
@@ -365,7 +379,7 @@ export function DocumentForm({
                   label: `${bin.code} · ${bin.name}`,
                 }))}
                 placeholder="Unassigned"
-                disabled={!row.track_inventory}
+                disabled={!lineTracksInventory(row)}
                 allowClear
                 className="w-full"
               />
@@ -563,7 +577,7 @@ export function DocumentForm({
         : {}),
       lines: clean.map((l) => ({
         product_id: l.product_id,
-        bin_id: l.bin_id,
+        bin_id: usesBins ? l.bin_id : null,
         description: l.description.trim() || "Item",
         quantity: l.quantity,
         unit_price: l.unit_price,
