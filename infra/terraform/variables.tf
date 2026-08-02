@@ -27,7 +27,7 @@ variable "region" {
 
 # ---- DNS / domain -----------------------------------------------------------
 variable "domain_name" {
-  description = "Apex domain. Vercel serves the customer/admin portals; AWS serves api_subdomain and media_subdomain."
+  description = "Apex domain. Vercel serves the customer/admin portals; AWS serves api_subdomain and the assets CDN."
   type        = string
 }
 
@@ -50,9 +50,9 @@ variable "admin_portal_subdomain" {
 }
 
 variable "media_subdomain" {
-  description = "Subdomain for media (points at CloudFront)."
+  description = "Public assets subdomain for media stored behind CloudFront."
   type        = string
-  default     = "media"
+  default     = "assets"
 }
 
 variable "route53_zone_id" {

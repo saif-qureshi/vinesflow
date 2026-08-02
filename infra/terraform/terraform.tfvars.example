@@ -31,7 +31,7 @@ activate_media_domain = false
 # monthly_budget_usd = 50
 
 # Enable GitHub Actions CI/CD (OIDC, no static keys). Set to owner/repo:
-# github_repo = "saif-qureshi/vinesflow-inventory"
+# github_repo = "saif-qureshi/vinesflow"
 # If your account already has a GitHub OIDC provider, pass its ARN to reuse it:
 # github_oidc_provider_arn = "arn:aws:iam::730335575446:oidc-provider/token.actions.githubusercontent.com"
 

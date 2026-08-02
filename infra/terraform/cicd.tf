@@ -2,7 +2,7 @@
 # Set github_repo to enable; leave empty to skip all CI/CD resources.
 
 variable "github_repo" {
-  description = "owner/repo allowed to assume the deploy role, e.g. saif-qureshi/vinesflow-inventory"
+  description = "owner/repo allowed to assume the deploy role, e.g. saif-qureshi/vinesflow"
   type        = string
   default     = ""
 }

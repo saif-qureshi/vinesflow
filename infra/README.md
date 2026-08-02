@@ -16,7 +16,7 @@ Internet ── api.<domain> ─────────────► EC2 t4g.
              app.<domain> ─────────────► Vercel customer portal
            admin.<domain> ─────────────► Vercel super-admin portal
      <domain> / www.<domain> ──────────► Vercel marketing site
-             media.<domain> ─► CloudFront ─► S3 media (private, OAC)   ── writes ── EC2
+            assets.<domain> ─► CloudFront ─► S3 media (private, OAC)   ── writes ── EC2
                                           RDS Postgres (private subnets, SG-locked)
                                           S3 backups · SSM params · ECR
 ```
@@ -117,7 +117,7 @@ docker buildx build --platform linux/arm64 -f infra/docker/backend.Dockerfile \
 sudo /opt/vineflow/deploy.sh "$SHA"
 ```
 
-DNS (if not using Route53): point `api.<domain>` → `api_elastic_ip`, and `media.<domain>` →
+DNS (if not using Route53): point `api.<domain>` → `api_elastic_ip`, and `assets.<domain>` →
 `cloudfront_domain` (see `terraform output`).
 
 SSH stays enabled only when both a `/32` `ssh_ingress_cidr` and either `ssh_public_key` or an existing
