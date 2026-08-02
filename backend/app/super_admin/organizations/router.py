@@ -1,10 +1,14 @@
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 
 from app.core.container import Provide
+from app.core.ratelimit import limiter
 from app.core.responses import EnvelopeRoute
 from app.super_admin.auth.deps import CurrentSuperAdmin
 from app.super_admin.organizations.schemas import (
+    SuperAdminOrganizationDetail,
     SuperAdminOrganizationOnboard,
+    SuperAdminOrganizationOwnerPasswordResult,
+    SuperAdminOrganizationOwnerPasswordUpdate,
     SuperAdminOrganizationPage,
     SuperAdminOrganizationRead,
     SuperAdminOrganizationStatusUpdate,
@@ -20,12 +24,12 @@ router = APIRouter(
 OrgSvc = Depends(Provide(SuperAdminOrganizationService))
 
 
-@router.get("/{org_id}", response_model=SuperAdminOrganizationRead)
+@router.get("/{org_id}", response_model=SuperAdminOrganizationDetail)
 def get_organization(
     org_id: int,
     _admin: CurrentSuperAdmin,
     organizations: SuperAdminOrganizationService = OrgSvc,
-) -> SuperAdminOrganizationRead:
+) -> SuperAdminOrganizationDetail:
     return organizations.get(org_id)
 
 
@@ -59,11 +63,23 @@ def update_organization_status(
     return organizations.set_status(org_id, payload.is_active)
 
 
-@router.put("/{org_id}", response_model=SuperAdminOrganizationRead)
+@router.put("/{org_id}/owner/password", response_model=SuperAdminOrganizationOwnerPasswordResult)
+@limiter.limit("10/minute")
+def update_organization_owner_password(
+    request: Request,
+    org_id: int,
+    payload: SuperAdminOrganizationOwnerPasswordUpdate,
+    _admin: CurrentSuperAdmin,
+    organizations: SuperAdminOrganizationService = OrgSvc,
+) -> SuperAdminOrganizationOwnerPasswordResult:
+    return organizations.update_owner_password(org_id, payload.password)
+
+
+@router.put("/{org_id}", response_model=SuperAdminOrganizationDetail)
 def update_organization(
     org_id: int,
     payload: SuperAdminOrganizationUpdate,
     _admin: CurrentSuperAdmin,
     organizations: SuperAdminOrganizationService = OrgSvc,
-) -> SuperAdminOrganizationRead:
+) -> SuperAdminOrganizationDetail:
     return organizations.update(org_id, payload)

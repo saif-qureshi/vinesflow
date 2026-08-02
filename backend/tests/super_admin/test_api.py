@@ -1,8 +1,12 @@
+from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.crypto import _cipher
 from app.core.security import create_access_token, hash_password
+from app.core.storage import StoredFile
+from app.modules.auth.models import RefreshSession
 from app.modules.orgs.models import Membership, Organization
 from app.modules.users.models import User
 from app.super_admin.auth.models import SuperAdmin
@@ -127,6 +131,8 @@ def test_admin_onboarding_uses_customer_org_setup(client: TestClient, db: Sessio
     )
     assert detail.status_code == 200
     assert detail.json()["data"]["fiscal_year_start_month"] == 7
+    assert detail.json()["data"]["members"][0]["is_owner"] is True
+    assert detail.json()["data"]["members"][0]["email"] == "owner@acme.example.com"
 
     updated = client.put(
         f"/api/v1/super-admin/organizations/{organization['id']}",
@@ -136,6 +142,17 @@ def test_admin_onboarding_uses_customer_org_setup(client: TestClient, db: Sessio
             "currency": "usd",
             "country": "us",
             "industry": "Wholesale",
+            "ntn": "1234567",
+            "strn": "1234567890123",
+            "cnic": "3520212345678",
+            "logo_url": "https://example.com/acme.png",
+            "address": {
+                "line1": "1 Commerce Street",
+                "city": "Karachi",
+                "state": "Sindh",
+                "country": "Pakistan",
+                "postal_code": "74000",
+            },
             "fiscal_year_start_month": 1,
             "is_active": True,
         },
@@ -144,6 +161,9 @@ def test_admin_onboarding_uses_customer_org_setup(client: TestClient, db: Sessio
     assert updated.json()["data"]["name"] == "Acme Distribution Pakistan"
     assert updated.json()["data"]["currency"] == "USD"
     assert updated.json()["data"]["country"] == "US"
+    assert updated.json()["data"]["ntn"] == "1234567"
+    assert updated.json()["data"]["address"]["city"] == "Karachi"
+    assert updated.json()["data"]["logo_url"] == "https://example.com/acme.png"
 
 
 def test_public_and_customer_org_registration_can_be_disabled(
@@ -211,6 +231,138 @@ def test_disabled_organization_is_blocked_from_customer_app(client: TestClient, 
         },
     )
     assert current_org.status_code == 403
+
+
+def test_super_admin_configures_tokens_and_runs_fbr_sandbox_scenarios(
+    client: TestClient, db: Session, monkeypatch
+):
+    monkeypatch.setattr(settings, "FBR_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    _cipher.cache_clear()
+    _create_admin(db)
+    token = _admin_login(client)
+    organization = _onboard(client, token)
+    org_id = organization["id"]
+
+    missing_token = client.post(
+        f"/api/v1/super-admin/organizations/{org_id}/fbr/sandbox-tests",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"scenario_codes": ["SN001"]},
+    )
+    assert missing_token.status_code == 400
+
+    configured = client.put(
+        f"/api/v1/super-admin/organizations/{org_id}",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "name": "Acme Distribution",
+            "currency": "PKR",
+            "country": "PK",
+            "industry": "Distribution",
+            "ntn": "1234567",
+            "fiscal_year_start_month": 7,
+            "is_active": True,
+            "fbr_enabled": True,
+            "fbr_environment": "sandbox",
+            "fbr_province": "Sindh",
+            "fbr_sandbox_token": "sandbox-token",
+        },
+    )
+    assert configured.status_code == 200, configured.text
+    assert configured.json()["data"]["fbr_sandbox_configured"] is True
+    assert db.get(Organization, org_id).fbr_sandbox_token != "sandbox-token"
+
+    captured_payloads: list[dict] = []
+
+    class FakeFbrClient:
+        def __init__(self, token: str, environment):
+            assert token == "sandbox-token"
+            assert environment.value == "sandbox"
+
+        def post_invoice_with_status(self, payload: dict):
+            captured_payloads.append(payload)
+            return 200, {
+                "invoiceNumber": "SB-123",
+                "validationResponse": {"statusCode": "00", "invoiceStatuses": []},
+            }
+
+    monkeypatch.setattr("app.super_admin.fbr.service.FbrClient", FakeFbrClient)
+    response = client.post(
+        f"/api/v1/super-admin/organizations/{org_id}/fbr/sandbox-tests",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"scenario_codes": ["SN001", "SN002"]},
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()["data"]
+    assert result["ok"] is True
+    assert result["passed"] == 2
+    assert result["failed"] == 0
+    assert [payload["scenarioId"] for payload in captured_payloads] == ["SN001", "SN002"]
+    assert all(payload["sellerNTNCNIC"] == "1234567" for payload in captured_payloads)
+    _cipher.cache_clear()
+
+
+def test_super_admin_uploads_an_organization_logo(client: TestClient, db: Session, monkeypatch):
+    _create_admin(db)
+    token = _admin_login(client)
+    organization = _onboard(client, token)
+
+    class FakeStorage:
+        def save_stream(self, *, org_id, filename, content_type, fileobj, size):
+            assert org_id == organization["id"]
+            assert filename == "logo.png"
+            assert content_type == "image/png"
+            assert fileobj.read() == b"logo-bytes"
+            assert size == 10
+            return StoredFile(
+                url="https://cdn.example.com/org-logo.png",
+                key=f"org-{org_id}/logo.png",
+                filename=filename,
+                content_type=content_type,
+                size=size,
+            )
+
+    monkeypatch.setattr("app.super_admin.media.router.get_storage", lambda: FakeStorage())
+    response = client.post(
+        f"/api/v1/super-admin/organizations/{organization['id']}/media/upload",
+        headers={"Authorization": f"Bearer {token}"},
+        files={"file": ("logo.png", b"logo-bytes", "image/png")},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["url"] == "https://cdn.example.com/org-logo.png"
+
+
+def test_super_admin_updates_owner_password_and_revokes_sessions(client: TestClient, db: Session):
+    _create_admin(db)
+    admin_token = _admin_login(client)
+    organization = _onboard(client, admin_token)
+
+    customer_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "owner@acme.example.com", "password": "owner-password"},
+    )
+    assert customer_login.status_code == 200
+    owner = db.query(User).filter(User.email == "owner@acme.example.com").one()
+    assert db.query(RefreshSession).filter_by(user_id=owner.id, revoked_at=None).count() == 1
+
+    reset = client.put(
+        f"/api/v1/super-admin/organizations/{organization['id']}/owner/password",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"password": "new-owner-password"},
+    )
+    assert reset.status_code == 200, reset.text
+    assert reset.json()["data"]["owner_email"] == "owner@acme.example.com"
+    assert db.query(RefreshSession).filter_by(user_id=owner.id, revoked_at=None).count() == 0
+
+    old_password = client.post(
+        "/api/v1/auth/login",
+        json={"email": owner.email, "password": "owner-password"},
+    )
+    assert old_password.status_code == 401
+    new_password = client.post(
+        "/api/v1/auth/login",
+        json={"email": owner.email, "password": "new-owner-password"},
+    )
+    assert new_password.status_code == 200
 
 
 def test_super_admin_refresh_token_rotates_and_reuse_is_rejected(client: TestClient, db: Session):

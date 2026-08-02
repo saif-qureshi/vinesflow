@@ -37,6 +37,42 @@ export interface Organization {
   created_at: string;
 }
 
+export interface OrganizationAddress {
+  attention: string | null;
+  line1: string | null;
+  line2: string | null;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  postal_code: string | null;
+  phone: string | null;
+}
+
+export interface OrganizationMember {
+  membership_id: number;
+  user_id: number;
+  full_name: string | null;
+  email: string;
+  role_name: string;
+  role_slug: string;
+  is_owner: boolean;
+  is_active: boolean;
+}
+
+export interface OrganizationDetail extends Organization {
+  ntn: string | null;
+  strn: string | null;
+  cnic: string | null;
+  address: OrganizationAddress | null;
+  logo_url: string | null;
+  fbr_enabled: boolean;
+  fbr_environment: "sandbox" | "production";
+  fbr_province: string | null;
+  fbr_sandbox_configured: boolean;
+  fbr_production_configured: boolean;
+  members: OrganizationMember[];
+}
+
 export interface OrganizationPage {
   items: Organization[];
   total: number;
@@ -60,6 +96,41 @@ export interface OrganizationUpdateInput {
   currency: string;
   country: string;
   industry?: string;
+  ntn?: string;
+  strn?: string;
+  cnic?: string;
+  address?: Partial<OrganizationAddress> | null;
+  logo_url?: string;
+  fbr_enabled?: boolean;
+  fbr_environment?: "sandbox" | "production";
+  fbr_province?: string;
+  fbr_sandbox_token?: string;
+  fbr_production_token?: string;
   fiscal_year_start_month: number;
   is_active: boolean;
+}
+
+export interface FbrSandboxScenarioResult {
+  code: string;
+  label: string;
+  status: "passed" | "failed";
+  http_status_code: number | null;
+  fbr_status_code: string | null;
+  invoice_number: string | null;
+  errors: string[];
+}
+
+export interface FbrSandboxTestResult {
+  ok: boolean;
+  total: number;
+  passed: number;
+  failed: number;
+  scenarios: FbrSandboxScenarioResult[];
+  started_at: string;
+  completed_at: string;
+}
+
+export interface OrganizationOwnerPasswordResult {
+  owner_email: string;
+  message: string;
 }

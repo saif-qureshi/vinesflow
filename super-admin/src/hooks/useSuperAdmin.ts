@@ -7,8 +7,11 @@ import { useSessionStore } from "@/stores/session";
 import type {
   AccessToken,
   DashboardSummary,
+  FbrSandboxTestResult,
   Organization,
+  OrganizationDetail,
   OrganizationOnboardInput,
+  OrganizationOwnerPasswordResult,
   OrganizationPage,
   OrganizationUpdateInput,
   SuperAdmin,
@@ -74,7 +77,7 @@ export function useOrganizations(search: string, page: number) {
 export function useOrganization(id: number) {
   return useQuery({
     queryKey: ["super-admin-organization", id],
-    queryFn: async () => (await api.get<Organization>(`${base}/organizations/${id}`)).data,
+    queryFn: async () => (await api.get<OrganizationDetail>(`${base}/organizations/${id}`)).data,
     enabled: Number.isInteger(id) && id > 0,
   });
 }
@@ -84,9 +87,12 @@ export function useOnboardOrganization() {
   return useMutation({
     mutationFn: async (input: OrganizationOnboardInput) =>
       (await api.post<Organization>(`${base}/organizations`, input)).data,
-    onSuccess: async () => {
+    onSuccess: async (organization) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["super-admin-organizations"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["super-admin-organization", organization.id],
+        }),
         queryClient.invalidateQueries({ queryKey: ["super-admin-dashboard"] }),
       ]);
     },
@@ -115,7 +121,7 @@ export function useUpdateOrganization(id: number) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: OrganizationUpdateInput) =>
-      (await api.put<Organization>(`${base}/organizations/${id}`, input)).data,
+      (await api.put<OrganizationDetail>(`${base}/organizations/${id}`, input)).data,
     onSuccess: async (organization) => {
       queryClient.setQueryData(["super-admin-organization", id], organization);
       await Promise.all([
@@ -123,5 +129,29 @@ export function useUpdateOrganization(id: number) {
         queryClient.invalidateQueries({ queryKey: ["super-admin-dashboard"] }),
       ]);
     },
+  });
+}
+
+export function useRunOrganizationFbrSandboxTests(id: number) {
+  return useMutation({
+    mutationFn: async (scenarioCodes: string[]) =>
+      (
+        await api.post<FbrSandboxTestResult>(
+          `${base}/organizations/${id}/fbr/sandbox-tests`,
+          { scenario_codes: scenarioCodes },
+        )
+      ).data,
+  });
+}
+
+export function useUpdateOrganizationOwnerPassword(id: number) {
+  return useMutation({
+    mutationFn: async (password: string) =>
+      (
+        await api.put<OrganizationOwnerPasswordResult>(
+          `${base}/organizations/${id}/owner/password`,
+          { password },
+        )
+      ).data,
   });
 }

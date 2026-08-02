@@ -69,7 +69,9 @@ class FbrClient:
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
 
-    def get(self, endpoint: str, params: dict[str, Any] | None = None, timeout: float = 60.0) -> Any:
+    def get(
+        self, endpoint: str, params: dict[str, Any] | None = None, timeout: float = 60.0
+    ) -> Any:
         try:
             response = httpx.get(
                 f"{self.base_url}{endpoint}", params=params, headers=self._headers, timeout=timeout
@@ -82,7 +84,7 @@ class FbrClient:
             raise ServiceUnavailableError(f"FBR returned {response.status_code}")
         return _decode(response)
 
-    def _post(self, endpoint: str, payload: dict) -> Any:
+    def _post_with_status(self, endpoint: str, payload: dict) -> tuple[int, Any]:
         target = endpoint if self.environment == FbrEnvironment.PRODUCTION else f"{endpoint}_sb"
         try:
             response = httpx.post(
@@ -92,7 +94,10 @@ class FbrClient:
             raise ServiceUnavailableError("FBR service is unavailable") from exc
         if response.status_code == 401:
             raise _unauthorized(response)
-        return _decode(response)
+        return response.status_code, _decode(response)
+
+    def _post(self, endpoint: str, payload: dict) -> Any:
+        return self._post_with_status(endpoint, payload)[1]
 
     def hs_uom(self, hs_code: str) -> Any:
         return self.get(
@@ -100,12 +105,13 @@ class FbrClient:
         )
 
     def sro_items(self, sro_id: str, on_date: str) -> Any:
-        return self.get(
-            "/pdi/v2/SROItem", params={"sro_id": sro_id, "date": on_date}, timeout=12.0
-        )
+        return self.get("/pdi/v2/SROItem", params={"sro_id": sro_id, "date": on_date}, timeout=12.0)
 
     def validate_invoice(self, payload: dict) -> Any:
         return self._post(INVOICE_ENDPOINTS["validate"], payload)
 
     def post_invoice(self, payload: dict) -> Any:
         return self._post(INVOICE_ENDPOINTS["post"], payload)
+
+    def post_invoice_with_status(self, payload: dict) -> tuple[int, Any]:
+        return self._post_with_status(INVOICE_ENDPOINTS["post"], payload)

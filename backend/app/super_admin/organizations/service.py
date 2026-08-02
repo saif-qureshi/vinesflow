@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
+from app.core.crypto import encrypt_secret
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.security import hash_password
+from app.modules.auth.service import AuthService
 from app.modules.orgs.models import Membership, Organization
 from app.modules.orgs.service import OrgService
 from app.modules.users.models import User
 from app.super_admin.organizations.schemas import (
+    SuperAdminOrganizationDetail,
+    SuperAdminOrganizationMember,
     SuperAdminOrganizationOnboard,
+    SuperAdminOrganizationOwnerPasswordResult,
     SuperAdminOrganizationPage,
     SuperAdminOrganizationRead,
     SuperAdminOrganizationUpdate,
@@ -47,11 +52,46 @@ class SuperAdminOrganizationService:
             created_at=org.created_at,
         )
 
-    def get(self, org_id: int) -> SuperAdminOrganizationRead:
+    def get(self, org_id: int) -> SuperAdminOrganizationDetail:
         org = self.db.get(Organization, org_id)
         if org is None:
             raise NotFoundError("Organization not found")
-        return self._read(org)
+        return self._detail(org)
+
+    def _detail(self, org: Organization) -> SuperAdminOrganizationDetail:
+        memberships = self.db.scalars(
+            select(Membership)
+            .where(Membership.org_id == org.id)
+            .options(joinedload(Membership.user), joinedload(Membership.role))
+            .order_by(Membership.is_owner.desc(), Membership.created_at, Membership.id)
+        ).all()
+        members = [
+            SuperAdminOrganizationMember(
+                membership_id=membership.id,
+                user_id=membership.user.id,
+                full_name=membership.user.full_name,
+                email=membership.user.email,
+                role_name=membership.role.name,
+                role_slug=membership.role.slug,
+                is_owner=membership.is_owner,
+                is_active=membership.user.is_active,
+            )
+            for membership in memberships
+        ]
+        return SuperAdminOrganizationDetail(
+            **self._read(org).model_dump(),
+            ntn=org.ntn,
+            strn=org.strn,
+            cnic=org.cnic,
+            address=org.address,
+            logo_url=org.logo_url,
+            fbr_enabled=org.fbr_enabled,
+            fbr_environment=org.fbr_environment,
+            fbr_province=org.fbr_province,
+            fbr_sandbox_configured=org.fbr_sandbox_configured,
+            fbr_production_configured=org.fbr_production_configured,
+            members=members,
+        )
 
     def list(self, *, search: str | None, page: int, page_size: int) -> SuperAdminOrganizationPage:
         filters = []
@@ -108,9 +148,29 @@ class SuperAdminOrganizationService:
         self.db.refresh(org)
         return self._read(org)
 
+    def update_owner_password(
+        self, org_id: int, password: str
+    ) -> SuperAdminOrganizationOwnerPasswordResult:
+        if self.db.get(Organization, org_id) is None:
+            raise NotFoundError("Organization not found")
+        owner = self.db.scalar(
+            select(User)
+            .join(Membership, Membership.user_id == User.id)
+            .where(Membership.org_id == org_id, Membership.is_owner.is_(True))
+        )
+        if owner is None:
+            raise NotFoundError("Organization owner not found")
+        owner.hashed_password = hash_password(password)
+        AuthService(self.db).revoke_all_for_user(owner.id)
+        self.db.commit()
+        return SuperAdminOrganizationOwnerPasswordResult(
+            owner_email=owner.email,
+            message="Owner password updated and existing sessions revoked",
+        )
+
     def update(
         self, org_id: int, payload: SuperAdminOrganizationUpdate
-    ) -> SuperAdminOrganizationRead:
+    ) -> SuperAdminOrganizationDetail:
         org = self.db.get(Organization, org_id)
         if org is None:
             raise NotFoundError("Organization not found")
@@ -118,8 +178,29 @@ class SuperAdminOrganizationService:
         org.currency = payload.currency.upper()
         org.country = payload.country.upper()
         org.industry = payload.industry or None
+        org.ntn = payload.ntn.strip() if payload.ntn and payload.ntn.strip() else None
+        org.strn = payload.strn.strip() if payload.strn and payload.strn.strip() else None
+        org.cnic = payload.cnic.strip() if payload.cnic and payload.cnic.strip() else None
+        if payload.address is None:
+            org.address = None
+        else:
+            address = payload.address.model_dump()
+            org.address = address if any(address.values()) else None
+        org.logo_url = (
+            payload.logo_url.strip() if payload.logo_url and payload.logo_url.strip() else None
+        )
+        if payload.fbr_enabled is not None:
+            org.fbr_enabled = payload.fbr_enabled
+        if payload.fbr_environment is not None:
+            org.fbr_environment = payload.fbr_environment
+        if payload.fbr_province is not None:
+            org.fbr_province = payload.fbr_province.strip() or None
+        if payload.fbr_sandbox_token and payload.fbr_sandbox_token.strip():
+            org.fbr_sandbox_token = encrypt_secret(payload.fbr_sandbox_token.strip())
+        if payload.fbr_production_token and payload.fbr_production_token.strip():
+            org.fbr_production_token = encrypt_secret(payload.fbr_production_token.strip())
         org.fiscal_year_start_month = payload.fiscal_year_start_month
         org.is_active = payload.is_active
         self.db.commit()
         self.db.refresh(org)
-        return self._read(org)
+        return self._detail(org)
