@@ -1,10 +1,11 @@
 # Runs on the EC2 instance. Image URIs + immutable tag come from deploy.env;
 # secrets come from backend.env and are refreshed from SSM before each deploy.
 x-logging: &default-logging
-  driver: json-file
+  driver: awslogs
   options:
-    max-size: "10m"
-    max-file: "3"
+    awslogs-region: ${AWS_REGION}
+    awslogs-group: ${CLOUDWATCH_LOG_GROUP}
+    awslogs-create-group: "false"
 
 services:
   caddy:
@@ -18,11 +19,23 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     environment:
-      APP_DOMAIN: ${APP_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
     logging: *default-logging
     depends_on:
       - backend
-      - frontend
+    networks:
+      - web
+
+  migrate:
+    image: ${ECR_BACKEND}:${IMAGE_TAG}
+    restart: "no"
+    env_file:
+      - backend.env
+    command: ["alembic", "upgrade", "head"]
+    networks:
+      - aws
+    mem_limit: 256m
+    logging: *default-logging
 
   backend:
     image: ${ECR_BACKEND}:${IMAGE_TAG}
@@ -30,9 +43,13 @@ services:
     env_file:
       - backend.env
     depends_on:
-      - gotenberg
+      migrate:
+        condition: service_completed_successfully
+      gotenberg:
+        condition: service_started
     networks:
-      - default
+      - aws
+      - web
       - internal
     mem_limit: 900m
     logging: *default-logging
@@ -42,18 +59,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 45s
-
-  frontend:
-    image: ${ECR_FRONTEND}:${IMAGE_TAG}
-    restart: always
-    mem_limit: 300m
-    logging: *default-logging
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
 
   gotenberg:
     image: gotenberg/gotenberg:8
@@ -79,7 +84,7 @@ services:
       backend:
         condition: service_healthy
     networks:
-      - default
+      - aws
       - internal
     mem_limit: 500m
     logging: *default-logging
@@ -97,8 +102,19 @@ services:
   #   mem_limit: 200m
 
 networks:
+  aws:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+  web:
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24
   internal:
     internal: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
 
 volumes:
   caddy_data:

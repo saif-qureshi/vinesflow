@@ -73,7 +73,7 @@ data "aws_iam_policy_document" "gha_deploy" {
       "ecr:BatchGetImage",
       "ecr:GetDownloadUrlForLayer",
     ]
-    resources = [aws_ecr_repository.backend.arn, aws_ecr_repository.frontend.arn]
+    resources = [aws_ecr_repository.backend.arn]
   }
 
   statement {
@@ -107,7 +107,6 @@ output "github_actions_setup" {
     AWS_ROLE_ARN  = one(aws_iam_role.gha_deploy[*].arn)
     AWS_REGION    = var.region
     ECR_BACKEND   = aws_ecr_repository.backend.repository_url
-    ECR_FRONTEND  = aws_ecr_repository.frontend.repository_url
     INSTANCE_ID   = aws_instance.app.id
     SSM_ENV_PARAM = aws_ssm_parameter.backend_env.name
   }

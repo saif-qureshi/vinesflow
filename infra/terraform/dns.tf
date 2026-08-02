@@ -1,9 +1,9 @@
 # Created only when a Route53 hosted zone is provided; otherwise add these manually (see outputs).
 
-resource "aws_route53_record" "app" {
+resource "aws_route53_record" "api" {
   count   = var.route53_zone_id == "" ? 0 : 1
   zone_id = var.route53_zone_id
-  name    = local.app_domain
+  name    = local.api_domain
   type    = "A"
   ttl     = 300
   records = [aws_eip.app.public_ip]

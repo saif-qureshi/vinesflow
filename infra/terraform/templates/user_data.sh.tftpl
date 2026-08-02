@@ -15,7 +15,7 @@ fi
 
 # ---------------------------------------------------------------- docker + compose
 dnf update -y
-dnf install -y docker
+dnf install -y docker amazon-cloudwatch-agent
 systemctl enable --now docker
 mkdir -p /usr/libexec/docker/cli-plugins
 curl -fsSL "https://github.com/docker/compose/releases/download/${compose_version}/docker-compose-linux-aarch64" \
@@ -41,11 +41,11 @@ chmod 755 /opt/vineflow/deploy.sh
 
 cat > /opt/vineflow/deploy.env <<DEPLOY_EOF
 ECR_BACKEND=${ecr_backend}
-ECR_FRONTEND=${ecr_frontend}
-IMAGE_TAG=latest
-APP_DOMAIN=${app_domain}
+IMAGE_TAG=not-deployed
+API_DOMAIN=${api_domain}
 AWS_REGION=${region}
 SSM_ENV_PARAM=${ssm_env_param}
+CLOUDWATCH_LOG_GROUP=${log_group_name}
 DEPLOY_EOF
 
 # backend secrets/config from SSM
@@ -64,12 +64,78 @@ LOGIN_EOF
 chmod +x /opt/vineflow/ecr-login.sh
 /opt/vineflow/ecr-login.sh || true
 
+# ---------------------------------------------------------------- container IMDS isolation
+# Only the backend/worker/migration network can reach instance-role credentials.
+cat > /opt/vineflow/metadata-firewall.sh <<'FIREWALL_EOF'
+#!/bin/bash
+set -euo pipefail
+iptables -C DOCKER-USER -s 172.28.0.0/24 -d 169.254.169.254/32 -j ACCEPT 2>/dev/null || \
+  iptables -I DOCKER-USER 1 -s 172.28.0.0/24 -d 169.254.169.254/32 -j ACCEPT
+iptables -C DOCKER-USER -d 169.254.169.254/32 -j DROP 2>/dev/null || \
+  iptables -A DOCKER-USER -d 169.254.169.254/32 -j DROP
+FIREWALL_EOF
+chmod 755 /opt/vineflow/metadata-firewall.sh
+
+cat > /etc/systemd/system/vineflow-metadata-firewall.service <<'FIREWALL_UNIT_EOF'
+[Unit]
+Description=Restrict container access to EC2 instance metadata
+Requires=docker.service
+After=docker.service
+Before=vineflow.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/vineflow/metadata-firewall.sh
+
+[Install]
+WantedBy=multi-user.target
+FIREWALL_UNIT_EOF
+
+# ---------------------------------------------------------------- host metrics
+cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'CWAGENT_EOF'
+{
+  "agent": {
+    "metrics_collection_interval": 60,
+    "run_as_user": "root"
+  },
+  "metrics": {
+    "namespace": "Vineflow",
+    "append_dimensions": {
+      "InstanceId": "$${aws:InstanceId}"
+    },
+    "aggregation_dimensions": [["InstanceId"]],
+    "metrics_collected": {
+      "mem": {
+        "measurement": ["mem_used_percent"],
+        "metrics_collection_interval": 60
+      },
+      "disk": {
+        "measurement": ["used_percent"],
+        "metrics_collection_interval": 60,
+        "resources": ["/"],
+        "drop_device": true
+      },
+      "swap": {
+        "measurement": ["swap_used_percent"],
+        "metrics_collection_interval": 60
+      }
+    }
+  }
+}
+CWAGENT_EOF
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -a fetch-config -m ec2 -s \
+  -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+systemctl enable amazon-cloudwatch-agent
+
 # ---------------------------------------------------------------- systemd unit (boot + auto-recovery)
 cat > /etc/systemd/system/vineflow.service <<'UNIT_EOF'
 [Unit]
 Description=Vineflow stack
 Requires=docker.service
-After=docker.service
+Requires=vineflow-metadata-firewall.service
+After=docker.service vineflow-metadata-firewall.service
 
 [Service]
 Type=oneshot
@@ -114,6 +180,7 @@ cat > /etc/systemd/system/vineflow-backup.service <<'BSVC_EOF'
 Description=Vineflow nightly DB dump
 [Service]
 Type=oneshot
+UMask=0077
 ExecStart=/opt/vineflow/backup.sh
 BSVC_EOF
 
@@ -128,4 +195,5 @@ WantedBy=timers.target
 BTIMER_EOF
 
 systemctl daemon-reload
+systemctl enable vineflow-metadata-firewall.service
 systemctl enable --now vineflow-backup.timer

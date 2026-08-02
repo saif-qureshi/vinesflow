@@ -59,7 +59,7 @@ data "aws_iam_policy_document" "app" {
       "ecr:GetDownloadUrlForLayer",
       "ecr:BatchCheckLayerAvailability",
     ]
-    resources = [aws_ecr_repository.backend.arn, aws_ecr_repository.frontend.arn]
+    resources = [aws_ecr_repository.backend.arn]
   }
 
   statement {
@@ -71,11 +71,11 @@ data "aws_iam_policy_document" "app" {
       "sqs:ChangeMessageVisibility",
       "sqs:GetQueueAttributes",
     ]
-    resources = [aws_sqs_queue.jobs.arn, aws_sqs_queue.jobs_dlq.arn]
+    resources = [aws_sqs_queue.jobs.arn]
   }
 
   statement {
-    sid       = "BackupMetrics"
+    sid       = "HostAndBackupMetrics"
     actions   = ["cloudwatch:PutMetricData"]
     resources = ["*"]
     condition {
@@ -83,6 +83,17 @@ data "aws_iam_policy_document" "app" {
       variable = "cloudwatch:namespace"
       values   = ["Vineflow"]
     }
+  }
+
+
+  statement {
+    sid = "ApplicationLogs"
+    actions = [
+      "logs:CreateLogStream",
+      "logs:DescribeLogStreams",
+      "logs:PutLogEvents",
+    ]
+    resources = ["${aws_cloudwatch_log_group.app.arn}:*"]
   }
 }
 

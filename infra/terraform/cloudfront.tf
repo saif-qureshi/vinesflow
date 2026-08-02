@@ -1,14 +1,18 @@
 locals {
-  media_domain      = "${var.media_subdomain}.${var.domain_name}"
-  app_domain        = "${var.app_subdomain}.${var.domain_name}"
-  use_custom_domain = var.enable_media_domain
-  use_route53       = var.route53_zone_id != ""
-  media_url         = local.use_custom_domain ? "https://${local.media_domain}" : "https://${aws_cloudfront_distribution.media.domain_name}"
+  media_domain              = "${var.media_subdomain}.${var.domain_name}"
+  api_domain                = "${var.api_subdomain}.${var.domain_name}"
+  customer_portal_domain    = "${var.customer_portal_subdomain}.${var.domain_name}"
+  admin_portal_domain       = "${var.admin_portal_subdomain}.${var.domain_name}"
+  use_route53               = var.route53_zone_id != ""
+  request_media_certificate = var.enable_media_domain
+  use_manual_media_domain   = var.enable_media_domain && !local.use_route53 && var.activate_media_domain
+  use_custom_domain         = var.enable_media_domain && (local.use_route53 || var.activate_media_domain)
+  media_url                 = local.use_custom_domain ? "https://${local.media_domain}" : "https://${aws_cloudfront_distribution.media.domain_name}"
 }
 
 # ACM cert for the media domain (CloudFront requires us-east-1). Route53-validated.
 resource "aws_acm_certificate" "media" {
-  count             = local.use_custom_domain ? 1 : 0
+  count             = local.request_media_certificate ? 1 : 0
   provider          = aws.us_east_1
   domain_name       = local.media_domain
   validation_method = "DNS"
@@ -17,7 +21,7 @@ resource "aws_acm_certificate" "media" {
 
 # Auto-created only when using Route53. On Cloudflare you add the CNAME yourself (see acm_validation_record output).
 resource "aws_route53_record" "media_cert_validation" {
-  for_each = local.use_custom_domain && local.use_route53 ? {
+  for_each = local.request_media_certificate && local.use_route53 ? {
     for dvo in aws_acm_certificate.media[0].domain_validation_options : dvo.domain_name => {
       name   = dvo.resource_record_name
       type   = dvo.resource_record_type
@@ -33,15 +37,29 @@ resource "aws_route53_record" "media_cert_validation" {
   allow_overwrite = true
 }
 
-# With Route53 it validates immediately; with Cloudflare it waits until you add the CNAME (two-step apply).
+# Route53 can complete validation within one apply. Manual DNS intentionally skips
+# this waiter so the first apply can return the CNAME instead of blocking for an hour.
 resource "aws_acm_certificate_validation" "media" {
-  count                   = local.use_custom_domain ? 1 : 0
+  count                   = local.request_media_certificate && local.use_route53 ? 1 : 0
   provider                = aws.us_east_1
   certificate_arn         = aws_acm_certificate.media[0].arn
-  validation_record_fqdns = local.use_route53 ? [for r in aws_route53_record.media_cert_validation : r.fqdn] : null
+  validation_record_fqdns = [for r in aws_route53_record.media_cert_validation : r.fqdn]
   timeouts {
     create = "60m"
   }
+}
+
+# On Cloudflare, the operator adds ACM's CNAME after the first apply and flips
+# activate_media_domain only after ACM reports ISSUED. This lookup enforces that state.
+data "aws_acm_certificate" "media_issued" {
+  count       = local.use_manual_media_domain ? 1 : 0
+  provider    = aws.us_east_1
+  domain      = local.media_domain
+  statuses    = ["ISSUED"]
+  types       = ["AMAZON_ISSUED"]
+  most_recent = true
+
+  depends_on = [aws_acm_certificate.media]
 }
 
 resource "aws_cloudfront_origin_access_control" "media" {
@@ -85,7 +103,9 @@ resource "aws_cloudfront_distribution" "media" {
   dynamic "viewer_certificate" {
     for_each = local.use_custom_domain ? [1] : []
     content {
-      acm_certificate_arn      = aws_acm_certificate_validation.media[0].certificate_arn
+      acm_certificate_arn = local.use_route53 ? (
+        aws_acm_certificate_validation.media[0].certificate_arn
+      ) : data.aws_acm_certificate.media_issued[0].arn
       ssl_support_method       = "sni-only"
       minimum_protocol_version = "TLSv1.2_2021"
     }

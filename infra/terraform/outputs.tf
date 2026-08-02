@@ -1,13 +1,21 @@
-output "app_url" {
-  value = "https://${local.app_domain}"
+output "api_url" {
+  value = "https://${local.api_domain}"
+}
+
+output "customer_portal_url" {
+  value = "https://${local.customer_portal_domain}"
+}
+
+output "admin_portal_url" {
+  value = "https://${local.admin_portal_domain}"
 }
 
 output "media_url" {
   value = local.media_url
 }
 
-output "app_elastic_ip" {
-  description = "Point the app A-record here (done automatically if route53_zone_id is set)."
+output "api_elastic_ip" {
+  description = "Point the API A-record here (done automatically if route53_zone_id is set)."
   value       = aws_eip.app.public_ip
 }
 
@@ -28,10 +36,6 @@ output "ecr_backend_repo" {
   value = aws_ecr_repository.backend.repository_url
 }
 
-output "ecr_frontend_repo" {
-  value = aws_ecr_repository.frontend.repository_url
-}
-
 output "rds_endpoint" {
   value = aws_db_instance.main.address
 }
@@ -43,7 +47,7 @@ output "jobs_queue_url" {
 output "manual_dns_records" {
   description = "Add these at Cloudflare (route53_zone_id empty). App must be DNS-only (grey cloud) so Caddy can get TLS."
   value = local.use_route53 ? "managed by Route53" : join("\n", concat(
-    ["${local.app_domain}   A       ${aws_eip.app.public_ip}   [Proxy status: DNS only / grey cloud]"],
+    ["${local.api_domain}   A       ${aws_eip.app.public_ip}   [Proxy status: DNS only / grey cloud]"],
     local.use_custom_domain ? ["${local.media_domain}   CNAME   ${aws_cloudfront_distribution.media.domain_name}   [DNS only / grey cloud]"] : [],
   ))
 }
@@ -53,9 +57,21 @@ output "manual_dns_records" {
 output "acm_validation_record" {
   description = "CNAME(s) to add at Cloudflare for ACM validation (empty when not applicable)."
   value = {
-    for dvo in((local.use_custom_domain && !local.use_route53) ? aws_acm_certificate.media[0].domain_validation_options : []) :
+    for dvo in((local.request_media_certificate && !local.use_route53) ? aws_acm_certificate.media[0].domain_validation_options : []) :
     dvo.domain_name => "${dvo.resource_record_name} CNAME ${dvo.resource_record_value}"
   }
+}
+
+output "media_domain_activation_required" {
+  description = "For manual DNS: add acm_validation_record, wait for ISSUED, then set activate_media_domain=true and apply again."
+  value       = local.request_media_certificate && !local.use_route53 && !var.activate_media_domain
+}
+
+output "ssh_command" {
+  description = "SSH command template. Replace the identity-file path if a different local key was registered."
+  value = var.ssh_ingress_cidr == "" ? null : (
+    "ssh -i ~/.ssh/id_ed25519 ec2-user@${aws_eip.app.public_ip}"
+  )
 }
 
 # ---- Local-dev S3 credentials (scoped to local/*) ---------------------------

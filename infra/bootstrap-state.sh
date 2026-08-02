@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TF_DIR="$SCRIPT_DIR/terraform"
 STATE_REGION="${AWS_REGION:-ap-south-1}"
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-STATE_BUCKET="${TF_STATE_BUCKET:-vineflow-tfstate-$AWS_ACCOUNT_ID}"
+STATE_BUCKET="${TF_STATE_BUCKET:-vinesflow-tfstate-$AWS_ACCOUNT_ID}"
 
 if ! aws s3api head-bucket --bucket "$STATE_BUCKET" 2>/dev/null; then
   if [[ "$STATE_REGION" == "us-east-1" ]]; then

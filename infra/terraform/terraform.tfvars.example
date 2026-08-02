@@ -2,18 +2,29 @@
 
 domain_name = "yourdomain.com"
 
+# S3 names use the public brand spelling independently of internal resource names.
+# bucket_prefix = "vinesflow"
+
 # If your domain is in Route53, set the hosted zone id for full DNS + TLS automation.
 # Leave empty to manage DNS at your registrar (records are printed as outputs; you'll
 # also need to validate the CloudFront ACM cert manually).
 route53_zone_id = "" # e.g. "Z0123456789ABCDEFGHIJ"
 
-# Lean tier defaults (bump to t4g.medium for ~$12/mo more headroom):
-# instance_type     = "t4g.small"
-# db_instance_class = "db.t4g.micro"
+# With manual DNS, the first apply prints acm_validation_record. Add it, wait for
+# ACM to become ISSUED, then set this true and apply again.
+activate_media_domain = false
 
-# SSH is closed by default (use SSM Session Manager). To allow SSH, set both:
+# Production defaults:
+# instance_type     = "t4g.medium"
+# db_instance_class = "db.t4g.micro"
+# Pin the current AL2023 ARM64 AMI to prevent surprise replacement on a later apply:
+# ami_id = "ami-0123456789abcdef0"
+
+# SSH is closed by default (use SSM Session Manager). To enable Terraform-managed SSH:
 # ssh_ingress_cidr = "203.0.113.4/32"
-# key_pair_name    = "my-keypair"
+# ssh_public_key   = "ssh-ed25519 AAAA... workstation"
+# Alternatively, use an existing EC2 key pair:
+# key_pair_name = "my-keypair"
 
 # Get alerted when the box/DB is unhealthy or spend passes the budget:
 # alarm_email = "ops@yourdomain.com"

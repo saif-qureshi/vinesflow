@@ -68,6 +68,9 @@ mv backend.env.next backend.env
 docker compose --env-file deploy.env.next config -q
 "$ROOT/ecr-login.sh"
 docker compose --env-file deploy.env.next pull
+# Capture a restorable pre-migration dump. Database migrations must still follow
+# expand/contract compatibility so the old image can run during rollback.
+"$ROOT/backup.sh"
 docker compose --env-file deploy.env.next up -d --remove-orphans --wait --wait-timeout 180
 docker compose --env-file deploy.env.next exec -T backend curl -fsS http://localhost:8000/ready
 

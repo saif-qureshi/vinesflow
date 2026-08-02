@@ -1,7 +1,12 @@
 # Reference copy. In production the instance writes this file with your real domain
 # (see infra/terraform/templates/user_data.sh.tftpl). Caddy auto-provisions Let's Encrypt TLS.
-{$APP_DOMAIN:app.localhost} {
+{$API_DOMAIN:api.localhost} {
     encode gzip zstd
+
+    log {
+        output stdout
+        format json
+    }
 
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains"
@@ -15,7 +20,11 @@
         reverse_proxy backend:8000
     }
 
-    handle {
-        reverse_proxy frontend:3000
+    # Public dependency-aware health endpoint for Route53/CloudWatch monitoring.
+    handle /healthz {
+        rewrite * /ready
+        reverse_proxy backend:8000
     }
+
+    respond "Not found" 404
 }

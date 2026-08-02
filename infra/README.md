@@ -1,53 +1,61 @@
 # Vineflow — Production Infrastructure (AWS, cost-optimized)
 
-Single-region deployment tuned for a Pakistan operation. One Graviton EC2 runs the whole
-stack behind Caddy (auto-TLS); Postgres is managed by RDS; media is stored in a private S3
-bucket and delivered as public bearer URLs through CloudFront. No ALB or NAT gateway is used.
+Single-region AWS backend tuned for a Pakistan operation. Vercel serves the customer, admin, and
+marketing frontends. One Graviton EC2 runs the API/worker/PDF stack behind Caddy; Postgres is
+managed by RDS; media is stored in private S3 and delivered through CloudFront. No ALB or NAT
+gateway is used.
 
 **Region:** `ap-south-1` (Mumbai) — cheapest low-latency region for Pakistan (AWS has none in-country).
 
 ```
-Internet ── app.<domain> ─────────────► EC2 t4g.small (ARM)
+Internet ── api.<domain> ─────────────► EC2 t4g.medium (ARM)
                                           Docker Compose:
-                                            Caddy (TLS, proxy) · frontend (Next.js)
-                                            backend (FastAPI) · worker · gotenberg
+                                            Caddy (TLS, proxy) · backend (FastAPI)
+                                            worker · migration job · gotenberg
                                           IAM role (no keys)
+             app.<domain> ─────────────► Vercel customer portal
+           admin.<domain> ─────────────► Vercel super-admin portal
+     <domain> / www.<domain> ──────────► Vercel marketing site
              media.<domain> ─► CloudFront ─► S3 media (private, OAC)   ── writes ── EC2
                                           RDS Postgres (private subnets, SG-locked)
                                           S3 backups · SSM params · ECR
 ```
 
-## Monthly cost (Lean tier, low traffic)
+## Monthly cost (production tier, low traffic)
 
 | Item | Spec | ~$/mo |
 |---|---|---|
-| EC2 | t4g.small (2 GB, Graviton) | ~$12 |
-| RDS | db.t4g.micro, single-AZ, 20 GB | ~$15 |
-| EBS | gp3 30 GB | ~$2.4 |
+| EC2 | t4g.medium (4 GB, Graviton) | ~$16.35 |
+| RDS | db.t4g.micro, single-AZ | ~$15.33 |
+| EBS | gp3 30 GB | ~$2.74 |
+| RDS storage | gp3 20 GB | ~$2.62 |
 | Public IPv4 | Elastic IP ($0.005/hr) | ~$3.7 |
-| S3 + CloudFront + transfer | low volume | ~$3–5 |
-| ECR | last 10 images | ~$0.20 |
-| **Total** | | **~$37–40** |
+| S3 + ECR + alarms | low volume | ~$1–3 |
+| CloudFront + transfer | within low-traffic free allowances | ~$0 |
+| **Total** | | **~$41–45** |
 
-More headroom: `t4g.medium` (4 GB) adds ~$12/mo. Once sizes are stable, a 1-yr no-upfront
-Compute Savings Plan (~40% off EC2) plus an RDS Reserved Instance (~35% off) lands around
-**$28–32/mo**. With ~$1000 in credits the Lean tier lasts ~2 years.
+The estimate excludes taxes, unusually heavy traffic, and sustained T-family CPU surplus charges.
+`monthly_budget_usd = 75` leaves operational headroom while still catching unexpected spend.
 
 ## What you get
 - **Auto-recovery:** every container is `restart: always`, and a `vineflow.service` systemd unit
   brings the stack up on boot. No container receives access to the Docker socket.
-- **TLS:** Caddy provisions Let's Encrypt automatically for `app.<domain>`.
+- **TLS:** Caddy provisions Let's Encrypt automatically for `api.<domain>`; Vercel manages frontend TLS.
+- **Frontends:** Vercel deploys `frontend/` to `app.<domain>` and `super-admin/` to
+  `admin.<domain>` independently from the AWS backend.
 - **Backups:** RDS automated backups + PITR (14 days) **and** a nightly logical `pg_dump` → S3
-  (14-day lifecycle).
+  (14-day lifecycle). Every deploy also takes a pre-migration logical backup.
 - **Secrets:** the whole backend `.env` lives in one SSM SecureString and is refreshed at boot and
   before every deploy. No keys are stored in Git.
   `.dockerignore` keeps `backend/.env` out of image layers.
-- **Alerts:** CloudWatch alarms cover EC2/RDS health, stale SQS jobs, DLQ messages, and missing
-  nightly backups → SNS email (`alarm_email`), plus AWS Budgets alerts.
+- **Alerts:** CloudWatch alarms cover external HTTPS availability, EC2 CPU/memory/disk, RDS health,
+  stale SQS jobs, DLQ messages, and missing backups → SNS email, plus AWS Budgets alerts.
+- **Logs:** container and Caddy access logs are retained in CloudWatch Logs for 30 days.
 - **Self-healing:** system status-check failure auto-recovers the instance to healthy hardware;
   instance status-check failure auto-reboots. Both free.
-- **Hardening:** IMDSv2-only, private RDS (TLS forced by default on Postgres 15+), non-root app
-  containers, HSTS/nosniff/frame headers at Caddy and CloudFront, OIDC deploys (no static AWS keys).
+- **Hardening:** IMDSv2-only with metadata access limited to the AWS-aware container network,
+  private RDS with forced TLS, encrypted S3 with TLS-only bucket policies, non-root app containers,
+  immutable ECR tags, security headers, and OIDC deploys with no static AWS keys.
 
 ## Prerequisites
 - Terraform ≥ 1.10, AWS CLI, an AWS account, a registered domain.
@@ -62,17 +70,24 @@ Compute Savings Plan (~40% off EC2) plus an RDS Reserved Instance (~35% off) lan
 ```bash
 ./infra/bootstrap-state.sh
 ```
-This creates `vineflow-tfstate-<account-id>`, blocks public access, enables encryption and
+This creates `vinesflow-tfstate-<account-id>`, blocks public access, enables encryption and
 versioning, writes ignored `infra/terraform/backend.hcl`, and initializes S3-native locking.
 
-**2) Provision infra**
+**2) First apply**
 ```bash
 cd infra/terraform
 cp terraform.tfvars.example terraform.tfvars   # set domain_name (+ route53_zone_id, github_repo)
 terraform apply
 ```
-The instance boots and configures itself, but ECR is empty on the first apply — so the app
-containers come up only after the first image push.
+With Route53, this provisions everything. With manual DNS such as Cloudflare, the first apply
+creates a working default CloudFront distribution and prints `acm_validation_record` without
+blocking on certificate validation:
+```bash
+terraform output -json acm_validation_record
+```
+Add the exact CNAME at Cloudflare with proxying disabled. After ACM reports `ISSUED`, set
+`activate_media_domain = true` and apply again. Terraform refuses activation until an issued
+certificate exists. The app containers start only after the first image push because ECR begins empty.
 
 **3) CI/CD (recommended) — GitHub Actions, OIDC, no static keys**
 
@@ -80,11 +95,15 @@ Set `github_repo` in `terraform.tfvars` and re-`apply`, then in GitHub →
 *Settings → Secrets and variables → Actions → Variables*, add the values Terraform prints:
 ```bash
 terraform output github_actions_setup
-# -> AWS_ROLE_ARN, AWS_REGION, ECR_BACKEND, ECR_FRONTEND, INSTANCE_ID, SSM_ENV_PARAM
+# -> AWS_ROLE_ARN, AWS_REGION, ECR_BACKEND, INSTANCE_ID, SSM_ENV_PARAM
 ```
-Now `.github/workflows/deploy.yml` runs on every push to `main`: it builds both ARM64 images,
-stages Compose/Caddy, refreshes SSM secrets, deploys the immutable commit SHA, waits for readiness,
-and restores the prior configuration on failure. OIDC is restricted to the `main` branch.
+Now `.github/workflows/deploy.yml` runs on backend/infrastructure pushes to `main`: it builds the
+ARM64 backend image, stages Compose/Caddy, refreshes SSM secrets, deploys the immutable commit SHA,
+waits for readiness, and restores the prior configuration on failure. OIDC is restricted to main.
+Database migrations run as a dedicated dependency before the app is replaced; migrations must use
+expand/contract compatibility because an application rollback does not reverse an applied schema.
+
+Vercel deploys the customer and admin portals through its Git integration. See `infra/VERCEL.md`.
 
 **Manual deploy (fallback, no CI)**
 ```bash
@@ -94,14 +113,15 @@ aws ecr get-login-password --region ap-south-1 | docker login --username AWS --p
   "$(terraform -chdir=infra/terraform output -raw ecr_backend_repo | cut -d/ -f1)"
 docker buildx build --platform linux/arm64 -f infra/docker/backend.Dockerfile \
   -t "$(terraform -chdir=infra/terraform output -raw ecr_backend_repo):$SHA" --push backend
-docker buildx build --platform linux/arm64 -f infra/docker/frontend.Dockerfile \
-  -t "$(terraform -chdir=infra/terraform output -raw ecr_frontend_repo):$SHA" --push frontend
 # Stage docker-compose.yml.next and Caddyfile.next on the instance, then run:
 sudo /opt/vineflow/deploy.sh "$SHA"
 ```
 
-DNS (if not using Route53): point `app.<domain>` → `app_elastic_ip`, and `media.<domain>` →
+DNS (if not using Route53): point `api.<domain>` → `api_elastic_ip`, and `media.<domain>` →
 `cloudfront_domain` (see `terraform output`).
+
+SSH stays enabled only when both a `/32` `ssh_ingress_cidr` and either `ssh_public_key` or an existing
+`key_pair_name` are configured. SSM Session Manager remains the recovery access path.
 
 ## Local dev against S3 (the `local/` prefix)
 The media bucket can expose a dedicated **`local/`** prefix through an optional scoped IAM user.
@@ -137,7 +157,7 @@ touch **only** `local/*`.
   ```
 
 ## Scaling up (when traffic justifies it — additive, not a rebuild)
-1. **Background jobs:** the SQS worker is already enabled; bump `instance_type` to `t4g.medium`+
+1. **Background jobs:** the SQS worker is already enabled; bump `instance_type` above `t4g.medium`
    as job volume or concurrency grows.
 2. **HA:** flip `db_multi_az = true`, add an ALB + a second instance behind it.
 3. **DB headroom:** `db_instance_class = "db.t4g.small"`.
@@ -146,5 +166,6 @@ touch **only** `local/*`.
 ```
 infra/
   terraform/   network · security · iam · ecr · s3 · cloudfront · rds · ssm · compute · monitoring · dns · outputs
-  docker/      Dockerfiles · Compose · Caddyfile · transactional deploy script
+  docker/      backend Dockerfile · Compose · Caddyfile · transactional deploy script
+  VERCEL.md    customer/admin/marketing domain and project setup
 ```

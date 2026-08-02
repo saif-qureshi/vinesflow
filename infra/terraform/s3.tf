@@ -1,8 +1,9 @@
 data "aws_caller_identity" "current" {}
 
 locals {
-  media_bucket   = "${local.name}-media-${data.aws_caller_identity.current.account_id}"
-  backups_bucket = "${local.name}-backups-${data.aws_caller_identity.current.account_id}"
+  bucket_name_prefix = "${var.bucket_prefix}-${var.environment}"
+  media_bucket       = "${local.bucket_name_prefix}-media-${data.aws_caller_identity.current.account_id}"
+  backups_bucket     = "${local.bucket_name_prefix}-backups-${data.aws_caller_identity.current.account_id}"
 }
 
 # ---- Media bucket (private S3 origin; object URLs are public bearer URLs) -----
@@ -52,6 +53,22 @@ resource "aws_s3_bucket_lifecycle_configuration" "media" {
 # Read allowed ONLY to the CloudFront distribution (OAC). No public read.
 data "aws_iam_policy_document" "media" {
   statement {
+    sid       = "DenyInsecureTransport"
+    effect    = "Deny"
+    actions   = ["s3:*"]
+    resources = [aws_s3_bucket.media.arn, "${aws_s3_bucket.media.arn}/*"]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+
+  statement {
     sid       = "AllowCloudFrontRead"
     actions   = ["s3:GetObject"]
     resources = ["${aws_s3_bucket.media.arn}/*"]
@@ -100,6 +117,29 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "backups" {
       sse_algorithm = "AES256"
     }
   }
+}
+
+data "aws_iam_policy_document" "backups" {
+  statement {
+    sid       = "DenyInsecureTransport"
+    effect    = "Deny"
+    actions   = ["s3:*"]
+    resources = [aws_s3_bucket.backups.arn, "${aws_s3_bucket.backups.arn}/*"]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "backups" {
+  bucket = aws_s3_bucket.backups.id
+  policy = data.aws_iam_policy_document.backups.json
 }
 
 resource "aws_s3_bucket_lifecycle_configuration" "backups" {

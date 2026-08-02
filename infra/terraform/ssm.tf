@@ -20,7 +20,7 @@ locals {
     "FBR_ENCRYPTION_KEY=${local.fbr_encryption_key}",
     "REFRESH_COOKIE_SECURE=true",
     "REFRESH_COOKIE_SAMESITE=lax",
-    "BACKEND_CORS_ORIGINS=https://${local.app_domain}",
+    "BACKEND_CORS_ORIGINS=https://${local.customer_portal_domain},https://${local.admin_portal_domain}",
     "GOTENBERG_URL=http://gotenberg:3000",
     "STORAGE_BACKEND=s3",
     "S3_BUCKET=${aws_s3_bucket.media.bucket}",
