@@ -20,6 +20,39 @@ export interface DashboardSummary {
   active_organizations: number;
   inactive_organizations: number;
   organization_users: number;
+  new_organizations_30d: number;
+  fbr_enabled_organizations: number;
+  tax_identity_organizations: number;
+  fbr_configuration_issues: number;
+  recent_organizations: DashboardOrganization[];
+  activity_14d: DashboardActivityPoint[];
+  fbr_invoice_activity_14d: DashboardFbrInvoiceActivityPoint[];
+}
+
+export interface DashboardActivityPoint {
+  date: string;
+  customer_logins: number;
+  organizations_created: number;
+}
+
+export interface DashboardFbrInvoiceActivityPoint {
+  date: string;
+  submitted: number;
+  draft: number;
+  failed: number;
+}
+
+export interface DashboardOrganization {
+  id: number;
+  name: string;
+  slug: string;
+  is_active: boolean;
+  owner_email: string;
+  member_count: number;
+  tax_identity_configured: boolean;
+  fbr_enabled: boolean;
+  fbr_ready: boolean;
+  created_at: string;
 }
 
 export interface Organization {

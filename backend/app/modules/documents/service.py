@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.core import ledger as _ledger
+from app.core.exceptions import AppError, BadRequestError, ConflictError, NotFoundError
 from app.core.pagination import paginate_cursor
 from app.modules.activities.service import ActivityService
 from app.modules.documents.enums import (
@@ -38,6 +38,7 @@ from app.modules.documents.schemas import (
     SellableItemRead,
     TaxRateCreate,
 )
+from app.modules.fbr.models import FbrSubmissionAttempt
 from app.modules.inventory.service import InventoryService
 from app.modules.locations.models import Location
 from app.modules.parties.models import Party
@@ -84,7 +85,9 @@ def _q(value: Decimal) -> Decimal:
     return Decimal(value).quantize(_CENTS)
 
 
-def _fbr_line_tax(rate_desc: str, rate_value: Decimal, taxable: Decimal, quantity: Decimal) -> Decimal:
+def _fbr_line_tax(
+    rate_desc: str, rate_value: Decimal, taxable: Decimal, quantity: Decimal
+) -> Decimal:
     desc = (rate_desc or "").strip().lower()
     if "%" in desc:
         return _q(taxable * rate_value / _HUNDRED)
@@ -189,8 +192,14 @@ class DocumentService:
             self.db, org_id, str(doc_type), DEFAULT_PREFIXES[doc_type]
         )
         return preview_number(
-            self.db, Document.number, prefix, start, restart, date.today().year,
-            Document.org_id == org_id, Document.type == doc_type,
+            self.db,
+            Document.number,
+            prefix,
+            start,
+            restart,
+            date.today().year,
+            Document.org_id == org_id,
+            Document.type == doc_type,
         )
 
     def _stock_levels(self, org_id: int, product_ids: list[int], warehouse_id: int | None) -> dict:
@@ -330,9 +339,11 @@ class DocumentService:
     ) -> tuple[Decimal, Decimal]:
         further_rate = _ZERO if (party and party.strn) else Decimal("3")
         product_ids = [line.product_id for line in lines if line.product_id]
-        products = {
-            p.id: p for p in self.db.scalars(select(Product).where(Product.id.in_(product_ids)))
-        } if product_ids else {}
+        products = (
+            {p.id: p for p in self.db.scalars(select(Product).where(Product.id.in_(product_ids)))}
+            if product_ids
+            else {}
+        )
         rate_rows = self._fbr_rate_rows(p.fbr("tax_rate_code") for p in products.values())
 
         tax_total = further_total = _ZERO
@@ -441,15 +452,24 @@ class DocumentService:
         lines, subtotal, discount_total, tax_total = self._build_lines(org_id, payload.lines)
         doc.lines = lines
         further_total = _ZERO
-        if doc_type in (DocumentType.INVOICE, DocumentType.CREDIT_NOTE) and self._org_fbr_enabled(org_id):
+        if doc_type in (DocumentType.INVOICE, DocumentType.CREDIT_NOTE) and self._org_fbr_enabled(
+            org_id
+        ):
             tax_total, further_total = self._apply_fbr_tax(org_id, lines, party)
         self._apply_totals(doc, subtotal, discount_total, tax_total, further_total)
         if payload.number and payload.number.strip():
             self._set_explicit_number(doc, payload.number.strip())
         else:
             assign_number(
-                self.db, doc, Document.number, prefix, start, restart, issue_date.year,
-                Document.org_id == org_id, Document.type == doc_type,
+                self.db,
+                doc,
+                Document.number,
+                prefix,
+                start,
+                restart,
+                issue_date.year,
+                Document.org_id == org_id,
+                Document.type == doc_type,
             )
         self.activity.record(org_id, "created", doc_type, doc.number, entity_id=doc.id)
         self.db.commit()
@@ -500,9 +520,17 @@ class DocumentService:
         if "warehouse_id" in fields and payload.warehouse_id is not None:
             self._validate_warehouse(org_id, payload.warehouse_id)
         for field in (
-            "issue_date", "due_date", "reference", "warehouse_id", "notes", "terms",
-            "fbr_sale_origin", "fbr_sale_destination", "fbr_scenario_id",
-            "fbr_reason", "fbr_reason_remarks",
+            "issue_date",
+            "due_date",
+            "reference",
+            "warehouse_id",
+            "notes",
+            "terms",
+            "fbr_sale_origin",
+            "fbr_sale_destination",
+            "fbr_scenario_id",
+            "fbr_reason",
+            "fbr_reason_remarks",
         ):
             if field in fields:
                 setattr(doc, field, getattr(payload, field))
@@ -514,7 +542,10 @@ class DocumentService:
             lines, subtotal, discount_total, tax_total = self._build_lines(org_id, payload.lines)
             doc.lines = lines
             further_total = _ZERO
-            if doc_type in (DocumentType.INVOICE, DocumentType.CREDIT_NOTE) and self._org_fbr_enabled(org_id):
+            if doc_type in (
+                DocumentType.INVOICE,
+                DocumentType.CREDIT_NOTE,
+            ) and self._org_fbr_enabled(org_id):
                 party = self.db.get(Party, doc.party_id)
                 tax_total, further_total = self._apply_fbr_tax(org_id, lines, party)
             self._apply_totals(doc, subtotal, discount_total, tax_total, further_total)
@@ -600,9 +631,7 @@ class DocumentService:
         if source.status not in valid_statuses:
             raise BadRequestError(f"Source document {source.number} is no longer active")
         if doc.party_id != source.party_id:
-            raise BadRequestError(
-                f"Converted document must use the same party as {source.number}"
-            )
+            raise BadRequestError(f"Converted document must use the same party as {source.number}")
         self._guard_converted_lines(source, doc)
         return source
 
@@ -626,8 +655,7 @@ class DocumentService:
         target_quantities = self._line_quantities(target)
         if target.type == DocumentType.CREDIT_NOTE:
             if any(
-                signature not in source_quantities
-                or quantity > source_quantities[signature]
+                signature not in source_quantities or quantity > source_quantities[signature]
                 for signature, quantity in target_quantities.items()
             ):
                 raise BadRequestError(
@@ -662,9 +690,7 @@ class DocumentService:
     def _guard_no_active_conversion(self, org_id: int, source: Document) -> None:
         dependent = self._active_dependent(org_id, source.id)
         if dependent is not None:
-            raise BadRequestError(
-                f"{source.number} already has active document {dependent.number}"
-            )
+            raise BadRequestError(f"{source.number} already has active document {dependent.number}")
 
     def _reopen_order_source(self, org_id: int, doc: Document) -> None:
         if doc.source_document_id is None:
@@ -732,24 +758,36 @@ class DocumentService:
             fbr_sale_origin=source.fbr_sale_origin,
             fbr_sale_destination=source.fbr_sale_destination,
             fbr_scenario_id=source.fbr_scenario_id,
-            fbr_reason=(
-                "Return of Goods" if target_type == DocumentType.CREDIT_NOTE else None
-            ),
+            fbr_reason=("Return of Goods" if target_type == DocumentType.CREDIT_NOTE else None),
         )
         target.lines = lines
         further_total = _ZERO
-        if target_type in (DocumentType.INVOICE, DocumentType.CREDIT_NOTE) and self._org_fbr_enabled(org_id):
+        if target_type in (
+            DocumentType.INVOICE,
+            DocumentType.CREDIT_NOTE,
+        ) and self._org_fbr_enabled(org_id):
             party = self.db.get(Party, source.party_id)
             tax_total, further_total = self._apply_fbr_tax(org_id, lines, party)
         self._apply_totals(target, subtotal, discount_total, tax_total, further_total)
         assign_number(
-            self.db, target, Document.number, prefix, start, restart, date.today().year,
-            Document.org_id == org_id, Document.type == target_type,
+            self.db,
+            target,
+            Document.number,
+            prefix,
+            start,
+            restart,
+            date.today().year,
+            Document.org_id == org_id,
+            Document.type == target_type,
         )
 
         self.activity.record(
-            org_id, "converted", source.type, source.number,
-            entity_id=source.id, context={"to": target_type, "number": target.number},
+            org_id,
+            "converted",
+            source.type,
+            source.number,
+            entity_id=source.id,
+            context={"to": target_type, "number": target.number},
         )
         self.db.commit()
         self.db.refresh(target)
@@ -779,11 +817,33 @@ class DocumentService:
         if doc.type in (DocumentType.INVOICE, DocumentType.CREDIT_NOTE):
             from app.modules.fbr.service import FbrService
 
-            result = FbrService(self.db).submit_invoice(org_id, doc)
+            try:
+                result = FbrService(self.db).submit_invoice(org_id, doc)
+            except AppError as exc:
+                failed_org_id = doc.org_id
+                failed_document_id = doc.id
+                self.db.rollback()
+                self.db.add(
+                    FbrSubmissionAttempt(
+                        org_id=failed_org_id,
+                        document_id=failed_document_id,
+                        status="failed",
+                        error=exc.message,
+                    )
+                )
+                self.db.commit()
+                raise
             if result:
                 doc.fbr_invoice_number = result["invoice_number"]
                 doc.fbr_response = result["response"]
-                doc.fbr_submitted_at = datetime.now(timezone.utc)
+                doc.fbr_submitted_at = datetime.now(UTC)
+                self.db.add(
+                    FbrSubmissionAttempt(
+                        org_id=doc.org_id,
+                        document_id=doc.id,
+                        status="submitted",
+                    )
+                )
         self._apply_credit(org_id, doc)
         if moves_stock:
             self._post_stock(org_id, doc, reverse=False)
@@ -797,9 +857,7 @@ class DocumentService:
         self.db.refresh(doc)
         return doc
 
-    def void(
-        self, org_id: int, doc_id: int, expected_type: DocumentType | None = None
-    ) -> Document:
+    def void(self, org_id: int, doc_id: int, expected_type: DocumentType | None = None) -> Document:
         doc = self._get_for_update(org_id, doc_id)
         if expected_type and doc.type != expected_type:
             raise NotFoundError("Document not found")

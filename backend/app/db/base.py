@@ -24,7 +24,7 @@ from app.modules.documents.models import (
     TaxRate,
 )
 from app.modules.expenses.models import Expense, ExpenseLine
-from app.modules.fbr.models import FbrReferenceData
+from app.modules.fbr.models import FbrReferenceData, FbrSubmissionAttempt
 from app.modules.inventory.models import Reason, StockLevel, StockMovement
 from app.modules.locations.models import Location
 from app.modules.media.models import MediaAsset

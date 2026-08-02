@@ -92,12 +92,23 @@ def test_super_admin_auth_and_dashboard(client: TestClient, db: Session):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert dashboard.status_code == 200
-    assert dashboard.json()["data"] == {
-        "organizations": 0,
-        "active_organizations": 0,
-        "inactive_organizations": 0,
-        "organization_users": 0,
-    }
+    dashboard_data = dashboard.json()["data"]
+    assert dashboard_data["organizations"] == 0
+    assert dashboard_data["active_organizations"] == 0
+    assert dashboard_data["inactive_organizations"] == 0
+    assert dashboard_data["organization_users"] == 0
+    assert dashboard_data["new_organizations_30d"] == 0
+    assert dashboard_data["fbr_enabled_organizations"] == 0
+    assert dashboard_data["tax_identity_organizations"] == 0
+    assert dashboard_data["fbr_configuration_issues"] == 0
+    assert dashboard_data["recent_organizations"] == []
+    assert len(dashboard_data["activity_14d"]) == 14
+    assert all(point["customer_logins"] == 0 for point in dashboard_data["activity_14d"])
+    assert len(dashboard_data["fbr_invoice_activity_14d"]) == 14
+    assert all(
+        point["submitted"] == 0 and point["draft"] == 0 and point["failed"] == 0
+        for point in dashboard_data["fbr_invoice_activity_14d"]
+    )
 
 
 def test_admin_onboarding_uses_customer_org_setup(client: TestClient, db: Session):
@@ -164,6 +175,28 @@ def test_admin_onboarding_uses_customer_org_setup(client: TestClient, db: Sessio
     assert updated.json()["data"]["ntn"] == "1234567"
     assert updated.json()["data"]["address"]["city"] == "Karachi"
     assert updated.json()["data"]["logo_url"] == "https://example.com/acme.png"
+
+    customer_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "owner@acme.example.com", "password": "owner-password"},
+    )
+    assert customer_login.status_code == 200
+    assert client.post("/api/v1/auth/refresh").status_code == 200
+
+    dashboard = client.get(
+        "/api/v1/super-admin/dashboard",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert dashboard.status_code == 200
+    dashboard_data = dashboard.json()["data"]
+    assert dashboard_data["organizations"] == 1
+    assert dashboard_data["new_organizations_30d"] == 1
+    assert dashboard_data["tax_identity_organizations"] == 1
+    assert dashboard_data["recent_organizations"][0]["id"] == organization["id"]
+    assert dashboard_data["recent_organizations"][0]["owner_email"] == "owner@acme.example.com"
+    assert sum(point["organizations_created"] for point in dashboard_data["activity_14d"]) == 1
+    assert sum(point["customer_logins"] for point in dashboard_data["activity_14d"]) == 1
+    assert sum(point["submitted"] for point in dashboard_data["fbr_invoice_activity_14d"]) == 0
 
 
 def test_public_and_customer_org_registration_can_be_disabled(

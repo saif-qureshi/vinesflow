@@ -11,11 +11,11 @@ from app.core.exceptions import BadRequestError
 from app.core.security import hash_password
 from app.modules.documents.enums import DocumentStatus, DocumentType
 from app.modules.documents.models import Document, TaxRate
-from app.modules.fbr.client import FbrClient
 from app.modules.documents.schemas import DocumentCreate, DocumentLineInput
 from app.modules.documents.service import DocumentService
+from app.modules.fbr.client import FbrClient
 from app.modules.fbr.invoice import FbrInvoiceBuilder
-from app.modules.fbr.models import FbrReferenceData
+from app.modules.fbr.models import FbrReferenceData, FbrSubmissionAttempt
 from app.modules.orgs.service import OrgService
 from app.modules.parties.models import Party
 from app.modules.products.models import Product
@@ -23,11 +23,22 @@ from app.modules.users.models import User
 
 
 def _seed_refs(db):
-    db.add_all([
-        FbrReferenceData(type="sale_type", code="75", description="Goods at standard rate (default)"),
-        FbrReferenceData(type="tax_rate", code="728", description="18%", value=Decimal("18"), parent_type="sale_type", parent_code="75"),
-        FbrReferenceData(type="uom", code="69", description="Numbers, pieces, units"),
-    ])
+    db.add_all(
+        [
+            FbrReferenceData(
+                type="sale_type", code="75", description="Goods at standard rate (default)"
+            ),
+            FbrReferenceData(
+                type="tax_rate",
+                code="728",
+                description="18%",
+                value=Decimal("18"),
+                parent_type="sale_type",
+                parent_code="75",
+            ),
+            FbrReferenceData(type="uom", code="69", description="Numbers, pieces, units"),
+        ]
+    )
     db.flush()
 
 
@@ -72,8 +83,15 @@ def test_build_invoice_payload(db):
         DocumentType.INVOICE,
         DocumentCreate(
             party_id=party_id,
-            lines=[DocumentLineInput(product_id=pid, description="Widget", quantity=Decimal("2"),
-                                     unit_price=Decimal("100"), tax_rate_id=tax.id)],
+            lines=[
+                DocumentLineInput(
+                    product_id=pid,
+                    description="Widget",
+                    quantity=Decimal("2"),
+                    unit_price=Decimal("100"),
+                    tax_rate_id=tax.id,
+                )
+            ],
         ),
     )
 
@@ -108,8 +126,15 @@ def test_fbr_tax_from_product_rate_and_further_tax(db):
             DocumentType.INVOICE,
             DocumentCreate(
                 party_id=party_id,
-                lines=[DocumentLineInput(product_id=pid, description="Widget", quantity=Decimal("2"),
-                                         unit_price=Decimal("100"), tax_rate_id=tax.id)],
+                lines=[
+                    DocumentLineInput(
+                        product_id=pid,
+                        description="Widget",
+                        quantity=Decimal("2"),
+                        unit_price=Decimal("100"),
+                        tax_rate_id=tax.id,
+                    )
+                ],
             ),
         )
 
@@ -133,8 +158,16 @@ def test_fbr_tax_from_product_rate_and_further_tax(db):
 
 def test_fbr_fixed_rate_per_unit(db):
     _seed_refs(db)
-    db.add(FbrReferenceData(type="tax_rate", code="1023", description="Rs.200",
-                            value=Decimal("200"), parent_type="sale_type", parent_code="75"))
+    db.add(
+        FbrReferenceData(
+            type="tax_rate",
+            code="1023",
+            description="Rs.200",
+            value=Decimal("200"),
+            parent_type="sale_type",
+            parent_code="75",
+        )
+    )
     db.flush()
     org, party_id, _ = _setup(db)
     fixed = Product(org_id=org.id, name="Cement", type="single", tax_rate_code="1023")
@@ -146,8 +179,15 @@ def test_fbr_fixed_rate_per_unit(db):
         DocumentType.INVOICE,
         DocumentCreate(
             party_id=party_id,
-            lines=[DocumentLineInput(product_id=fixed.id, description="Cement", quantity=Decimal("3"),
-                                     unit_price=Decimal("500"), tax_rate_id=tax.id)],
+            lines=[
+                DocumentLineInput(
+                    product_id=fixed.id,
+                    description="Cement",
+                    quantity=Decimal("3"),
+                    unit_price=Decimal("500"),
+                    tax_rate_id=tax.id,
+                )
+            ],
         ),
     )
     assert invoice.lines[0].tax_amount == Decimal("600")
@@ -166,8 +206,15 @@ def test_unregistered_buyer_without_strn(db):
         DocumentType.INVOICE,
         DocumentCreate(
             party_id=party_id,
-            lines=[DocumentLineInput(product_id=pid, description="Widget", quantity=Decimal("1"),
-                                     unit_price=Decimal("100"), tax_rate_id=tax.id)],
+            lines=[
+                DocumentLineInput(
+                    product_id=pid,
+                    description="Widget",
+                    quantity=Decimal("1"),
+                    unit_price=Decimal("100"),
+                    tax_rate_id=tax.id,
+                )
+            ],
         ),
     )
     payload = FbrInvoiceBuilder(db).build(invoice, org)
@@ -192,8 +239,15 @@ def _make_invoice(db, org, party_id, pid):
         DocumentType.INVOICE,
         DocumentCreate(
             party_id=party_id,
-            lines=[DocumentLineInput(product_id=pid, description="Widget", quantity=Decimal("1"),
-                                     unit_price=Decimal("100"), tax_rate_id=tax.id)],
+            lines=[
+                DocumentLineInput(
+                    product_id=pid,
+                    description="Widget",
+                    quantity=Decimal("1"),
+                    unit_price=Decimal("100"),
+                    tax_rate_id=tax.id,
+                )
+            ],
         ),
     )
 
@@ -203,7 +257,8 @@ def test_finalize_submits_to_fbr(db, monkeypatch):
     valid = {"validationResponse": {"statusCode": "00", "status": "Valid"}}
     monkeypatch.setattr(FbrClient, "validate_invoice", lambda self, p: valid)
     monkeypatch.setattr(
-        FbrClient, "post_invoice",
+        FbrClient,
+        "post_invoice",
         lambda self, p: {"invoiceNumber": "7000007DI123", **valid},
     )
     svc = DocumentService(db)
@@ -212,20 +267,34 @@ def test_finalize_submits_to_fbr(db, monkeypatch):
     assert finalized.status == DocumentStatus.SENT
     assert finalized.fbr_invoice_number == "7000007DI123"
     assert finalized.fbr_submitted_at is not None
+    attempt = db.scalar(
+        select(FbrSubmissionAttempt).where(FbrSubmissionAttempt.document_id == finalized.id)
+    )
+    assert attempt is not None
+    assert attempt.status == "submitted"
     crypto._cipher.cache_clear()
 
 
 def test_finalize_blocked_when_fbr_rejects(db, monkeypatch):
     org, party_id, pid = _fbr_org(db, monkeypatch)
     monkeypatch.setattr(
-        FbrClient, "validate_invoice",
-        lambda self, p: {"validationResponse": {"statusCode": "01", "status": "Invalid", "error": "bad HS code"}},
+        FbrClient,
+        "validate_invoice",
+        lambda self, p: {
+            "validationResponse": {"statusCode": "01", "status": "Invalid", "error": "bad HS code"}
+        },
     )
     svc = DocumentService(db)
     inv = _make_invoice(db, org, party_id, pid)
     with pytest.raises(BadRequestError):
         svc.finalize(org.id, inv.id)
     assert db.get(Document, inv.id).status == DocumentStatus.DRAFT
+    attempt = db.scalar(
+        select(FbrSubmissionAttempt).where(FbrSubmissionAttempt.document_id == inv.id)
+    )
+    assert attempt is not None
+    assert attempt.status == "failed"
+    assert attempt.error == "FBR validation failed"
     crypto._cipher.cache_clear()
 
 
@@ -292,8 +361,14 @@ def test_variant_inherits_parent_fbr_fields(db):
     parent = ProductService(db).create(
         org.id,
         ProductCreate(
-            name="Shirt", nature="good", type="variable", uom_id=uom_id,
-            hs_code="6109.1000", uom_code="69", sale_type_code="75", tax_rate_code="728",
+            name="Shirt",
+            nature="good",
+            type="variable",
+            uom_id=uom_id,
+            hs_code="6109.1000",
+            uom_code="69",
+            sale_type_code="75",
+            tax_rate_code="728",
             variant_attributes=[VariantAttributeInput(name="Size", options=["S", "M"])],
             variants=[VariantInput(options={"Size": "S"}), VariantInput(options={"Size": "M"})],
         ),
@@ -308,8 +383,15 @@ def test_variant_inherits_parent_fbr_fields(db):
         DocumentType.INVOICE,
         DocumentCreate(
             party_id=party_id,
-            lines=[DocumentLineInput(product_id=child.id, description=child.name,
-                                     quantity=Decimal("2"), unit_price=Decimal("100"), tax_rate_id=tax.id)],
+            lines=[
+                DocumentLineInput(
+                    product_id=child.id,
+                    description=child.name,
+                    quantity=Decimal("2"),
+                    unit_price=Decimal("100"),
+                    tax_rate_id=tax.id,
+                )
+            ],
         ),
     )
     assert inv.lines[0].tax_amount == Decimal("36")
@@ -331,8 +413,15 @@ def test_seller_and_buyer_prefer_cnic(db):
         DocumentType.INVOICE,
         DocumentCreate(
             party_id=party_id,
-            lines=[DocumentLineInput(product_id=pid, description="Widget", quantity=Decimal("1"),
-                                     unit_price=Decimal("100"), tax_rate_id=tax.id)],
+            lines=[
+                DocumentLineInput(
+                    product_id=pid,
+                    description="Widget",
+                    quantity=Decimal("1"),
+                    unit_price=Decimal("100"),
+                    tax_rate_id=tax.id,
+                )
+            ],
         ),
     )
     payload = FbrInvoiceBuilder(db).build(invoice, org)
