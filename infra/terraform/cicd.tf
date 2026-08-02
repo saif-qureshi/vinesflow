@@ -13,10 +13,17 @@ variable "github_oidc_provider_arn" {
   default     = ""
 }
 
+variable "github_oidc_subject" {
+  description = "Exact GitHub OIDC sub claim. Leave empty for the standard owner/repo subject; set it when GitHub uses immutable owner/repository IDs."
+  type        = string
+  default     = ""
+}
+
 locals {
-  enable_cicd = var.github_repo != ""
-  create_oidc = local.enable_cicd && var.github_oidc_provider_arn == ""
-  oidc_arn    = local.create_oidc ? aws_iam_openid_connect_provider.github[0].arn : var.github_oidc_provider_arn
+  enable_cicd         = var.github_repo != ""
+  create_oidc         = local.enable_cicd && var.github_oidc_provider_arn == ""
+  oidc_arn            = local.create_oidc ? aws_iam_openid_connect_provider.github[0].arn : var.github_oidc_provider_arn
+  github_oidc_subject = var.github_oidc_subject != "" ? var.github_oidc_subject : "repo:${var.github_repo}:ref:refs/heads/main"
 }
 
 resource "aws_iam_openid_connect_provider" "github" {
@@ -42,7 +49,7 @@ data "aws_iam_policy_document" "gha_assume" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repo}:ref:refs/heads/main"]
+      values   = [local.github_oidc_subject]
     }
   }
 }

@@ -32,6 +32,8 @@ activate_media_domain = false
 
 # Enable GitHub Actions CI/CD (OIDC, no static keys). Set to owner/repo:
 # github_repo = "saif-qureshi/vinesflow"
+# If your GitHub organization customizes OIDC subjects with immutable IDs:
+# github_oidc_subject = "repo:owner@123/repository@456:ref:refs/heads/main"
 # If your account already has a GitHub OIDC provider, pass its ARN to reuse it:
 # github_oidc_provider_arn = "arn:aws:iam::730335575446:oidc-provider/token.actions.githubusercontent.com"
 
