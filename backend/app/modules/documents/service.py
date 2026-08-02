@@ -80,6 +80,9 @@ SALES_TYPES = {
     DocumentType.CREDIT_NOTE,
 }
 
+FINANCIAL_TYPES = {DocumentType.INVOICE, DocumentType.BILL}
+FBR_TYPES = {DocumentType.INVOICE, DocumentType.CREDIT_NOTE}
+
 
 def _q(value: Decimal) -> Decimal:
     return Decimal(value).quantize(_CENTS)
@@ -394,6 +397,28 @@ class DocumentService:
             return issue_date + timedelta(days=party.payment_term_days)
         return None
 
+    @staticmethod
+    def _validate_type_fields(
+        doc_type: DocumentType, payload: DocumentCreate | DocumentUpdate
+    ) -> None:
+        fields = payload.model_fields_set
+
+        def supplied(name: str) -> bool:
+            return name in fields and getattr(payload, name) is not None
+
+        if supplied("due_date") and doc_type not in FINANCIAL_TYPES:
+            raise BadRequestError("Due date is only available for invoices and bills")
+        if supplied("expected_shipment_date") and doc_type != DocumentType.SALES_ORDER:
+            raise BadRequestError("Expected shipment date is only available for sales orders")
+        fbr_fields = ("fbr_sale_origin", "fbr_sale_destination", "fbr_scenario_id")
+        if any(supplied(field) for field in fbr_fields) and doc_type not in FBR_TYPES:
+            raise BadRequestError(
+                "FBR filing fields are only available for invoices and credit notes"
+            )
+        reason_fields = ("fbr_reason", "fbr_reason_remarks")
+        if any(supplied(field) for field in reason_fields) and doc_type != DocumentType.CREDIT_NOTE:
+            raise BadRequestError("FBR reason fields are only available for credit notes")
+
     def get(self, org_id: int, doc_id: int) -> Document:
         doc = self.db.scalar(
             select(Document)
@@ -421,11 +446,17 @@ class DocumentService:
         return doc
 
     def create(self, org_id: int, doc_type: DocumentType, payload: DocumentCreate) -> Document:
+        self._validate_type_fields(doc_type, payload)
         doc_cls = DOCUMENT_CLASSES[doc_type]
         party = self._get_party(org_id, payload.party_id, doc_type)
         if payload.warehouse_id is not None:
             self._validate_warehouse(org_id, payload.warehouse_id)
         issue_date = payload.issue_date or date.today()
+        due_date = (
+            payload.due_date or self._default_due(issue_date, party)
+            if doc_type in FINANCIAL_TYPES
+            else None
+        )
         prefix, start, restart = numbering_format(
             self.db, org_id, str(doc_type), DEFAULT_PREFIXES[doc_type]
         )
@@ -435,7 +466,12 @@ class DocumentService:
             party_id=party.id,
             warehouse_id=payload.warehouse_id,
             issue_date=issue_date,
-            due_date=payload.due_date or self._default_due(issue_date, party),
+            due_date=due_date,
+            expected_shipment_date=(
+                payload.expected_shipment_date
+                if doc_type == DocumentType.SALES_ORDER
+                else None
+            ),
             reference=payload.reference,
             notes=payload.notes,
             terms=payload.terms,
@@ -443,11 +479,13 @@ class DocumentService:
             adjustment=_q(payload.adjustment),
             billing_address=party.billing_address,
             shipping_address=party.shipping_address,
-            fbr_sale_origin=payload.fbr_sale_origin,
-            fbr_sale_destination=payload.fbr_sale_destination,
-            fbr_scenario_id=payload.fbr_scenario_id,
-            fbr_reason=payload.fbr_reason,
-            fbr_reason_remarks=payload.fbr_reason_remarks,
+            fbr_sale_origin=payload.fbr_sale_origin if doc_type in FBR_TYPES else None,
+            fbr_sale_destination=payload.fbr_sale_destination if doc_type in FBR_TYPES else None,
+            fbr_scenario_id=payload.fbr_scenario_id if doc_type in FBR_TYPES else None,
+            fbr_reason=(payload.fbr_reason if doc_type == DocumentType.CREDIT_NOTE else None),
+            fbr_reason_remarks=(
+                payload.fbr_reason_remarks if doc_type == DocumentType.CREDIT_NOTE else None
+            ),
         )
         lines, subtotal, discount_total, tax_total = self._build_lines(org_id, payload.lines)
         doc.lines = lines
@@ -494,6 +532,7 @@ class DocumentService:
     def update(
         self, org_id: int, doc_id: int, doc_type: DocumentType, payload: DocumentUpdate
     ) -> Document:
+        self._validate_type_fields(doc_type, payload)
         doc = self.get_of_type(org_id, doc_id, doc_type)
         if doc.status != DocumentStatus.DRAFT:
             raise BadRequestError("Only draft documents can be edited")
@@ -521,19 +560,25 @@ class DocumentService:
             self._validate_warehouse(org_id, payload.warehouse_id)
         for field in (
             "issue_date",
-            "due_date",
             "reference",
             "warehouse_id",
             "notes",
             "terms",
-            "fbr_sale_origin",
-            "fbr_sale_destination",
-            "fbr_scenario_id",
-            "fbr_reason",
-            "fbr_reason_remarks",
         ):
             if field in fields:
                 setattr(doc, field, getattr(payload, field))
+        if doc_type in FINANCIAL_TYPES and "due_date" in fields:
+            doc.due_date = payload.due_date
+        if doc_type == DocumentType.SALES_ORDER and "expected_shipment_date" in fields:
+            doc.expected_shipment_date = payload.expected_shipment_date
+        if doc_type in FBR_TYPES:
+            for field in ("fbr_sale_origin", "fbr_sale_destination", "fbr_scenario_id"):
+                if field in fields:
+                    setattr(doc, field, getattr(payload, field))
+        if doc_type == DocumentType.CREDIT_NOTE:
+            for field in ("fbr_reason", "fbr_reason_remarks"):
+                if field in fields:
+                    setattr(doc, field, getattr(payload, field))
         if payload.shipping is not None:
             doc.shipping = _q(payload.shipping)
         if payload.adjustment is not None:
@@ -739,14 +784,22 @@ class DocumentService:
         prefix, start, restart = numbering_format(
             self.db, org_id, str(target_type), DEFAULT_PREFIXES[target_type]
         )
+        target_issue_date = date.today()
+        target_party = self.db.get(Party, source.party_id)
+        target_due_date = (
+            self._default_due(target_issue_date, target_party)
+            if target_type in FINANCIAL_TYPES and target_party is not None
+            else None
+        )
 
         target = DOCUMENT_CLASSES[target_type](
             org_id=org_id,
             status=DocumentStatus.DRAFT,
             party_id=source.party_id,
             warehouse_id=source.warehouse_id,
-            issue_date=date.today(),
-            due_date=source.due_date,
+            issue_date=target_issue_date,
+            due_date=target_due_date,
+            expected_shipment_date=None,
             reference=source.reference,
             notes=source.notes,
             terms=source.terms,
@@ -755,9 +808,11 @@ class DocumentService:
             billing_address=source.billing_address,
             shipping_address=source.shipping_address,
             source_document_id=source.id,
-            fbr_sale_origin=source.fbr_sale_origin,
-            fbr_sale_destination=source.fbr_sale_destination,
-            fbr_scenario_id=source.fbr_scenario_id,
+            fbr_sale_origin=(source.fbr_sale_origin if target_type in FBR_TYPES else None),
+            fbr_sale_destination=(
+                source.fbr_sale_destination if target_type in FBR_TYPES else None
+            ),
+            fbr_scenario_id=(source.fbr_scenario_id if target_type in FBR_TYPES else None),
             fbr_reason=("Return of Goods" if target_type == DocumentType.CREDIT_NOTE else None),
         )
         target.lines = lines

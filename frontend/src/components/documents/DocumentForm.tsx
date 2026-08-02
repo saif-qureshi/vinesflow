@@ -61,6 +61,7 @@ interface FormValues {
   party_id: number;
   issue_date: Dayjs;
   due_date?: Dayjs | null;
+  expected_shipment_date?: Dayjs | null;
   reference?: string;
   warehouse_id?: number | null;
   notes?: string;
@@ -488,11 +489,20 @@ export function DocumentForm({
     const baselineNumber = isEdit ? document.number : nextNumber.data?.number;
     const typedNumber = values.number?.trim();
     const numberOverride = typedNumber && typedNumber !== baselineNumber ? typedNumber : undefined;
+    const secondaryDate = config.secondaryDateField
+      ? values[config.secondaryDateField]
+      : undefined;
     const payload: DocumentInput = {
       party_id: values.party_id,
       ...(numberOverride ? { number: numberOverride } : {}),
       issue_date: values.issue_date.format("YYYY-MM-DD"),
-      due_date: values.due_date ? values.due_date.format("YYYY-MM-DD") : null,
+      ...(config.secondaryDateField
+        ? {
+            [config.secondaryDateField]: secondaryDate
+              ? secondaryDate.format("YYYY-MM-DD")
+              : null,
+          }
+        : {}),
       reference: values.reference || null,
       warehouse_id: values.warehouse_id ?? null,
       notes: values.notes || null,
@@ -557,6 +567,9 @@ export function DocumentForm({
         party_id: document?.party_id ?? undefined,
         issue_date: document ? dayjs(document.issue_date) : dayjs(),
         due_date: document?.due_date ? dayjs(document.due_date) : null,
+        expected_shipment_date: document?.expected_shipment_date
+          ? dayjs(document.expected_shipment_date)
+          : null,
         reference: document?.reference ?? undefined,
         warehouse_id: document?.warehouse_id ?? undefined,
         notes: document?.notes ?? undefined,
@@ -598,9 +611,14 @@ export function DocumentForm({
           >
             <DatePicker className="!w-full" format="DD MMM YYYY" />
           </Form.Item>
-          <Form.Item name="due_date" label={config.labels.secondaryDateLabel ?? "Due date"}>
-            <DatePicker className="!w-full" format="DD MMM YYYY" />
-          </Form.Item>
+          {config.secondaryDateField && (
+            <Form.Item
+              name={config.secondaryDateField}
+              label={config.labels.secondaryDateLabel}
+            >
+              <DatePicker className="!w-full" format="DD MMM YYYY" />
+            </Form.Item>
+          )}
           <Form.Item name="reference" label={config.labels.referenceLabel}>
             <Input placeholder={config.labels.referencePlaceholder} />
           </Form.Item>

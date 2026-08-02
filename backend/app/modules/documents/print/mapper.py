@@ -130,10 +130,16 @@ def document_to_print(doc: Document, org: Organization) -> PrintDocument:
         if party.email:
             party_lines.append(party.email)
 
-    meta = [
-        PrintMetaField(label="Date", value=_fmt_date(doc.issue_date)),
-        PrintMetaField(label="Due date", value=_fmt_date(doc.due_date)),
-    ]
+    meta = [PrintMetaField(label="Date", value=_fmt_date(doc.issue_date))]
+    if doc.type in (DocumentType.INVOICE, DocumentType.BILL):
+        meta.append(PrintMetaField(label="Due date", value=_fmt_date(doc.due_date)))
+    elif doc.type == DocumentType.SALES_ORDER:
+        meta.append(
+            PrintMetaField(
+                label="Expected shipment date",
+                value=_fmt_date(doc.expected_shipment_date),
+            )
+        )
     if doc.reference:
         meta.append(PrintMetaField(label="Reference", value=doc.reference))
     if doc.type == DocumentType.CREDIT_NOTE and doc.fbr_reason:

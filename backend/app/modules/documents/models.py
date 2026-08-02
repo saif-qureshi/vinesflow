@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -56,6 +57,33 @@ class Document(Base, TimestampMixin, AuditMixin):
         UniqueConstraint("org_id", "type", "number", name="uq_document_org_type_number"),
         Index("ix_documents_org_type", "org_id", "type"),
         Index("ix_documents_org_party", "org_id", "party_id"),
+        CheckConstraint(
+            "type IN ('invoice', 'bill') OR due_date IS NULL",
+            name="ck_documents_due_date_type",
+        ),
+        CheckConstraint(
+            "type = 'sales_order' OR expected_shipment_date IS NULL",
+            name="ck_documents_expected_shipment_type",
+        ),
+        CheckConstraint(
+            "type IN ('invoice', 'credit_note') OR "
+            "(fbr_sale_origin IS NULL AND fbr_sale_destination IS NULL AND "
+            "fbr_scenario_id IS NULL AND fbr_invoice_number IS NULL AND "
+            "fbr_submitted_at IS NULL AND fbr_response IS NULL)",
+            name="ck_documents_fbr_fields_type",
+        ),
+        CheckConstraint(
+            "type = 'credit_note' OR (fbr_reason IS NULL AND fbr_reason_remarks IS NULL)",
+            name="ck_documents_fbr_reason_type",
+        ),
+        CheckConstraint(
+            "type IN ('invoice', 'bill') OR (amount_paid = 0 AND payment_status = 'unpaid')",
+            name="ck_documents_payment_fields_type",
+        ),
+        CheckConstraint(
+            "type = 'credit_note' OR settled_amount = 0",
+            name="ck_documents_settlement_type",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -75,6 +103,7 @@ class Document(Base, TimestampMixin, AuditMixin):
 
     issue_date: Mapped[date] = mapped_column(Date, nullable=False)
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    expected_shipment_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
     currency: Mapped[str] = mapped_column(String(3), default="PKR", nullable=False)
 

@@ -108,11 +108,18 @@ export function DocumentList({ config }: { config: DocumentKindConfig }) {
       ),
     },
     { title: config.labels.party, key: "party", render: (_, doc) => doc.party?.name ?? dash },
-    {
-      title: config.labels.secondaryDateLabel ?? "Due date",
-      key: "due",
-      render: (_, doc) => (doc.due_date ? formatDate(doc.due_date) : dash),
-    },
+    ...(config.secondaryDateField
+      ? [
+          {
+            title: config.labels.secondaryDateLabel,
+            key: "secondary-date",
+            render: (_: unknown, doc: DocumentSummary) => {
+              const value = doc[config.secondaryDateField!];
+              return value ? formatDate(value) : dash;
+            },
+          },
+        ]
+      : []),
     {
       title: "Status",
       key: "status",

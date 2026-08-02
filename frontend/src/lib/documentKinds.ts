@@ -24,6 +24,7 @@ export interface DocumentKindConfig {
   /** Whether this document carries money owed (invoices/bills) vs. being purely
    *  operational (orders, challans). */
   tracksPayment: boolean;
+  secondaryDateField?: "due_date" | "expected_shipment_date";
   priceField: "sale_price" | "purchase_price";
   labels: {
     singular: string;
@@ -56,11 +57,13 @@ export const SALES_ORDER_CONFIG: DocumentKindConfig = {
     listDescription: "What customers have ordered but not yet been shipped",
     party: "Customer",
     dateLabel: "Order date",
+    secondaryDateLabel: "Expected shipment date",
     referenceLabel: "Reference",
     referencePlaceholder: "Customer PO / reference",
     warehouseHint: "Stock will ship from here",
     newAction: "New Sales Order",
   },
+  secondaryDateField: "expected_shipment_date",
   statusOverrides: { sent: "Confirmed" },
   conversions: [
     { target: "delivery_challan", label: "Create Delivery Challan" },
@@ -83,7 +86,6 @@ export const DELIVERY_CHALLAN_CONFIG: DocumentKindConfig = {
     listDescription: "Goods dispatched to customers",
     party: "Customer",
     dateLabel: "Dispatch date",
-    secondaryDateLabel: "Expected shipment date",
     referenceLabel: "Reference",
     referencePlaceholder: "Customer PO / reference",
     warehouseHint: "Stock ships from here",
@@ -101,6 +103,7 @@ export const INVOICE_CONFIG: DocumentKindConfig = {
   partyRole: "customer",
   paymentDirection: "received",
   tracksPayment: true,
+  secondaryDateField: "due_date",
   priceField: "sale_price",
   labels: {
     singular: "Invoice",
@@ -108,6 +111,7 @@ export const INVOICE_CONFIG: DocumentKindConfig = {
     listDescription: "Bill your customers and track what they owe",
     party: "Customer",
     dateLabel: "Invoice date",
+    secondaryDateLabel: "Due date",
     referenceLabel: "Reference",
     referencePlaceholder: "Customer PO / reference",
     warehouseHint: "Stock ships from here",
@@ -198,6 +202,7 @@ export const BILL_CONFIG: DocumentKindConfig = {
   partyRole: "vendor",
   paymentDirection: "made",
   tracksPayment: true,
+  secondaryDateField: "due_date",
   priceField: "purchase_price",
   labels: {
     singular: "Bill",
@@ -205,6 +210,7 @@ export const BILL_CONFIG: DocumentKindConfig = {
     listDescription: "Record what you owe your vendors",
     party: "Vendor",
     dateLabel: "Bill date",
+    secondaryDateLabel: "Due date",
     referenceLabel: "Vendor invoice #",
     referencePlaceholder: "Vendor's invoice number",
     warehouseHint: "Stock is received into here",

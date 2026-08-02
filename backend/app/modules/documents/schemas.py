@@ -30,6 +30,7 @@ class DocumentCreate(BaseModel):
     number: str | None = Field(default=None, max_length=40)
     issue_date: date | None = None
     due_date: date | None = None
+    expected_shipment_date: date | None = None
     reference: str | None = Field(default=None, max_length=100)
     warehouse_id: int | None = None
     notes: str | None = None
@@ -49,6 +50,7 @@ class DocumentUpdate(BaseModel):
     number: str | None = Field(default=None, max_length=40)
     issue_date: date | None = None
     due_date: date | None = None
+    expected_shipment_date: date | None = None
     reference: str | None = None
     warehouse_id: int | None = None
     notes: str | None = None
@@ -114,6 +116,7 @@ class DocumentRead(BaseModel):
     warehouse_id: int | None = None
     issue_date: date
     due_date: date | None = None
+    expected_shipment_date: date | None = None
     reference: str | None = None
     currency: str
     notes: str | None = None
@@ -160,6 +163,7 @@ class DocumentListItem(BaseModel):
     payment_status: str
     issue_date: date
     due_date: date | None = None
+    expected_shipment_date: date | None = None
     currency: str
     total: Decimal
     amount_paid: Decimal

@@ -92,6 +92,9 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
   const isDraft = doc.status === "draft";
   const life = lifecycleMeta(doc.status, config);
   const paidMeta = PAYMENT_META[doc.payment_status];
+  const secondaryDate = config.secondaryDateField
+    ? doc[config.secondaryDateField]
+    : null;
 
   const creditNoteUnregistered =
     fbrEnabled && config.kind === "credit_note" && !doc.buyer_registered;
@@ -335,9 +338,11 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
           <Descriptions.Item label={config.labels.dateLabel}>
             {formatDate(doc.issue_date)}
           </Descriptions.Item>
-          <Descriptions.Item label={config.labels.secondaryDateLabel ?? "Due date"}>
-            {doc.due_date ? formatDate(doc.due_date) : dash}
-          </Descriptions.Item>
+          {config.secondaryDateField && (
+            <Descriptions.Item label={config.labels.secondaryDateLabel}>
+              {secondaryDate ? formatDate(secondaryDate) : dash}
+            </Descriptions.Item>
+          )}
           <Descriptions.Item label={config.labels.referenceLabel}>
             {doc.reference || dash}
           </Descriptions.Item>

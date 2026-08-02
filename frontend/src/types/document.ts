@@ -47,6 +47,7 @@ export interface DocumentRecord {
   warehouse_id: number | null;
   issue_date: string;
   due_date: string | null;
+  expected_shipment_date: string | null;
   reference: string | null;
   currency: string;
   notes: string | null;
@@ -82,6 +83,7 @@ export interface DocumentSummary {
   payment_status: DocumentPaymentStatus;
   issue_date: string;
   due_date: string | null;
+  expected_shipment_date: string | null;
   currency: string;
   total: string;
   amount_paid: string;
@@ -104,6 +106,7 @@ export interface DocumentInput {
   number?: string | null;
   issue_date?: string | null;
   due_date?: string | null;
+  expected_shipment_date?: string | null;
   reference?: string | null;
   warehouse_id?: number | null;
   notes?: string | null;

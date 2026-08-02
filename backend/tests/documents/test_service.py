@@ -91,6 +91,64 @@ def test_create_invoice_numbers_and_totals(db):
     assert inv.due_date == inv.issue_date + timedelta(days=15)
 
 
+def test_document_type_specific_dates_and_fields(db):
+    org_id, _loc_id, party_id, pid = _setup(db, track=False)
+    tax = _tax(db, org_id)
+    svc = DocumentService(db)
+    shipment_date = date.today() + timedelta(days=5)
+
+    order = svc.create(
+        org_id,
+        DocumentType.SALES_ORDER,
+        DocumentCreate(
+            party_id=party_id,
+            expected_shipment_date=shipment_date,
+            lines=[_line(pid, tax.id)],
+        ),
+    )
+    assert order.expected_shipment_date == shipment_date
+    assert order.due_date is None
+
+    challan = svc.create(
+        org_id,
+        DocumentType.DELIVERY_CHALLAN,
+        DocumentCreate(party_id=party_id, lines=[_line(pid, tax.id)]),
+    )
+    assert challan.due_date is None
+    assert challan.expected_shipment_date is None
+
+    with pytest.raises(BadRequestError, match="Due date is only available"):
+        svc.create(
+            org_id,
+            DocumentType.DELIVERY_CHALLAN,
+            DocumentCreate(
+                party_id=party_id,
+                due_date=shipment_date,
+                lines=[_line(pid, tax.id)],
+            ),
+        )
+    with pytest.raises(BadRequestError, match="Expected shipment date is only available"):
+        svc.create(
+            org_id,
+            DocumentType.INVOICE,
+            DocumentCreate(
+                party_id=party_id,
+                expected_shipment_date=shipment_date,
+                lines=[_line(pid, tax.id)],
+            ),
+        )
+    with pytest.raises(BadRequestError, match="FBR filing fields are only available"):
+        svc.create(
+            org_id,
+            DocumentType.SALES_ORDER,
+            DocumentCreate(
+                party_id=party_id,
+                fbr_sale_origin="SINDH",
+                lines=[_line(pid, tax.id)],
+            ),
+        )
+
+
 def test_invoice_numbers_increment(db):
     org_id, loc_id, party_id, pid = _setup(db)
     svc = DocumentService(db)
