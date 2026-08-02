@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
 #
-# Run the whole Vineflow stack (Postgres + backend + frontend) from one place.
+# Run the whole Vineflow stack (Postgres + backend + both frontends) from one place.
 #
 #   ./dev.sh           start everything
 #   ./dev.sh --seed    also seed the permission catalog + demo account
 #
-# Ctrl+C stops the backend and frontend together.
+# Ctrl+C stops the backend and frontends together.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND="$ROOT/backend"
 FRONTEND="$ROOT/frontend"
+SUPER_ADMIN="$ROOT/super-admin"
 DB_HOST_PORT="${DB_HOST_PORT:-5433}"
 BACKEND_PORT="${BACKEND_PORT:-8005}"
 FRONTEND_PORT="${FRONTEND_PORT:-3005}"
+SUPER_ADMIN_PORT="${SUPER_ADMIN_PORT:-3010}"
 GOTENBERG_HOST_PORT="${GOTENBERG_HOST_PORT:-3009}"
 
 SEED=0
@@ -56,8 +58,12 @@ if [ ! -d "$FRONTEND/node_modules" ]; then
   log "Installing frontend deps..."
   (cd "$FRONTEND" && pnpm install)
 fi
+if [ ! -d "$SUPER_ADMIN/node_modules" ]; then
+  log "Installing super admin deps..."
+  (cd "$SUPER_ADMIN" && pnpm install)
+fi
 
-# 4. Run both, tear down together -----------------------------------------
+# 4. Run services, tear down together -------------------------------------
 pids=()
 cleanup() {
   log "Shutting down..."
@@ -70,7 +76,10 @@ trap cleanup INT TERM EXIT
 pids+=($!)
 (cd "$FRONTEND" && PORT="$FRONTEND_PORT" exec pnpm dev) &
 pids+=($!)
+(cd "$SUPER_ADMIN" && PORT="$SUPER_ADMIN_PORT" exec pnpm dev) &
+pids+=($!)
 
 log "Backend  -> http://localhost:${BACKEND_PORT}/docs"
 log "Frontend -> http://localhost:${FRONTEND_PORT}"
+log "Super admin -> http://localhost:${SUPER_ADMIN_PORT}"
 wait

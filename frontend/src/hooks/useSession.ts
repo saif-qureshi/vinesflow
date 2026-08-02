@@ -63,23 +63,6 @@ export function useLogin() {
   });
 }
 
-export function useRegister() {
-  const setAccessToken = useSessionStore((s) => s.setAccessToken);
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (vars: {
-      email: string;
-      password: string;
-      full_name?: string;
-      org_name: string;
-    }) => (await api.post<AccessToken>("/auth/register", vars)).data,
-    onSuccess: async (data) => {
-      setAccessToken(data.access_token);
-      await qc.invalidateQueries({ queryKey: ["me"] });
-    },
-  });
-}
-
 export function useLogout() {
   const clear = useSessionStore((s) => s.clear);
   const setCurrentOrgId = useSessionStore((s) => s.setCurrentOrgId);

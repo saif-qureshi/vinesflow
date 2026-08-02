@@ -12,6 +12,8 @@ from app.modules.documents.schemas import DocumentCreate, DocumentLineInput
 from app.modules.documents.service import DocumentService
 from app.modules.expenses.schemas import ExpenseCreate, ExpenseLineInput
 from app.modules.expenses.service import ExpenseService
+from app.modules.inventory.models import StockLevel, StockMovement
+from app.modules.locations.models import Location
 from app.modules.orgs.service import OrgService
 from app.modules.parties.models import Party
 from app.modules.products.models import Product
@@ -42,6 +44,26 @@ def _setup(db):
         purchase_price=Decimal("60"),
     )
     db.add_all([customer, product])
+    db.flush()
+    warehouse = db.scalar(select(Location).where(Location.org_id == org.id))
+    db.add_all(
+        [
+            StockMovement(
+                org_id=org.id,
+                product_id=product.id,
+                location_id=warehouse.id,
+                qty_delta=Decimal("20"),
+                type="opening",
+                unit_cost=Decimal("60"),
+            ),
+            StockLevel(
+                org_id=org.id,
+                product_id=product.id,
+                location_id=warehouse.id,
+                quantity=Decimal("20"),
+            ),
+        ]
+    )
     db.flush()
 
     tax = db.scalar(select(TaxRate).where(TaxRate.org_id == org.id, TaxRate.name == "GST 18%"))

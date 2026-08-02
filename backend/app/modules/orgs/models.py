@@ -22,6 +22,9 @@ class Organization(Base, TimestampMixin):
     currency: Mapped[str] = mapped_column(
         String(3), default="PKR", server_default="PKR", nullable=False
     )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
     industry: Mapped[str | None] = mapped_column(String(100), nullable=True)
     country: Mapped[str] = mapped_column(String(2), default="PK", server_default="PK", nullable=False)
     ntn: Mapped[str | None] = mapped_column(String(20), nullable=True)

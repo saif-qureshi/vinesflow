@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { Button, Divider, Input, Layout, Menu, Typography, type MenuProps } from "antd";
 import { Boxes, Building2, ChevronLeft, Search, ShieldCheck, SlidersHorizontal, UserRound } from "lucide-react";
 
 import { AppFooter } from "@/components/AppFooter";
+import { Logo } from "@/components/Logo";
 import { RequireAuth } from "@/components/RequireAuth";
 import { useCan, useSession } from "@/hooks/useSession";
 
@@ -133,7 +133,7 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
         style={{ paddingInline: 12 }}
         className="flex items-center gap-3 border-b border-gray-200"
       >
-        <Image src="/logo.svg" alt="Vineflow" width={28} height={28} priority />
+        <Logo size={28} priority />
         <Divider orientation="vertical" className="!mx-0 !h-7" />
         <Button icon={<ChevronLeft size={18} />} onClick={close} />
         <div className="leading-tight">

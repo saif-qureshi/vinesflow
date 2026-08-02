@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #0f766e;
+  --color-primary-hover: #115e59;
+  --color-secondary: #0f766e;
+  --color-sidebar: #0f172a;
+  --color-sidebar-text: #cbd5e1;
+  --color-muted: #94a3b8;
+  --color-surface: #f8fafc;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #f8fafc;
+}

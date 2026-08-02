@@ -109,7 +109,7 @@ export function DocumentList({ config }: { config: DocumentKindConfig }) {
     },
     { title: config.labels.party, key: "party", render: (_, doc) => doc.party?.name ?? dash },
     {
-      title: "Due date",
+      title: config.labels.secondaryDateLabel ?? "Due date",
       key: "due",
       render: (_, doc) => (doc.due_date ? formatDate(doc.due_date) : dash),
     },

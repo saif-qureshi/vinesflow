@@ -3,7 +3,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, status
 
 from app.api.deps import CurrentMembership, CurrentUser, require_permission
+from app.core.config import settings
 from app.core.container import Provide
+from app.core.exceptions import ForbiddenError
 from app.core.responses import EnvelopeRoute
 from app.modules.orgs.models import Membership, Organization
 from app.modules.orgs.schemas import (
@@ -29,6 +31,8 @@ def list_my_orgs(current_user: CurrentUser, orgs: OrgService = OrgSvc) -> list[M
 
 @router.post("", response_model=OrgRead, status_code=status.HTTP_201_CREATED)
 def create_org(payload: OrgCreate, current_user: CurrentUser, orgs: OrgService = OrgSvc) -> Organization:
+    if not settings.SELF_SERVICE_ORG_CREATION_ENABLED:
+        raise ForbiddenError("Organizations are provisioned by a super administrator")
     return orgs.create_org(owner=current_user, payload=payload)
 
 

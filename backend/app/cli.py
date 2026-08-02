@@ -14,6 +14,7 @@ from app.modules.orgs.service import OrgService
 from app.modules.rbac.models import Role
 from app.modules.rbac.service import RbacService
 from app.modules.users.models import User
+from app.super_admin.auth.models import SuperAdmin
 
 app = typer.Typer(no_args_is_help=True, help="Vineflow backend management CLI")
 users_app = typer.Typer(no_args_is_help=True, help="Manage users")
@@ -22,12 +23,14 @@ roles_app = typer.Typer(no_args_is_help=True, help="Inspect roles")
 db_app = typer.Typer(no_args_is_help=True, help="Database tasks")
 fbr_app = typer.Typer(no_args_is_help=True, help="FBR digital invoicing")
 accounting_app = typer.Typer(no_args_is_help=True, help="Accounting / Books")
+super_admin_app = typer.Typer(no_args_is_help=True, help="Manage super administrators")
 app.add_typer(users_app, name="users")
 app.add_typer(orgs_app, name="orgs")
 app.add_typer(roles_app, name="roles")
 app.add_typer(db_app, name="db")
 app.add_typer(fbr_app, name="fbr")
 app.add_typer(accounting_app, name="accounting")
+app.add_typer(super_admin_app, name="super-admin")
 
 
 def _get_user(db, email: str) -> User:
@@ -48,13 +51,81 @@ def _get_org(db, ref: str) -> Organization:
     return org
 
 
+def _get_super_admin(db, email: str) -> SuperAdmin:
+    admin = db.scalar(select(SuperAdmin).where(SuperAdmin.email == email.lower()))
+    if admin is None:
+        typer.secho(f"Super admin not found: {email}", fg=typer.colors.RED)
+        raise typer.Exit(1)
+    return admin
+
+
+@super_admin_app.command("create")
+def super_admin_create(
+    email: str = typer.Option(..., prompt=True),
+    password: str = typer.Option(..., prompt=True, hide_input=True, confirmation_prompt=True),
+    full_name: str = typer.Option(None),
+):
+    db = SessionLocal()
+    try:
+        if db.scalar(select(SuperAdmin.id).where(SuperAdmin.email == email.lower())):
+            typer.secho("Super admin email already exists", fg=typer.colors.RED)
+            raise typer.Exit(1)
+        admin = SuperAdmin(
+            email=email.lower(),
+            full_name=full_name,
+            hashed_password=hash_password(password),
+        )
+        db.add(admin)
+        db.commit()
+        typer.secho(f"Created super admin {admin.email}", fg=typer.colors.GREEN)
+    finally:
+        db.close()
+
+
+@super_admin_app.command("list")
+def super_admin_list():
+    db = SessionLocal()
+    try:
+        for admin in db.scalars(select(SuperAdmin).order_by(SuperAdmin.id)).all():
+            typer.echo(f"  {admin.id:>3}  {admin.email:28} active={admin.is_active}")
+    finally:
+        db.close()
+
+
+@super_admin_app.command("set-password")
+def super_admin_set_password(
+    email: str,
+    password: str = typer.Option(..., prompt=True, hide_input=True, confirmation_prompt=True),
+):
+    db = SessionLocal()
+    try:
+        admin = _get_super_admin(db, email)
+        admin.hashed_password = hash_password(password)
+        db.commit()
+        typer.secho(f"Password updated for {admin.email}", fg=typer.colors.GREEN)
+    finally:
+        db.close()
+
+
+@super_admin_app.command("set-active")
+def super_admin_set_active(email: str, enable: bool = typer.Option(True)):
+    db = SessionLocal()
+    try:
+        admin = _get_super_admin(db, email)
+        admin.is_active = enable
+        db.commit()
+        typer.secho(f"{admin.email} active={enable}", fg=typer.colors.GREEN)
+    finally:
+        db.close()
+
+
 @users_app.command("create")
 def users_create(
     email: str = typer.Option(..., prompt=True),
     password: str = typer.Option(..., prompt=True, hide_input=True, confirmation_prompt=True),
     full_name: str = typer.Option(None),
     org: str = typer.Option(None, help="Name of an org to create with this user as owner"),
-    superuser: bool = typer.Option(False, help="Grant platform superuser"),
+    superuser: bool = typer.Option(False, help="Grant cross-organization user access"),
 ):
     db = SessionLocal()
     try:

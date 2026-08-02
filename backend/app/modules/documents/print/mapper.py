@@ -208,6 +208,6 @@ def branding_for(org: Organization) -> PrintBranding:
     return PrintBranding(
         accent_color=org.accent_color or "#0f766e",
         show_logo=True,
-        footer_text="Powered by Vineflow" if org.keep_branding else None,
+        footer_text="Powered by VinesFlow" if org.keep_branding else None,
         terms=None,
     )

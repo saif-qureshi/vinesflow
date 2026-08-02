@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    PUBLIC_REGISTRATION_ENABLED: bool = False
+    SELF_SERVICE_ORG_CREATION_ENABLED: bool = False
 
     REFRESH_COOKIE_NAME: str = "vf_refresh"
     REFRESH_COOKIE_PATH: str = "/api/v1/auth"
@@ -25,7 +27,14 @@ class Settings(BaseSettings):
     REFRESH_COOKIE_SAMESITE: str = "lax"
     REFRESH_COOKIE_DOMAIN: str | None = None
 
-    BACKEND_CORS_ORIGINS: Annotated[list[str], NoDecode] = ["http://localhost:3005"]
+    SUPER_ADMIN_REFRESH_COOKIE_NAME: str = "vf_super_admin_refresh"
+    SUPER_ADMIN_REFRESH_COOKIE_PATH: str = "/api/v1/super-admin/auth"
+
+    # Keep the customer and separately hosted super-admin frontends explicit.
+    BACKEND_CORS_ORIGINS: Annotated[list[str], NoDecode] = [
+        "http://localhost:3005",
+        "http://localhost:3010",
+    ]
 
     GOTENBERG_URL: str = "http://localhost:3009"
 

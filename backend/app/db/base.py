@@ -40,3 +40,4 @@ from app.modules.rbac.models import Permission, Role, role_permissions
 from app.modules.settings.models import Setting
 from app.modules.uoms.models import Uom
 from app.modules.users.models import User
+from app.super_admin.auth.models import SuperAdmin, SuperAdminSession

@@ -20,9 +20,11 @@ from app.modules.reports.router import router as reports_router
 from app.modules.settings.router import router as settings_router
 from app.modules.uoms.router import router as uoms_router
 from app.modules.users.router import router as users_router
+from app.super_admin.router import router as super_admin_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
+api_router.include_router(super_admin_router)
 api_router.include_router(users_router)
 api_router.include_router(orgs_router)
 api_router.include_router(rbac_router)

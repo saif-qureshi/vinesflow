@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from app.api.deps import CurrentUser
 from app.core.config import settings
 from app.core.container import Provide
-from app.core.exceptions import AuthError
+from app.core.exceptions import AuthError, ForbiddenError
 from app.core.ratelimit import limiter
 from app.core.responses import EnvelopeRoute, error_body
 from app.core.security import create_access_token
@@ -36,6 +36,8 @@ def _refresh_error(message: str) -> JSONResponse:
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
 def register(payload: RegisterRequest, request: Request, response: Response, auth: AuthService = AuthSvc):
+    if not settings.PUBLIC_REGISTRATION_ENABLED:
+        raise ForbiddenError("Public registration is disabled")
     user, raw = auth.register_user(
         email=payload.email,
         password=payload.password,

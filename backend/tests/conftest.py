@@ -22,6 +22,13 @@ TEST_DB_NAME = "vineflow_test"
 TEST_DB_URL = f"{_BASE_URL}/{TEST_DB_NAME}"
 
 
+@pytest.fixture(autouse=True)
+def _enable_self_service_for_existing_tests(monkeypatch):
+    """Existing tests exercise legacy onboarding; production defaults remain disabled."""
+    monkeypatch.setattr(settings, "PUBLIC_REGISTRATION_ENABLED", True)
+    monkeypatch.setattr(settings, "SELF_SERVICE_ORG_CREATION_ENABLED", True)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _create_test_database() -> Iterator[None]:
     admin = create_engine(f"{_BASE_URL}/postgres", isolation_level="AUTOCOMMIT")
@@ -73,6 +80,7 @@ def client(db: Session) -> Iterator[TestClient]:
 
 
 # --- Convenience fixtures (no cross-module imports needed) -----------------
+
 
 @pytest.fixture()
 def register(client: TestClient) -> Callable[..., str]:

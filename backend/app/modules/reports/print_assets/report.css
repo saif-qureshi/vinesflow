@@ -1,18 +1,19 @@
 *{box-sizing:border-box}
-body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a;margin:0;font-size:12px}
-.head{display:flex;align-items:center;gap:12px;border-bottom:2px solid var(--accent);padding-bottom:10px}
-.logo{height:40px;max-width:170px;object-fit:contain}
-.org{font-size:15px;font-weight:700;color:var(--accent)}
-.titleblock{margin:14px 0 10px}
-.title{font-size:18px;font-weight:700;margin:0}
-.sub{color:#475569;font-size:12px;margin-top:2px}
-.meta{color:#94a3b8;font-size:10px;margin-top:4px}
+body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a;margin:0;font-size:12.5px;line-height:1.45}
+.head{display:flex;align-items:center;gap:12px;border-bottom:2px solid var(--accent);padding-bottom:12px}
+.logo{height:42px;max-width:180px;object-fit:contain}
+.org{font-size:16px;font-weight:700;color:var(--accent)}
+.titleblock{margin:18px 0 14px}
+.title{font-size:19px;font-weight:700;margin:0}
+.sub{color:#475569;font-size:12.5px;margin-top:3px}
+.meta{color:#94a3b8;font-size:10.5px;margin-top:5px}
 table{width:100%;border-collapse:collapse}
-th{font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:#64748b;border-bottom:1.5px solid #e2e8f0;padding:6px 8px}
-td{padding:5px 8px;border-bottom:1px solid #f1f5f9}
+th{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#64748b;border-bottom:1.5px solid #e2e8f0;padding:10px 12px}
+td{padding:10px 12px;border-bottom:1px solid #f1f5f9}
+tbody tr:nth-child(even) td{background:#fafbfc}
 .left{text-align:left}
-.right{text-align:right;font-variant-numeric:tabular-nums}
-.section td{font-weight:700;color:var(--accent);padding-top:12px;border-bottom:none}
-.subtotal td{font-weight:600;border-top:1px solid #e2e8f0}
-.grand td{font-weight:700;border-top:2px solid var(--accent)}
+.right{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.section td{font-weight:700;color:var(--accent);padding-top:18px;padding-bottom:6px;border-bottom:none;background:none}
+.subtotal td{font-weight:600;border-top:1px solid #e2e8f0;background:none}
+.grand td{font-weight:700;border-top:2px solid var(--accent);padding-top:12px;padding-bottom:12px;background:none}
 tr{page-break-inside:avoid}

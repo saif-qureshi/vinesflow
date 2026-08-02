@@ -335,7 +335,7 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
           <Descriptions.Item label={config.labels.dateLabel}>
             {formatDate(doc.issue_date)}
           </Descriptions.Item>
-          <Descriptions.Item label="Due date">
+          <Descriptions.Item label={config.labels.secondaryDateLabel ?? "Due date"}>
             {doc.due_date ? formatDate(doc.due_date) : dash}
           </Descriptions.Item>
           <Descriptions.Item label={config.labels.referenceLabel}>

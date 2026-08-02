@@ -20,7 +20,7 @@ class User(Base, TimestampMixin):
     full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    # Platform-level superuser (Vineflow staff), distinct from org-level roles.
+    # Customer-app permission bypass retained for compatibility; not a super admin.
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     memberships: Mapped[list[Membership]] = relationship(

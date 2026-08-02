@@ -82,7 +82,9 @@ class OrgService:
         return list(
             self.db.scalars(
                 select(Membership)
+                .join(Organization, Organization.id == Membership.org_id)
                 .where(Membership.user_id == user_id)
+                .where(Organization.is_active.is_(True))
                 .options(joinedload(Membership.organization), joinedload(Membership.role))
                 .order_by(Membership.created_at)
             ).all()

@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Lock, Mail } from "lucide-react";
 
-import { App, Button, Form, Input, Password, Typography } from "@/components/ui";
+import { App, Button, Form, Input, Password } from "@/components/ui";
 import { useLogin, useSession } from "@/hooks/useSession";
 import { apiErrorMessage } from "@/lib/api";
 import { AuthShell } from "@/components/AuthShell";
@@ -54,9 +53,6 @@ export default function LoginPage() {
           Sign in
         </Button>
       </Form>
-      <Typography.Paragraph className="!mt-6 text-center !text-gray-500">
-        No account? <Link href="/register">Create one</Link>
-      </Typography.Paragraph>
     </AuthShell>
   );
 }

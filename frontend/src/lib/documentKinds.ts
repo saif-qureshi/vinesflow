@@ -31,6 +31,7 @@ export interface DocumentKindConfig {
     listDescription: string;
     party: string;
     dateLabel: string;
+    secondaryDateLabel?: string;
     referenceLabel: string;
     referencePlaceholder: string;
     warehouseHint: string;
@@ -82,6 +83,7 @@ export const DELIVERY_CHALLAN_CONFIG: DocumentKindConfig = {
     listDescription: "Goods dispatched to customers",
     party: "Customer",
     dateLabel: "Dispatch date",
+    secondaryDateLabel: "Expected shipment date",
     referenceLabel: "Reference",
     referencePlaceholder: "Customer PO / reference",
     warehouseHint: "Stock ships from here",

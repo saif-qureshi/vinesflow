@@ -598,7 +598,7 @@ export function DocumentForm({
           >
             <DatePicker className="!w-full" format="DD MMM YYYY" />
           </Form.Item>
-          <Form.Item name="due_date" label="Due date">
+          <Form.Item name="due_date" label={config.labels.secondaryDateLabel ?? "Due date"}>
             <DatePicker className="!w-full" format="DD MMM YYYY" />
           </Form.Item>
           <Form.Item name="reference" label={config.labels.referenceLabel}>

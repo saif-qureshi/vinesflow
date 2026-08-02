@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import {
   Avatar,
@@ -38,6 +37,7 @@ import {
 } from "lucide-react";
 
 import { AppFooter } from "@/components/AppFooter";
+import { Logo } from "@/components/Logo";
 import { QuickCreate } from "@/components/QuickCreate";
 import { RecentActivity } from "@/components/layout/RecentActivity";
 import { RequireAuth } from "@/components/RequireAuth";
@@ -105,7 +105,7 @@ const NAV: MenuProps["items"] = [
 function Brand({ collapsed }: { collapsed?: boolean }) {
   return (
     <div className="flex h-15 items-center gap-3 px-5 py-4">
-      <Image src="/logo.svg" alt="Vineflow" width={30} height={30} priority />
+      <Logo size={30} priority />
       {!collapsed && (
         <span className="text-base font-semibold text-slate-900 dark:text-white">Vineflow</span>
       )}
@@ -220,9 +220,11 @@ function Shell({ children }: { children: React.ReactNode }) {
       </Drawer>
 
       <Layout
+        className="flex flex-col"
         style={{
           marginLeft: isMobile ? 0 : collapsed ? COLLAPSED : WIDTH,
           transition: "margin-left 0.2s",
+          minHeight: "100vh",
         }}
       >
         <Header
@@ -278,7 +280,7 @@ function Shell({ children }: { children: React.ReactNode }) {
             </Dropdown>
           </div>
         </Header>
-        <Content className="flex min-h-[calc(100vh-60px)] flex-col bg-slate-50">
+        <Content className="flex flex-1 flex-col bg-slate-50">
           <div className="flex-1 p-4 sm:p-6">{children}</div>
           <AppFooter />
         </Content>
