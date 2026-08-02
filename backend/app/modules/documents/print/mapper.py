@@ -11,11 +11,10 @@ from num2words import num2words
 from app.core.config import settings
 from app.modules.documents.enums import DocumentType
 from app.modules.documents.models import Document
-from app.modules.fbr.qr import qr_data_uri
 from app.modules.documents.print.print_document import (
     PrintBranding,
-    PrintCompany,
     PrintColumn,
+    PrintCompany,
     PrintContact,
     PrintDocument,
     PrintMetaField,
@@ -23,6 +22,7 @@ from app.modules.documents.print.print_document import (
     PrintRow,
     PrintTotalLine,
 )
+from app.modules.fbr.qr import qr_data_uri
 from app.modules.orgs.models import Organization
 
 TITLES = {
@@ -36,6 +36,11 @@ TITLES = {
 }
 
 _CURRENCY_WORDS = {"PKR": ("Rupees", "Paisa")}
+_TRACKING_PRINT_TYPES = {
+    DocumentType.DELIVERY_CHALLAN,
+    DocumentType.GOODS_RECEIPT,
+    DocumentType.CREDIT_NOTE,
+}
 
 
 def _money(value: Decimal | None) -> str:
@@ -50,6 +55,20 @@ def _qty(value: Decimal | None) -> str:
     number = value or Decimal("0")
     normalized = number.normalize()
     return f"{normalized:f}" if normalized == normalized.to_integral() else f"{number:,.3f}"
+
+
+def _tracking_details(line) -> str:
+    if line.lot_allocations:
+        details = []
+        for allocation in line.lot_allocations:
+            text = f"{allocation.lot.lot_number} × {_qty(allocation.quantity)}"
+            if allocation.lot.expiry_date:
+                text += f" · Exp {_fmt_date(allocation.lot.expiry_date)}"
+            details.append(text)
+        return "; ".join(details)
+    if line.serials:
+        return ", ".join(serial.serial_number for serial in line.serials)
+    return "—"
 
 
 def _address_lines(address: dict | None) -> list[str]:
@@ -150,18 +169,24 @@ def document_to_print(doc: Document, org: Organization) -> PrintDocument:
     if doc.fbr_invoice_number:
         meta.append(PrintMetaField(label="FBR IRN", value=doc.fbr_invoice_number))
 
-    columns = [
-        PrintColumn(key="description", label="Description"),
+    show_tracking = doc.type in _TRACKING_PRINT_TYPES and any(
+        line.lot_allocations or line.serials for line in doc.lines
+    )
+    columns = [PrintColumn(key="description", label="Description")]
+    if show_tracking:
+        columns.append(PrintColumn(key="tracking", label="Batch / serial details"))
+    columns.extend([
         PrintColumn(key="qty", label="Qty", align="right"),
         PrintColumn(key="rate", label="Rate", align="right"),
         PrintColumn(key="discount", label="Discount", align="right"),
         PrintColumn(key="tax", label="Tax", align="right"),
         PrintColumn(key="amount", label="Amount", align="right"),
-    ]
+    ])
     rows = [
         PrintRow(
             cells={
                 "description": line.description,
+                **({"tracking": _tracking_details(line)} if show_tracking else {}),
                 "qty": _qty(line.quantity),
                 "rate": _money(line.unit_price),
                 "discount": _money(line.discount) if line.discount else "—",
@@ -183,7 +208,9 @@ def document_to_print(doc: Document, org: Organization) -> PrintDocument:
     totals.append(PrintTotalLine(label="Total", value=_money(doc.total), emphasize=True))
     if doc.amount_paid:
         totals.append(PrintTotalLine(label="Amount paid", value=_money(doc.amount_paid)))
-        totals.append(PrintTotalLine(label="Balance due", value=_money(doc.total - doc.amount_paid)))
+        totals.append(
+            PrintTotalLine(label="Balance due", value=_money(doc.total - doc.amount_paid))
+        )
 
     contact = _address_lines(org.address)
     return PrintDocument(

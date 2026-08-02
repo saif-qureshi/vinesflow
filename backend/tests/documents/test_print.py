@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -6,9 +7,12 @@ from app.core.security import hash_password
 from app.modules.documents.enums import DocumentType
 from app.modules.documents.models import TaxRate
 from app.modules.documents.print.mapper import amount_in_words, branding_for, document_to_print
+from app.modules.documents.print.service import DocumentPrintService
 from app.modules.documents.print.skins import render_document_html
-from app.modules.documents.schemas import DocumentCreate, DocumentLineInput
+from app.modules.documents.schemas import DocumentCreate, DocumentLineInput, LotAllocationInput
 from app.modules.documents.service import DocumentService
+from app.modules.inventory.models import StockLot
+from app.modules.locations.models import Location
 from app.modules.orgs.models import Organization
 from app.modules.orgs.service import OrgService
 from app.modules.parties.models import Party
@@ -26,7 +30,11 @@ def _setup(db):
     db.flush()
     customer = Party(org_id=org.id, is_customer=True, name="Beta Corp", ntn="7654321-0")
     product = Product(
-        org_id=org.id, name="Widget", type="single", track_inventory=False, sale_price=Decimal("100")
+        org_id=org.id,
+        name="Widget",
+        type="single",
+        track_inventory=False,
+        sale_price=Decimal("100"),
     )
     db.add_all([customer, product])
     db.flush()
@@ -92,6 +100,49 @@ def test_bill_maps_with_vendor_heading(db):
     assert printed.parties[0].heading == "Vendor"
 
 
+def test_physical_document_prints_lot_and_expiry_but_invoice_does_not(db):
+    org, invoice = _setup(db)
+    customer = invoice.party
+    product = db.scalar(select(Product).where(Product.org_id == org.id))
+    product.track_inventory = True
+    product.tracking_mode = "lot"
+    location = db.scalar(select(Location).where(Location.org_id == org.id))
+    tax = db.scalar(select(TaxRate).where(TaxRate.org_id == org.id, TaxRate.name == "Exempt"))
+    lot = StockLot(
+        org_id=org.id,
+        product_id=product.id,
+        lot_number="BATCH-001",
+        expiry_date=date(2027, 12, 31),
+    )
+    db.add(lot)
+    db.flush()
+    challan = DocumentService(db).create(
+        org.id,
+        DocumentType.DELIVERY_CHALLAN,
+        DocumentCreate(
+            party_id=customer.id,
+            warehouse_id=location.id,
+            lines=[
+                DocumentLineInput(
+                    product_id=product.id,
+                    description="Widget",
+                    quantity=Decimal(2),
+                    unit_price=Decimal("100"),
+                    tax_rate_id=tax.id,
+                    lot_allocations=[
+                        LotAllocationInput(lot_id=lot.id, quantity=Decimal(2))
+                    ],
+                )
+            ],
+        ),
+    )
+
+    printed = document_to_print(challan, org)
+    assert any(column.key == "tracking" for column in printed.columns)
+    assert printed.rows[0].cells["tracking"] == "BATCH-001 × 2 · Exp 31 Dec 2027"
+    assert all(column.key != "tracking" for column in document_to_print(invoice, org).columns)
+
+
 def test_renders_self_contained_html(db):
     org, doc = _setup(db)
     html = render_document_html(document_to_print(doc, org), branding_for(org), "corporate")
@@ -108,6 +159,27 @@ def test_thermal_skin_renders(db):
     org, doc = _setup(db)
     html = render_document_html(document_to_print(doc, org), branding_for(org), "thermal")
     assert doc.number in html
+
+
+def test_pdf_keeps_powered_by_only_in_page_footer(db):
+    org, doc = _setup(db)
+    org.keep_branding = True
+    db.flush()
+    captured = {}
+    service = DocumentPrintService(db)
+
+    def fake_pdf(html, paper, footer):
+        captured.update(html=html, paper=paper, footer=footer)
+        return b"pdf"
+
+    service.pdf.html_to_pdf = fake_pdf
+    content, _ = service.render_pdf(
+        org.id, doc.id, DocumentType.INVOICE, "corporate", "A4"
+    )
+
+    assert content == b"pdf"
+    assert "Powered by VinesFlow" not in captured["html"]
+    assert "Powered by VinesFlow" in captured["footer"]
 
 
 def test_preview_endpoint(client, db, register, org_id_of, h):

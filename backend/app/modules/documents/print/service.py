@@ -17,7 +17,7 @@ from app.modules.documents.service import DocumentService
 from app.modules.orgs.models import Organization
 
 # Bump to invalidate every cached PDF (e.g. after a skin template fix).
-_PDF_CACHE_VERSION = "1"
+_PDF_CACHE_VERSION = "3"
 
 
 class DocumentPrintService:
@@ -52,7 +52,8 @@ class DocumentPrintService:
 
         org = self._org(org_id)
         branding = branding_for(org)
-        html = render_document_html(document_to_print(doc, org), branding, skin)
+        body_branding = branding.model_copy(update={"footer_text": None})
+        html = render_document_html(document_to_print(doc, org), body_branding, skin)
         footer = page_footer_html(branding.footer_text) if branding.footer_text else None
         content = self.pdf.html_to_pdf(html, paper, footer)
 
