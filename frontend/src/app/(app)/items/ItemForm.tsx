@@ -33,6 +33,7 @@ interface FormValues {
   sale_price?: number | null;
   purchase_price?: number | null;
   track_inventory: boolean;
+  tracking_mode: "none" | "lot" | "serial";
   reorder_point?: number | null;
   hs_code?: string;
   uom_code?: string;
@@ -92,6 +93,7 @@ export function ItemForm({ product }: { product?: Product }) {
   const isEdit = !!product;
   const isVariable = Form.useWatch("type", form) === "variable";
   const natureValue = Form.useWatch("nature", form);
+  const trackInventory = Form.useWatch("track_inventory", form);
   const skuValue = Form.useWatch("sku", form);
   const nameValue = Form.useWatch("name", form);
   const saving = create.isPending || update.isPending;
@@ -135,6 +137,7 @@ export function ItemForm({ product }: { product?: Product }) {
       sale_price: product.sale_price ?? undefined,
       purchase_price: product.purchase_price ?? undefined,
       track_inventory: product.track_inventory,
+      tracking_mode: product.tracking_mode,
       reorder_point: product.reorder_point ?? undefined,
       hs_code: product.hs_code ?? undefined,
       uom_code: product.uom_code ?? undefined,
@@ -150,6 +153,7 @@ export function ItemForm({ product }: { product?: Product }) {
     const cleanAttrs = attributes.filter((a) => a.name.trim() && a.options.length);
     const payload: ProductInput = {
       ...values,
+      tracking_mode: values.track_inventory ? values.tracking_mode : "none",
       media: media.map((url, i) => ({ url, sort_order: i })),
       variant_attributes: variable ? cleanAttrs : [],
       variants: variable
@@ -192,8 +196,16 @@ export function ItemForm({ product }: { product?: Product }) {
           form.setFieldsValue({ sro_schedule_code: undefined, sro_item_serial: undefined });
         if ("sro_schedule_code" in changed) form.setFieldValue("sro_item_serial", undefined);
         if ("hs_code" in changed) form.setFieldValue("uom_code", undefined);
+        if ("track_inventory" in changed && !changed.track_inventory) {
+          form.setFieldValue("tracking_mode", "none");
+        }
       }}
-      initialValues={{ nature: "good", type: "single", track_inventory: false }}
+      initialValues={{
+        nature: "good",
+        type: "single",
+        track_inventory: false,
+        tracking_mode: "none",
+      }}
       className="flex flex-col gap-6 pb-24"
     >
       <div className="flex items-center justify-between">
@@ -292,6 +304,20 @@ export function ItemForm({ product }: { product?: Product }) {
         <div className="grid grid-cols-1 gap-x-6 md:grid-cols-2">
           <Form.Item name="track_inventory" label="Track inventory" valuePropName="checked" extra="Cannot be changed once transactions exist.">
             <Switch />
+          </Form.Item>
+          <Form.Item
+            name="tracking_mode"
+            label="Traceability"
+            extra="Cannot be changed once inventory transactions exist."
+          >
+            <Select
+              disabled={!trackInventory || natureValue !== "good"}
+              options={[
+                { value: "none", label: "No lot or serial tracking" },
+                { value: "lot", label: "Batch / lot with expiry" },
+                { value: "serial", label: "Serial number" },
+              ]}
+            />
           </Form.Item>
           <Form.Item name="reorder_point" label="Reorder point">
             <InputNumber className="!w-full" min={0} placeholder="e.g. 10" />

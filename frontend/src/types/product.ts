@@ -4,6 +4,7 @@ import type { UomSummary } from "./uom";
 
 export type ProductNature = "good" | "service";
 export type ProductType = "single" | "variable";
+export type TrackingMode = "none" | "lot" | "serial";
 
 export interface VariantAttribute {
   name: string;
@@ -50,6 +51,7 @@ export interface Product {
   sale_price: number | null;
   purchase_price: number | null;
   track_inventory: boolean;
+  tracking_mode: TrackingMode;
   reorder_point: number | null;
   is_active: boolean;
   hs_code: string | null;
@@ -78,6 +80,7 @@ export interface ProductInput {
   sale_price?: number | null;
   purchase_price?: number | null;
   track_inventory: boolean;
+  tracking_mode: TrackingMode;
   reorder_point?: number | null;
   hs_code?: string | null;
   uom_code?: string | null;

@@ -10,6 +10,7 @@ import { AdjustStockModal } from "@/components/inventory/AdjustStockModal";
 import { OpeningStockModal } from "@/components/inventory/OpeningStockModal";
 import { ItemHistory } from "@/components/inventory/ItemHistory";
 import { ItemTransactions } from "@/components/inventory/ItemTransactions";
+import { ItemTracking } from "@/components/inventory/ItemTracking";
 import { ItemWarehouses } from "@/components/inventory/ItemWarehouses";
 import { StockOverview } from "@/components/inventory/StockOverview";
 import { ItemSalesChart } from "../ItemSalesChart";
@@ -113,6 +114,15 @@ export default function ViewItemPage() {
               </Tag>
               <Tag className="capitalize">{p.type === "variable" ? "Has variants" : "Single item"}</Tag>
               {p.is_active ? <Tag color="green">Active</Tag> : <Tag>Inactive</Tag>}
+              {p.track_inventory && (
+                <Tag>
+                  {p.tracking_mode === "lot"
+                    ? "Batch / lot tracked"
+                    : p.tracking_mode === "serial"
+                      ? "Serial tracked"
+                      : "Inventory tracked"}
+                </Tag>
+              )}
             </div>
           </div>
         </div>
@@ -290,6 +300,22 @@ export default function ViewItemPage() {
                     />
                   ),
                 },
+                ...(p.tracking_mode !== "none"
+                  ? [
+                      {
+                        key: "tracking",
+                        label: p.tracking_mode === "lot" ? "Batches / lots" : "Serial numbers",
+                        children: (
+                          <ItemTracking
+                            productId={p.id}
+                            mode={p.tracking_mode}
+                            warehouses={warehouses ?? []}
+                            bins={bins ?? []}
+                          />
+                        ),
+                      },
+                    ]
+                  : []),
               ]
             : []),
           { key: "history", label: "History", children: <ItemHistory productId={p.id} /> },
@@ -304,6 +330,7 @@ export default function ViewItemPage() {
                 name: p.name,
                 sku: p.sku,
                 is_variant: false,
+                tracking_mode: p.tracking_mode,
                 uom_symbol: p.uom?.symbol ?? null,
                 reorder_point: p.reorder_point,
                 on_hand: stock?.on_hand ?? "0",
@@ -316,7 +343,14 @@ export default function ViewItemPage() {
       />
       <OpeningStockModal
         item={
-          openingOpen ? { id: p.id, name: p.name, uom: p.uom?.symbol ?? "" } : null
+          openingOpen
+            ? {
+                id: p.id,
+                name: p.name,
+                uom: p.uom?.symbol ?? "",
+                tracking_mode: p.tracking_mode,
+              }
+            : null
         }
         warehouses={warehouses ?? []}
         onClose={() => setOpeningOpen(false)}

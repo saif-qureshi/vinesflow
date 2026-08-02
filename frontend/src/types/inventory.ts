@@ -39,6 +39,7 @@ export interface InventoryItem {
   name: string;
   sku: string | null;
   is_variant: boolean;
+  tracking_mode: "none" | "lot" | "serial";
   uom_symbol: string | null;
   reorder_point: number | null;
   on_hand: string;
@@ -50,6 +51,7 @@ export interface StockMovement {
   product_id: number;
   location_id: number;
   bin_id: number | null;
+  lot_id: number | null;
   qty_delta: string;
   type: string;
   reason: string | null;
@@ -68,11 +70,34 @@ export interface ItemStock {
   to_be_billed: string;
   by_location: { location_id: number; quantity: string }[];
   by_bin: { location_id: number; bin_id: number | null; quantity: string }[];
+  by_lot: { location_id: number; bin_id: number | null; lot_id: number; quantity: string }[];
+}
+
+export interface StockLot {
+  id: number;
+  product_id: number;
+  lot_number: string;
+  manufactured_date: string | null;
+  expiry_date: string | null;
+  note: string | null;
+  is_active: boolean;
+  quantity: string;
+}
+
+export interface SerialUnit {
+  id: number;
+  product_id: number;
+  serial_number: string;
+  status: string;
+  location_id: number | null;
+  bin_id: number | null;
 }
 
 export interface OpeningStockLocation {
   location_id: number;
   bin_id: number | null;
+  lot_id: number | null;
+  serial_numbers: string[];
   quantity: string;
   unit_cost: string | null;
   value: string;
@@ -90,6 +115,11 @@ export interface OpeningStockInput {
   entries: {
     location_id: number;
     bin_id?: number | null;
+    lot_id?: number | null;
+    lot_number?: string | null;
+    manufactured_date?: string | null;
+    expiry_date?: string | null;
+    serial_numbers?: string[];
     quantity: number;
     unit_cost?: number | null;
   }[];

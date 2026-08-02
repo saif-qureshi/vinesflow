@@ -154,6 +154,42 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
           },
         ] as ColumnsType<DocumentLine>)
       : []),
+    ...(doc.lines.some(
+      (line) => line.lot_allocations.length > 0 || line.serials.length > 0,
+    )
+      ? ([
+          {
+            title: "Tracking",
+            key: "tracking",
+            render: (_: unknown, line: DocumentLine) => {
+              if (line.lot_allocations.length) {
+                return (
+                  <div className="space-y-0.5 text-xs">
+                    {line.lot_allocations.map((allocation) => (
+                      <div key={allocation.id ?? allocation.lot_id}>
+                        <span className="font-medium">{allocation.lot?.lot_number ?? allocation.lot_number}</span>
+                        <span className="text-gray-400"> · {Number(allocation.quantity)}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              }
+              if (line.serials.length) {
+                const labels = line.serials.map((serial) => serial.serial_number);
+                return (
+                  <Tooltip title={labels.join(", ")}>
+                    <span className="cursor-help text-xs">
+                      {labels.slice(0, 2).join(", ")}
+                      {labels.length > 2 ? ` +${labels.length - 2}` : ""}
+                    </span>
+                  </Tooltip>
+                );
+              }
+              return dash;
+            },
+          },
+        ] as ColumnsType<DocumentLine>)
+      : []),
     {
       title: "Qty",
       key: "qty",

@@ -16,21 +16,27 @@ from app.modules.inventory.schemas import (
     InventoryItemRead,
     InventoryListQuery,
     ItemStockRead,
+    LotStockRead,
     OnHandRead,
     OpeningStockInput,
     OpeningStockRead,
     ReasonCreate,
     ReasonRead,
+    SerialUnitRead,
     StockAdjustInput,
+    StockLotCreate,
+    StockLotRead,
     StockMovementRead,
     StockTransferInput,
 )
 from app.modules.inventory.service import InventoryService
+from app.modules.inventory.tracking_service import TrackingService
 from app.modules.orgs.models import Membership
 
 router = APIRouter(prefix="/inventory", tags=["inventory"], route_class=EnvelopeRoute)
 Svc = Depends(Provide(InventoryService))
 Bins = Depends(Provide(BinService))
+Tracking = Depends(Provide(TrackingService))
 
 
 @router.get("/bins", response_model=list[BinRead])
@@ -69,6 +75,55 @@ def delete_bin(
     svc: BinService = Bins,
 ) -> None:
     svc.delete(membership.org_id, bin_id)
+
+
+@router.get("/lots", response_model=list[LotStockRead])
+def list_lots(
+    product_id: int,
+    location_id: int | None = None,
+    bin_id: int | None = None,
+    unbinned: bool = False,
+    membership: Membership = Depends(require_permission("inventory:read")),
+    svc: TrackingService = Tracking,
+):
+    return svc.list_lots(
+        membership.org_id,
+        product_id,
+        location_id=location_id,
+        bin_id=bin_id,
+        unbinned=unbinned,
+    )
+
+
+@router.post("/lots", response_model=StockLotRead, status_code=status.HTTP_201_CREATED)
+def create_lot(
+    payload: StockLotCreate,
+    membership: Membership = Depends(require_permission("inventory:create")),
+    svc: TrackingService = Tracking,
+):
+    return svc.save_lot(membership.org_id, payload)
+
+
+@router.get("/serials", response_model=list[SerialUnitRead])
+def list_serials(
+    product_id: int,
+    location_id: int | None = None,
+    bin_id: int | None = None,
+    unbinned: bool = False,
+    status_filter: str | None = Query(default=None, alias="status"),
+    search: str | None = None,
+    membership: Membership = Depends(require_permission("inventory:read")),
+    svc: TrackingService = Tracking,
+):
+    return svc.list_serials(
+        membership.org_id,
+        product_id,
+        location_id=location_id,
+        bin_id=bin_id,
+        unbinned=unbinned,
+        status=status_filter,
+        search=search,
+    )
 
 
 @router.get("/reasons", response_model=list[ReasonRead])

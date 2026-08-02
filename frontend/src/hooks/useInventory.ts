@@ -109,6 +109,8 @@ interface AdjustInput {
   product_id: number;
   location_id: number;
   bin_id?: number | null;
+  lot_id?: number | null;
+  serial_numbers?: string[];
   mode?: "quantity" | "value";
   qty_delta?: number;
   value_delta?: number | null;
@@ -125,6 +127,8 @@ interface TransferInput {
   to_location_id: number;
   from_bin_id?: number | null;
   to_bin_id?: number | null;
+  lot_id?: number | null;
+  serial_numbers?: string[];
   quantity: number;
   note?: string | null;
 }
@@ -138,6 +142,8 @@ function useInvalidate() {
       qc.invalidateQueries({ queryKey: ["item-stock", orgId, productId] });
       qc.invalidateQueries({ queryKey: ["item-movements", orgId, productId] });
       qc.invalidateQueries({ queryKey: ["opening-stock", orgId, productId] });
+      qc.invalidateQueries({ queryKey: ["stock-lots", orgId, productId] });
+      qc.invalidateQueries({ queryKey: ["serial-units", orgId, productId] });
     }
   };
 }

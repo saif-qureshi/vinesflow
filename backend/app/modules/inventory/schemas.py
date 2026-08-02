@@ -14,6 +14,8 @@ class StockAdjustInput(BaseModel):
     product_id: int
     location_id: int
     bin_id: int | None = None
+    lot_id: int | None = None
+    serial_numbers: list[str] = Field(default_factory=list)
     mode: Literal["quantity", "value"] = "quantity"
     qty_delta: Decimal = Decimal("0")
     value_delta: Decimal | None = None
@@ -30,6 +32,8 @@ class StockTransferInput(BaseModel):
     to_location_id: int
     from_bin_id: int | None = None
     to_bin_id: int | None = None
+    lot_id: int | None = None
+    serial_numbers: list[str] = Field(default_factory=list)
     quantity: Decimal = Field(gt=0)
     note: str | None = Field(default=None, max_length=255)
 
@@ -37,6 +41,11 @@ class StockTransferInput(BaseModel):
 class OpeningStockLineInput(BaseModel):
     location_id: int
     bin_id: int | None = None
+    lot_id: int | None = None
+    lot_number: str | None = Field(default=None, max_length=100)
+    manufactured_date: date_cls | None = None
+    expiry_date: date_cls | None = None
+    serial_numbers: list[str] = Field(default_factory=list)
     quantity: Decimal = Field(ge=0)
     unit_cost: Decimal | None = Field(default=None, ge=0)
 
@@ -50,6 +59,8 @@ class OpeningStockInput(BaseModel):
 class OpeningStockLocationRead(BaseModel):
     location_id: int
     bin_id: int | None = None
+    lot_id: int | None = None
+    serial_numbers: list[str] = Field(default_factory=list)
     quantity: Decimal
     unit_cost: Decimal | None = None
     value: Decimal
@@ -72,6 +83,7 @@ class StockMovementRead(BaseModel):
     product_id: int
     location_id: int
     bin_id: int | None = None
+    lot_id: int | None = None
     qty_delta: Decimal
     type: str
     reason: str | None = None
@@ -101,6 +113,7 @@ class InventoryItemRead(BaseModel):
     name: str
     sku: str | None = None
     is_variant: bool = False
+    tracking_mode: Literal["none", "lot", "serial"] = "none"
     uom_symbol: str | None = None
     reorder_point: int | None = None
     on_hand: Decimal
@@ -118,6 +131,13 @@ class StockByBin(BaseModel):
     quantity: Decimal
 
 
+class StockByLot(BaseModel):
+    location_id: int
+    bin_id: int | None = None
+    lot_id: int
+    quantity: Decimal
+
+
 class ItemStockRead(BaseModel):
     on_hand: Decimal
     opening_stock: Decimal = Decimal("0")
@@ -129,6 +149,7 @@ class ItemStockRead(BaseModel):
     to_be_billed: Decimal = Decimal("0")
     by_location: list[StockByLocation] = Field(default_factory=list)
     by_bin: list[StockByBin] = Field(default_factory=list)
+    by_lot: list[StockByLot] = Field(default_factory=list)
 
 
 class BinCreate(BaseModel):
@@ -153,3 +174,38 @@ class BinRead(BaseModel):
     name: str
     is_active: bool
     created_at: datetime
+
+
+class StockLotCreate(BaseModel):
+    product_id: int
+    lot_number: str = Field(min_length=1, max_length=100)
+    manufactured_date: date_cls | None = None
+    expiry_date: date_cls | None = None
+    note: str | None = Field(default=None, max_length=255)
+
+
+class StockLotRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    product_id: int
+    lot_number: str
+    manufactured_date: date_cls | None = None
+    expiry_date: date_cls | None = None
+    note: str | None = None
+    is_active: bool
+
+
+class LotStockRead(StockLotRead):
+    quantity: Decimal = Decimal("0")
+
+
+class SerialUnitRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    product_id: int
+    serial_number: str
+    status: str
+    location_id: int | None = None
+    bin_id: int | None = None

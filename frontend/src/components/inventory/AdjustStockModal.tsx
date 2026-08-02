@@ -9,6 +9,7 @@ import { useAccounts } from "@/hooks/useAccounting";
 import { useBins } from "@/hooks/useBins";
 import { useAdjustStock, useOnHand } from "@/hooks/useInventory";
 import { useReasons } from "@/hooks/useReasons";
+import { useLots, useSerialUnits } from "@/hooks/useTracking";
 import { apiErrorMessage } from "@/lib/api";
 import type { InventoryItem, Warehouse } from "@/types";
 
@@ -19,6 +20,9 @@ interface FormValues {
   date: Dayjs;
   account_id?: number;
   qty_delta?: number;
+  lot_id?: number | null;
+  serial_numbers?: string[];
+  serial_text?: string;
   unit_cost?: number;
   value_delta?: number;
   reason?: string;
@@ -51,6 +55,14 @@ export function AdjustStockModal({
   const binId = Form.useWatch("bin_id", form);
   const qtyDelta = Form.useWatch("qty_delta", form);
   const bins = useBins(locationId, true);
+  const lots = useLots(item?.tracking_mode === "lot" ? item.id : null, locationId, binId, true);
+  const serials = useSerialUnits(
+    item?.tracking_mode === "serial" && num(qtyDelta) < 0 ? item.id : null,
+    locationId,
+    binId,
+    true,
+    true,
+  );
   const { data: available } = useOnHand(
     open ? item?.id ?? null : null,
     locationId,
@@ -82,11 +94,20 @@ export function AdjustStockModal({
 
   const submit = async (values: FormValues) => {
     if (!item) return;
+    const serialNumbers =
+      num(values.qty_delta) < 0
+        ? values.serial_numbers ?? []
+        : (values.serial_text ?? "")
+            .split(/[\n,]+/)
+            .map((value) => value.trim().toUpperCase())
+            .filter(Boolean);
     try {
       await adjust.mutateAsync({
         product_id: item.id,
         location_id: values.location_id,
         bin_id: values.bin_id ?? null,
+        lot_id: values.lot_id ?? null,
+        serial_numbers: item.tracking_mode === "serial" ? serialNumbers : [],
         mode: values.mode,
         qty_delta: values.mode === "quantity" ? values.qty_delta : 0,
         value_delta: values.mode === "value" ? values.value_delta : null,
@@ -119,7 +140,19 @@ export function AdjustStockModal({
         layout="vertical"
         onFinish={submit}
         onValuesChange={(changed) => {
-          if ("location_id" in changed) form.setFieldValue("bin_id", undefined);
+          if ("location_id" in changed) {
+            form.setFieldValue("bin_id", undefined);
+            form.setFieldValue("lot_id", undefined);
+            form.setFieldValue("serial_numbers", []);
+          }
+          if ("bin_id" in changed) {
+            form.setFieldValue("lot_id", undefined);
+            form.setFieldValue("serial_numbers", []);
+          }
+          if ("qty_delta" in changed) {
+            form.setFieldValue("serial_numbers", []);
+            form.setFieldValue("serial_text", undefined);
+          }
         }}
         className="pt-2"
       >
@@ -151,6 +184,58 @@ export function AdjustStockModal({
             </Form.Item>
           )}
         </div>
+
+        {mode === "quantity" && item?.tracking_mode === "lot" && (
+          <Form.Item
+            name="lot_id"
+            label="Batch / lot"
+            rules={[{ required: true, message: "Select the lot being adjusted" }]}
+          >
+            <Select
+              showSearch
+              optionFilterProp="label"
+              loading={lots.isLoading}
+              placeholder="Select lot"
+              options={(lots.data ?? []).map((lot) => ({
+                value: lot.id,
+                label: `${lot.lot_number} · ${Number(lot.quantity)} available${
+                  lot.expiry_date ? ` · expires ${dayjs(lot.expiry_date).format("DD MMM YYYY")}` : ""
+                }`,
+              }))}
+            />
+          </Form.Item>
+        )}
+
+        {mode === "quantity" && item?.tracking_mode === "serial" && num(qtyDelta) < 0 && (
+          <Form.Item
+            name="serial_numbers"
+            label="Serial numbers removed"
+            rules={[{ required: true, message: "Select serial numbers" }]}
+          >
+            <Select
+              mode="multiple"
+              showSearch
+              optionFilterProp="label"
+              loading={serials.isLoading}
+              placeholder="Select serial numbers"
+              options={(serials.data ?? []).map((serial) => ({
+                value: serial.serial_number,
+                label: serial.serial_number,
+              }))}
+            />
+          </Form.Item>
+        )}
+
+        {mode === "quantity" && item?.tracking_mode === "serial" && num(qtyDelta) > 0 && (
+          <Form.Item
+            name="serial_text"
+            label="Serial numbers added"
+            rules={[{ required: true, message: "Enter serial numbers" }]}
+            extra="Enter one serial number per line. The count must match the adjusted quantity."
+          >
+            <TextArea rows={5} placeholder={"SN-0001\nSN-0002"} />
+          </Form.Item>
+        )}
 
         <Form.Item
           name="account_id"

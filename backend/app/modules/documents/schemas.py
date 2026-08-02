@@ -7,10 +7,37 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from app.core.pagination import ListQuery
+from app.modules.inventory.schemas import StockLotRead
+
+
+class LotAllocationInput(BaseModel):
+    lot_id: int | None = None
+    lot_number: str | None = Field(default=None, max_length=100)
+    manufactured_date: date | None = None
+    expiry_date: date | None = None
+    quantity: Decimal = Field(gt=0)
+
+
+class LotAllocationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    lot_id: int
+    quantity: Decimal
+    lot: StockLotRead
+
+
+class DocumentLineSerialRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    serial_number: str
+    serial_unit_id: int | None = None
 
 
 class DocumentLineInput(BaseModel):
     product_id: int | None = None
+    tracking_mode: Literal["none", "lot", "serial"] = "none"
     bin_id: int | None = None
     description: str = Field(min_length=1, max_length=500)
     quantity: Decimal = Field(gt=0)
@@ -18,6 +45,8 @@ class DocumentLineInput(BaseModel):
     discount_type: Literal["amount", "percent"] = "amount"
     discount_value: Decimal = Field(default=Decimal("0"), ge=0)
     tax_rate_id: int | None = None
+    lot_allocations: list[LotAllocationInput] = Field(default_factory=list)
+    serial_numbers: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _cap_percentage(self) -> DocumentLineInput:
@@ -100,6 +129,8 @@ class DocumentLineRead(BaseModel):
     further_tax: Decimal = Decimal("0")
     line_total: Decimal
     sort_order: int
+    lot_allocations: list[LotAllocationRead] = Field(default_factory=list)
+    serials: list[DocumentLineSerialRead] = Field(default_factory=list)
 
 
 class DocumentRead(BaseModel):
@@ -210,4 +241,5 @@ class SellableItemRead(BaseModel):
     purchase_price: Decimal | None = None
     fbr_rate: str | None = None
     track_inventory: bool = False
+    tracking_mode: str = "none"
     stock: Decimal | None = None

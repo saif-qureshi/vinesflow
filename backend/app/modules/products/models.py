@@ -82,6 +82,9 @@ class Product(Base, TimestampMixin, AuditMixin):
     track_inventory: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )
+    tracking_mode: Mapped[str] = mapped_column(
+        String(20), default="none", server_default="none", nullable=False
+    )
     reorder_point: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     category_id: Mapped[int | None] = mapped_column(

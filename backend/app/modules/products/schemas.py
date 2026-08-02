@@ -20,6 +20,7 @@ class ItemSalesPoint(BaseModel):
 
 Nature = Literal["good", "service"]
 ProductType = Literal["single", "variable"]
+TrackingMode = Literal["none", "lot", "serial"]
 
 
 class ProductListQuery(ListQuery):
@@ -79,6 +80,7 @@ class ProductBase(BaseModel):
     sale_price: float | None = Field(default=None, ge=0)
     purchase_price: float | None = Field(default=None, ge=0)
     track_inventory: bool = False
+    tracking_mode: TrackingMode = "none"
     reorder_point: int | None = Field(default=None, ge=0)
     is_active: bool = True
     hs_code: str | None = Field(default=None, max_length=20)
@@ -107,6 +109,7 @@ class ProductUpdate(BaseModel):
     sale_price: float | None = Field(default=None, ge=0)
     purchase_price: float | None = Field(default=None, ge=0)
     track_inventory: bool | None = None
+    tracking_mode: TrackingMode | None = None
     reorder_point: int | None = Field(default=None, ge=0)
     is_active: bool | None = None
     hs_code: str | None = Field(default=None, max_length=20)
@@ -133,6 +136,7 @@ class ProductRead(BaseModel):
     sale_price: float | None = None
     purchase_price: float | None = None
     track_inventory: bool
+    tracking_mode: str
     reorder_point: int | None = None
     is_active: bool
     hs_code: str | None = None

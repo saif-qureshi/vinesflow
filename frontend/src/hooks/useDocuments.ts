@@ -68,6 +68,10 @@ function useInvalidate(apiPath: string) {
     qc.invalidateQueries({ queryKey: [apiPath, orgId] });
     if (id) qc.invalidateQueries({ queryKey: [apiPath, "one", orgId, id] });
     qc.invalidateQueries({ queryKey: ["inventory", orgId] });
+    qc.invalidateQueries({ queryKey: ["item-stock", orgId] });
+    qc.invalidateQueries({ queryKey: ["item-movements", orgId] });
+    qc.invalidateQueries({ queryKey: ["stock-lots", orgId] });
+    qc.invalidateQueries({ queryKey: ["serial-units", orgId] });
   };
 }
 

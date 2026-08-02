@@ -6,6 +6,7 @@ import { InputNumber, Select } from "antd";
 import { App, Form, Input, Modal } from "@/components/ui";
 import { useBins } from "@/hooks/useBins";
 import { useTransferStock } from "@/hooks/useInventory";
+import { useLots, useSerialUnits } from "@/hooks/useTracking";
 import { apiErrorMessage } from "@/lib/api";
 import type { InventoryItem, Warehouse } from "@/types";
 
@@ -14,6 +15,8 @@ interface FormValues {
   to_location_id: number;
   from_bin_id?: number | null;
   to_bin_id?: number | null;
+  lot_id?: number | null;
+  serial_numbers?: string[];
   quantity: number;
   note?: string;
 }
@@ -34,6 +37,20 @@ export function TransferStockModal({
   const open = !!item;
   const fromLocationId = Form.useWatch("from_location_id", form);
   const toLocationId = Form.useWatch("to_location_id", form);
+  const fromBinId = Form.useWatch("from_bin_id", form);
+  const lots = useLots(
+    item?.tracking_mode === "lot" ? item.id : null,
+    fromLocationId,
+    fromBinId,
+    true,
+  );
+  const serials = useSerialUnits(
+    item?.tracking_mode === "serial" ? item.id : null,
+    fromLocationId,
+    fromBinId,
+    true,
+    true,
+  );
 
   useEffect(() => {
     if (open) form.resetFields();
@@ -55,6 +72,8 @@ export function TransferStockModal({
         to_location_id: values.to_location_id,
         from_bin_id: values.from_bin_id ?? null,
         to_bin_id: values.to_bin_id ?? null,
+        lot_id: values.lot_id ?? null,
+        serial_numbers: values.serial_numbers ?? [],
         quantity: values.quantity,
         note: values.note || null,
       });
@@ -88,8 +107,16 @@ export function TransferStockModal({
         layout="vertical"
         onFinish={submit}
         onValuesChange={(changed) => {
-          if ("from_location_id" in changed) form.setFieldValue("from_bin_id", undefined);
+          if ("from_location_id" in changed) {
+            form.setFieldValue("from_bin_id", undefined);
+            form.setFieldValue("lot_id", undefined);
+            form.setFieldValue("serial_numbers", []);
+          }
           if ("to_location_id" in changed) form.setFieldValue("to_bin_id", undefined);
+          if ("from_bin_id" in changed) {
+            form.setFieldValue("lot_id", undefined);
+            form.setFieldValue("serial_numbers", []);
+          }
         }}
         className="pt-2"
       >
@@ -121,8 +148,52 @@ export function TransferStockModal({
             </Form.Item>
           </div>
         )}
-        <Form.Item name="quantity" label="Quantity" rules={[{ required: true, message: "Enter a quantity" }]}>
-          <InputNumber className="!w-full" min={0.001} placeholder="e.g. 5" />
+        {item?.tracking_mode === "lot" && (
+          <Form.Item
+            name="lot_id"
+            label="Batch / lot"
+            rules={[{ required: true, message: "Select the lot to transfer" }]}
+          >
+            <Select
+              showSearch
+              optionFilterProp="label"
+              loading={lots.isLoading}
+              placeholder="Select lot"
+              options={(lots.data ?? []).map((lot) => ({
+                value: lot.id,
+                label: `${lot.lot_number} · ${Number(lot.quantity)} available`,
+                disabled: Number(lot.quantity) <= 0,
+              }))}
+            />
+          </Form.Item>
+        )}
+        {item?.tracking_mode === "serial" && (
+          <Form.Item
+            name="serial_numbers"
+            label="Serial numbers"
+            rules={[{ required: true, message: "Select serial numbers to transfer" }]}
+          >
+            <Select
+              mode="multiple"
+              showSearch
+              optionFilterProp="label"
+              loading={serials.isLoading}
+              placeholder="Select serial numbers"
+              options={(serials.data ?? []).map((serial) => ({
+                value: serial.serial_number,
+                label: serial.serial_number,
+              }))}
+              onChange={(values) => form.setFieldValue("quantity", values.length)}
+            />
+          </Form.Item>
+        )}
+        <Form.Item name="quantity" label="Quantity" rules={[{ required: true, message: "Enter a quantity" }]}> 
+          <InputNumber
+            className="!w-full"
+            min={0.001}
+            placeholder="e.g. 5"
+            disabled={item?.tracking_mode === "serial"}
+          />
         </Form.Item>
         <Form.Item name="note" label="Note">
           <Input placeholder="Reason (optional)" />

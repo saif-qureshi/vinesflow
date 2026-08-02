@@ -15,6 +15,7 @@ export interface DocumentParty {
 export interface DocumentLine {
   id: number;
   product_id: number | null;
+  tracking_mode: "none" | "lot" | "serial";
   bin_id: number | null;
   description: string;
   quantity: string;
@@ -26,6 +27,29 @@ export interface DocumentLine {
   tax_amount: string;
   line_total: string;
   sort_order: number;
+  lot_allocations: LotAllocation[];
+  serials: DocumentLineSerial[];
+}
+
+export interface LotAllocation {
+  id?: number;
+  lot_id?: number | null;
+  lot_number?: string | null;
+  manufactured_date?: string | null;
+  expiry_date?: string | null;
+  quantity: number | string;
+  lot?: {
+    id: number;
+    lot_number: string;
+    manufactured_date: string | null;
+    expiry_date: string | null;
+  };
+}
+
+export interface DocumentLineSerial {
+  id: number;
+  serial_number: string;
+  serial_unit_id: number | null;
 }
 
 export interface RelatedDocument {
@@ -101,6 +125,8 @@ export interface DocumentLineInput {
   discount_type?: DiscountType;
   discount_value?: number;
   tax_rate_id?: number | null;
+  lot_allocations?: LotAllocation[];
+  serial_numbers?: string[];
 }
 
 export interface DocumentInput {
@@ -142,5 +168,6 @@ export interface SellableItem {
   purchase_price: string | null;
   fbr_rate: string | null;
   track_inventory: boolean;
+  tracking_mode: "none" | "lot" | "serial";
   stock: string | null;
 }

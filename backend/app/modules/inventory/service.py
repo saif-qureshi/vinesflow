@@ -25,8 +25,10 @@ from app.modules.inventory.schemas import (
     StockAdjustInput,
     StockByBin,
     StockByLocation,
+    StockByLot,
     StockTransferInput,
 )
+from app.modules.inventory.tracking_service import TrackingService
 from app.modules.locations.models import Location
 from app.modules.products.models import Product
 
@@ -47,6 +49,7 @@ class InventoryService:
         self.db = db
         self.activity = ActivityService(db)
         self.bins = BinService(db)
+        self.tracking = TrackingService(db)
         self.ledger = _ledger.ledger_poster
 
     def seed_reasons(self, org_id: int) -> None:
@@ -120,7 +123,12 @@ class InventoryService:
             raise NotFoundError("Location not found")
 
     def _level(
-        self, org_id: int, product_id: int, location_id: int, bin_id: int | None = None
+        self,
+        org_id: int,
+        product_id: int,
+        location_id: int,
+        bin_id: int | None = None,
+        lot_id: int | None = None,
     ) -> StockLevel:
         stmt = select(StockLevel).where(
             StockLevel.org_id == org_id,
@@ -130,6 +138,9 @@ class InventoryService:
         stmt = stmt.where(
             StockLevel.bin_id.is_(None) if bin_id is None else StockLevel.bin_id == bin_id
         )
+        stmt = stmt.where(
+            StockLevel.lot_id.is_(None) if lot_id is None else StockLevel.lot_id == lot_id
+        )
         level = self.db.scalar(stmt.with_for_update())
         if level is None:
             level = StockLevel(
@@ -137,6 +148,7 @@ class InventoryService:
                 product_id=product_id,
                 location_id=location_id,
                 bin_id=bin_id,
+                lot_id=lot_id,
                 quantity=_ZERO,
             )
             self.db.add(level)
@@ -156,7 +168,7 @@ class InventoryService:
     def _on_hand_in_bin(
         self, org_id: int, product_id: int, location_id: int, bin_id: int | None
     ) -> Decimal:
-        stmt = select(StockLevel.quantity).where(
+        stmt = select(func.coalesce(func.sum(StockLevel.quantity), 0)).where(
             StockLevel.org_id == org_id,
             StockLevel.product_id == product_id,
             StockLevel.location_id == location_id,
@@ -166,6 +178,25 @@ class InventoryService:
         )
         qty = self.db.scalar(stmt)
         return qty if qty is not None else _ZERO
+
+    def _on_hand_in_lot(
+        self,
+        org_id: int,
+        product_id: int,
+        location_id: int,
+        bin_id: int | None,
+        lot_id: int,
+    ) -> Decimal:
+        stmt = select(StockLevel.quantity).where(
+            StockLevel.org_id == org_id,
+            StockLevel.product_id == product_id,
+            StockLevel.location_id == location_id,
+            StockLevel.lot_id == lot_id,
+        )
+        stmt = stmt.where(
+            StockLevel.bin_id.is_(None) if bin_id is None else StockLevel.bin_id == bin_id
+        )
+        return self.db.scalar(stmt) or _ZERO
 
     def _apply(
         self,
@@ -179,12 +210,14 @@ class InventoryService:
         unit_cost=None,
         value_delta=None,
         bin_id=None,
+        lot_id=None,
     ) -> StockMovement:
         movement = StockMovement(
             org_id=org_id,
             product_id=product_id,
             location_id=location_id,
             bin_id=bin_id,
+            lot_id=lot_id,
             qty_delta=qty_delta,
             type=type_,
             note=note,
@@ -193,7 +226,7 @@ class InventoryService:
             value_delta=value_delta,
         )
         self.db.add(movement)
-        level = self._level(org_id, product_id, location_id, bin_id)
+        level = self._level(org_id, product_id, location_id, bin_id, lot_id)
         level.quantity = level.quantity + qty_delta
         return movement
 
@@ -208,26 +241,31 @@ class InventoryService:
         reference_id,
         unit_cost=None,
         bin_id=None,
-    ) -> None:
+        lot_id=None,
+    ) -> StockMovement:
         self.bins.validate_for_location(org_id, location_id, bin_id)
-        level = self._level(org_id, product_id, location_id, bin_id)
+        if lot_id is not None:
+            self.tracking.get_lot(org_id, lot_id, product_id)
+        level = self._level(org_id, product_id, location_id, bin_id, lot_id)
         new_quantity = level.quantity + qty_delta
         if new_quantity < _ZERO:
             raise BadRequestError("Not enough stock at the selected location")
-        self.db.add(
-            StockMovement(
-                org_id=org_id,
-                product_id=product_id,
-                location_id=location_id,
-                bin_id=bin_id,
-                qty_delta=qty_delta,
-                type=type_,
-                reference_type=reference_type,
-                reference_id=reference_id,
-                unit_cost=unit_cost,
-            )
+        movement = StockMovement(
+            org_id=org_id,
+            product_id=product_id,
+            location_id=location_id,
+            bin_id=bin_id,
+            lot_id=lot_id,
+            qty_delta=qty_delta,
+            type=type_,
+            reference_type=reference_type,
+            reference_id=reference_id,
+            unit_cost=unit_cost,
         )
+        self.db.add(movement)
         level.quantity = new_quantity
+        self.db.flush()
+        return movement
 
     def _record(self, org_id, action, product, delta, location_id) -> None:
         self.activity.record(
@@ -256,10 +294,47 @@ class InventoryService:
                 reason=payload.reason,
                 value_delta=value,
                 bin_id=payload.bin_id,
+                lot_id=payload.lot_id,
             )
         else:
             if payload.qty_delta == _ZERO:
                 raise BadRequestError("Enter a quantity to adjust")
+            if product.tracking_mode == "lot":
+                if payload.lot_id is None:
+                    raise BadRequestError("Select a lot for this adjustment")
+                self.tracking.get_lot(org_id, payload.lot_id, product.id)
+                if payload.qty_delta < _ZERO and self._on_hand_in_lot(
+                    org_id,
+                    product.id,
+                    payload.location_id,
+                    payload.bin_id,
+                    payload.lot_id,
+                ) < abs(payload.qty_delta):
+                    raise BadRequestError("Not enough stock in the selected lot")
+                if payload.serial_numbers:
+                    raise BadRequestError("This item is tracked by lot, not serial number")
+            elif product.tracking_mode == "serial":
+                if payload.lot_id is not None:
+                    raise BadRequestError("This item is tracked by serial number, not lot")
+                if payload.qty_delta != payload.qty_delta.to_integral_value():
+                    raise BadRequestError("Serial-tracked adjustments require whole units")
+                serials = self.tracking.normalize_serials(payload.serial_numbers)
+                if len(serials) != abs(int(payload.qty_delta)):
+                    raise BadRequestError("Serial count must match the adjusted quantity")
+                if payload.qty_delta < 0:
+                    self.tracking.validate_serials_available(
+                        org_id,
+                        product.id,
+                        payload.location_id,
+                        payload.bin_id,
+                        serials,
+                    )
+                else:
+                    self.tracking.validate_serials_receivable(
+                        org_id, product.id, serials, sales_return=False
+                    )
+            elif payload.lot_id is not None or payload.serial_numbers:
+                raise BadRequestError("This item does not use lot or serial tracking")
             unit_cost = (
                 payload.unit_cost if payload.unit_cost is not None else product.purchase_price
             )
@@ -273,9 +348,22 @@ class InventoryService:
                 reason=payload.reason,
                 unit_cost=unit_cost,
                 bin_id=payload.bin_id,
+                lot_id=payload.lot_id,
             )
             value = (unit_cost or _ZERO) * payload.qty_delta
         self.db.flush()
+        if payload.mode == "quantity" and product.tracking_mode == "serial":
+            self.tracking.apply_serial_movement(
+                org_id,
+                product.id,
+                payload.location_id,
+                payload.bin_id,
+                payload.serial_numbers,
+                movement,
+                direction=1 if payload.qty_delta > 0 else -1,
+                movement_type="adjustment",
+                reverse=False,
+            )
         self._record(org_id, "adjusted", product, payload.qty_delta, payload.location_id)
         self.ledger.post_inventory_adjustment(
             self.db,
@@ -297,12 +385,34 @@ class InventoryService:
         self._validate_location(org_id, payload.to_location_id)
         self.bins.validate_for_location(org_id, payload.from_location_id, payload.from_bin_id)
         self.bins.validate_for_location(org_id, payload.to_location_id, payload.to_bin_id)
-        available = self._on_hand_in_bin(
-            org_id, payload.product_id, payload.from_location_id, payload.from_bin_id
-        )
+        if product.tracking_mode == "lot" and payload.lot_id is None:
+            raise BadRequestError("Select a lot to transfer")
+        if product.tracking_mode == "serial":
+            if payload.lot_id is not None:
+                raise BadRequestError("This item is tracked by serial number, not lot")
+            serials = self.tracking.normalize_serials(payload.serial_numbers)
+            if payload.quantity != payload.quantity.to_integral_value():
+                raise BadRequestError("Serial-tracked transfers require whole units")
+            if len(serials) != int(payload.quantity):
+                raise BadRequestError("Serial count must match the transfer quantity")
+        elif payload.serial_numbers:
+            raise BadRequestError("This item is not tracked by serial number")
+        if payload.lot_id is not None:
+            self.tracking.get_lot(org_id, payload.lot_id, payload.product_id)
+            available = self._on_hand_in_lot(
+                org_id,
+                payload.product_id,
+                payload.from_location_id,
+                payload.from_bin_id,
+                payload.lot_id,
+            )
+        else:
+            available = self._on_hand_in_bin(
+                org_id, payload.product_id, payload.from_location_id, payload.from_bin_id
+            )
         if available < payload.quantity:
             raise BadRequestError("Not enough stock at the source location")
-        self._apply(
+        outgoing = self._apply(
             org_id,
             payload.product_id,
             payload.from_location_id,
@@ -310,8 +420,9 @@ class InventoryService:
             "transfer",
             payload.note,
             bin_id=payload.from_bin_id,
+            lot_id=payload.lot_id,
         )
-        self._apply(
+        incoming = self._apply(
             org_id,
             payload.product_id,
             payload.to_location_id,
@@ -319,14 +430,27 @@ class InventoryService:
             "transfer",
             payload.note,
             bin_id=payload.to_bin_id,
+            lot_id=payload.lot_id,
         )
+        self.db.flush()
+        if product.tracking_mode == "serial":
+            self.tracking.transfer_serials(
+                org_id,
+                product.id,
+                payload.from_location_id,
+                payload.from_bin_id,
+                payload.to_location_id,
+                payload.to_bin_id,
+                payload.serial_numbers,
+                (outgoing, incoming),
+            )
         self._record(org_id, "transferred", product, payload.quantity, payload.to_location_id)
         self.db.commit()
 
     def _opening_state(
         self, org_id: int, product_id: int
-    ) -> dict[tuple[int, int | None], tuple[Decimal, Decimal, Decimal | None]]:
-        """Return quantity, recognized value and latest rate per warehouse/bin."""
+    ) -> dict[tuple[int, int | None, int | None], tuple[Decimal, Decimal, Decimal | None]]:
+        """Return quantity, recognized value and latest rate per warehouse/bin/lot."""
         movements = self.db.scalars(
             select(StockMovement)
             .where(
@@ -336,9 +460,11 @@ class InventoryService:
             )
             .order_by(StockMovement.id)
         )
-        state: dict[tuple[int, int | None], tuple[Decimal, Decimal, Decimal | None]] = {}
+        state: dict[
+            tuple[int, int | None, int | None], tuple[Decimal, Decimal, Decimal | None]
+        ] = {}
         for movement in movements:
-            key = (movement.location_id, movement.bin_id)
+            key = (movement.location_id, movement.bin_id, movement.lot_id)
             quantity, value, unit_cost = state.get(key, (_ZERO, _ZERO, None))
             quantity += movement.qty_delta
             if movement.value_delta is not None:
@@ -377,12 +503,13 @@ class InventoryService:
                 OpeningStockLocationRead(
                     location_id=location_id,
                     bin_id=bin_id,
+                    lot_id=lot_id,
                     quantity=quantity,
                     unit_cost=unit_cost,
                     value=value,
                 )
-                for (location_id, bin_id), (quantity, value, unit_cost) in sorted(
-                    state.items(), key=lambda row: (row[0][0], row[0][1] or 0)
+                for (location_id, bin_id, lot_id), (quantity, value, unit_cost) in sorted(
+                    state.items(), key=lambda row: (row[0][0], row[0][1] or 0, row[0][2] or 0)
                 )
                 if quantity != _ZERO or value != _ZERO
             ],
@@ -406,22 +533,60 @@ class InventoryService:
                 "use Adjust Stock instead"
             )
 
-        requested: dict[tuple[int, int | None], tuple[Decimal, Decimal | None]] = {}
+        if product.tracking_mode == "serial" and self._opening_state(org_id, product.id):
+            raise ConflictError(
+                "Serial-number opening stock is already set; use Adjust Stock for corrections"
+            )
+
+        requested: dict[
+            tuple[int, int | None, int | None], tuple[Decimal, Decimal | None, list[str]]
+        ] = {}
         for entry in payload.entries:
-            key = (entry.location_id, entry.bin_id)
-            if key in requested:
-                raise BadRequestError("Each warehouse and bin combination can appear only once")
             self._validate_location(org_id, entry.location_id)
             self.bins.validate_for_location(org_id, entry.location_id, entry.bin_id)
-            requested[key] = (entry.quantity, entry.unit_cost)
+            lot_id = entry.lot_id
+            serials: list[str] = []
+            if product.tracking_mode == "lot":
+                lot = self.tracking.resolve_lot(
+                    org_id,
+                    product.id,
+                    lot_id=entry.lot_id,
+                    lot_number=entry.lot_number,
+                    manufactured_date=entry.manufactured_date,
+                    expiry_date=entry.expiry_date,
+                    allow_create=True,
+                )
+                lot_id = lot.id
+                if entry.serial_numbers:
+                    raise BadRequestError("This item is tracked by lot, not serial number")
+            elif product.tracking_mode == "serial":
+                if entry.lot_id is not None or entry.lot_number:
+                    raise BadRequestError("This item is tracked by serial number, not lot")
+                serials = self.tracking.normalize_serials(entry.serial_numbers)
+                if entry.quantity != entry.quantity.to_integral_value():
+                    raise BadRequestError("Serial-number opening stock requires whole units")
+                if len(serials) != int(entry.quantity):
+                    raise BadRequestError("Serial count must match opening quantity")
+                self.tracking.validate_serials_receivable(
+                    org_id, product.id, serials, sales_return=False
+                )
+            elif entry.lot_id is not None or entry.lot_number or entry.serial_numbers:
+                raise BadRequestError("This item does not use lot or serial tracking")
+            key = (entry.location_id, entry.bin_id, lot_id)
+            if key in requested:
+                raise BadRequestError("Each warehouse, bin and lot combination can appear once")
+            requested[key] = (entry.quantity, entry.unit_cost, serials)
 
         current = self._opening_state(org_id, product.id)
         movements: list[StockMovement] = []
         value_delta = _ZERO
-        for location_id, bin_id in sorted(requested, key=lambda key: (key[0], key[1] or 0)):
-            key = (location_id, bin_id)
+        requested_keys = set(requested)
+        for location_id, bin_id, lot_id in sorted(
+            requested_keys | set(current), key=lambda key: (key[0], key[1] or 0, key[2] or 0)
+        ):
+            key = (location_id, bin_id, lot_id)
             old_quantity, old_value, _ = current.get(key, (_ZERO, _ZERO, None))
-            new_quantity, new_cost = requested[key]
+            new_quantity, new_cost, serials = requested.get(key, (_ZERO, None, []))
             new_value = new_quantity * new_cost if new_cost is not None else _ZERO
             quantity_delta = new_quantity - old_quantity
             location_value_delta = new_value - old_value
@@ -439,7 +604,21 @@ class InventoryService:
                     location_value_delta if new_cost is not None or old_value != _ZERO else None
                 ),
                 bin_id=bin_id,
+                lot_id=lot_id,
             )
+            self.db.flush()
+            if product.tracking_mode == "serial":
+                self.tracking.apply_serial_movement(
+                    org_id,
+                    product.id,
+                    location_id,
+                    bin_id,
+                    serials,
+                    movement,
+                    direction=1,
+                    movement_type="opening",
+                    reverse=False,
+                )
             movements.append(movement)
             value_delta += location_value_delta
 
@@ -470,17 +649,31 @@ class InventoryService:
 
     def item_stock(self, org_id: int, product_id: int) -> ItemStockRead:
         rows = self.db.execute(
-            select(StockLevel.location_id, StockLevel.bin_id, StockLevel.quantity).where(
-                StockLevel.org_id == org_id, StockLevel.product_id == product_id
-            )
+            select(
+                StockLevel.location_id,
+                StockLevel.bin_id,
+                StockLevel.lot_id,
+                StockLevel.quantity,
+            ).where(StockLevel.org_id == org_id, StockLevel.product_id == product_id)
         ).all()
         by_location: dict[int, Decimal] = {}
-        by_bin: list[StockByBin] = []
+        by_bin_totals: dict[tuple[int, int | None], Decimal] = {}
+        by_lot: list[StockByLot] = []
         total = _ZERO
-        for location_id, bin_id, quantity in rows:
+        for location_id, bin_id, lot_id, quantity in rows:
             total += quantity
             by_location[location_id] = by_location.get(location_id, _ZERO) + quantity
-            by_bin.append(StockByBin(location_id=location_id, bin_id=bin_id, quantity=quantity))
+            key = (location_id, bin_id)
+            by_bin_totals[key] = by_bin_totals.get(key, _ZERO) + quantity
+            if lot_id is not None:
+                by_lot.append(
+                    StockByLot(
+                        location_id=location_id,
+                        bin_id=bin_id,
+                        lot_id=lot_id,
+                        quantity=quantity,
+                    )
+                )
         opening = self.db.scalar(
             select(func.coalesce(func.sum(StockMovement.qty_delta), 0)).where(
                 StockMovement.org_id == org_id,
@@ -500,7 +693,11 @@ class InventoryService:
             by_location=[
                 StockByLocation(location_id=k, quantity=v) for k, v in by_location.items()
             ],
-            by_bin=by_bin,
+            by_bin=[
+                StockByBin(location_id=location_id, bin_id=bin_id, quantity=quantity)
+                for (location_id, bin_id), quantity in by_bin_totals.items()
+            ],
+            by_lot=by_lot,
         )
 
     def _open_order_qty(self, org_id: int, product_id: int, doc_type: DocumentType) -> Decimal:
@@ -542,6 +739,19 @@ class InventoryService:
         self._validate_location(org_id, location_id)
         self.bins.validate_for_location(org_id, location_id, bin_id)
         return self._on_hand_in_bin(org_id, product_id, location_id, bin_id)
+
+    def on_hand_in_lot(
+        self,
+        org_id: int,
+        product_id: int,
+        location_id: int,
+        bin_id: int | None,
+        lot_id: int,
+    ) -> Decimal:
+        self._validate_location(org_id, location_id)
+        self.bins.validate_for_location(org_id, location_id, bin_id)
+        self.tracking.get_lot(org_id, lot_id, product_id)
+        return self._on_hand_in_lot(org_id, product_id, location_id, bin_id, lot_id)
 
     def movements(
         self, org_id: int, product_id: int, query
@@ -598,6 +808,7 @@ class InventoryService:
                     name=product.name,
                     sku=product.sku,
                     is_variant=product.parent_id is not None,
+                    tracking_mode=product.tracking_mode,
                     uom_symbol=product.uom.symbol if product.uom else None,
                     reorder_point=product.reorder_point,
                     on_hand=quantity,

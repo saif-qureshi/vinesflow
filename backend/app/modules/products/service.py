@@ -190,6 +190,7 @@ class ProductService:
             child.category_id = product.category_id
             child.uom_id = product.uom_id
             child.track_inventory = product.track_inventory
+            child.tracking_mode = product.tracking_mode
             child.reorder_point = product.reorder_point
             child.sku = v.sku
             child.barcode = v.barcode
@@ -205,6 +206,8 @@ class ProductService:
         self._validate_refs(org_id, payload.category_id, payload.uom_id)
         self._require_uom_for_goods(payload.nature, payload.uom_id)
         self._ensure_unique_sku(org_id, payload.sku)
+        if payload.tracking_mode != "none" and not payload.track_inventory:
+            raise BadRequestError("Lot or serial tracking requires inventory tracking")
         data = payload.model_dump(exclude={"media", "variant_attributes", "variants"})
         product = Product(org_id=org_id, **data)
         self.db.add(product)
@@ -231,12 +234,41 @@ class ProductService:
         nature = payload.nature if "nature" in fields else product.nature
         uom_id = payload.uom_id if "uom_id" in fields else product.uom_id
         self._require_uom_for_goods(nature, uom_id)
+        track_inventory = (
+            payload.track_inventory if "track_inventory" in fields else product.track_inventory
+        )
+        tracking_mode = (
+            payload.tracking_mode if "tracking_mode" in fields else product.tracking_mode
+        )
+        if tracking_mode != "none" and not track_inventory:
+            raise BadRequestError("Lot or serial tracking requires inventory tracking")
+        if tracking_mode != product.tracking_mode:
+            from app.modules.inventory.models import StockMovement
+
+            tracked_product_ids = [product.id, *(variant.id for variant in product.variants)]
+            if self.db.scalar(
+                select(StockMovement.id)
+                .where(
+                    StockMovement.org_id == org_id,
+                    StockMovement.product_id.in_(tracked_product_ids),
+                )
+                .limit(1)
+            ):
+                raise ConflictError(
+                    "Tracking mode cannot be changed after inventory transactions exist"
+                )
 
         scalar_fields = payload.model_dump(
             exclude_unset=True, exclude={"media", "variant_attributes", "variants"}
         )
         for key, value in scalar_fields.items():
             setattr(product, key, value)
+        if product.type == "variable" and (
+            "track_inventory" in fields or "tracking_mode" in fields
+        ):
+            for variant in product.variants:
+                variant.track_inventory = product.track_inventory
+                variant.tracking_mode = product.tracking_mode
         if payload.variant_attributes is not None:
             self._apply_variants(
                 org_id, product, payload.variant_attributes, payload.variants or []

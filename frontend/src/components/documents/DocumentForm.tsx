@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { DatePicker, InputNumber, Segmented, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import dayjs, { type Dayjs } from "dayjs";
-import { Info, Package, Plus, Trash2 } from "lucide-react";
+import { Info, Package, Plus, ScanLine, Trash2 } from "lucide-react";
 
 import {
   App,
@@ -40,7 +40,9 @@ import { FBR_SCENARIOS } from "@/lib/fbrScenarios";
 import { FBR_REASONS, FBR_REASON_OTHERS } from "@/lib/fbrReasons";
 import { fbrFurtherTax, fbrSalesTax } from "@/lib/fbrTax";
 import { PK_PROVINCES } from "@/lib/provinces";
-import type { DiscountType, DocumentInput, DocumentRecord } from "@/types";
+import type { DiscountType, DocumentInput, DocumentRecord, LotAllocation, TrackingMode } from "@/types";
+
+import { LineTrackingModal } from "./LineTrackingModal";
 
 interface LineRow {
   key: string;
@@ -55,6 +57,9 @@ interface LineRow {
   fbr_rate: string | null;
   stock: number | null;
   track_inventory: boolean;
+  tracking_mode: TrackingMode;
+  lot_allocations: LotAllocation[];
+  serial_numbers: string[];
   image_url: string | null;
 }
 
@@ -93,6 +98,9 @@ const emptyLine = (): LineRow => ({
   fbr_rate: null,
   stock: null,
   track_inventory: false,
+  tracking_mode: "none",
+  lot_allocations: [],
+  serial_numbers: [],
   image_url: null,
 });
 
@@ -118,6 +126,7 @@ export function DocumentForm({
   const finalize = useFinalizeDocument(config.apiPath);
   const saveModeRef = useRef<"draft" | "finalize">("draft");
   const usesBins = config.kind !== "sales_order" && config.kind !== "purchase_order";
+  const inboundStock = ["goods_receipt", "bill", "credit_note"].includes(config.kind);
 
   const { data: taxRates } = useTaxRates();
   const { data: warehouses } = useWarehouses();
@@ -153,6 +162,12 @@ export function DocumentForm({
           fbr_rate: null,
           stock: null,
           track_inventory: false,
+          tracking_mode: l.tracking_mode,
+          lot_allocations: l.lot_allocations.map((allocation) => ({
+            ...allocation,
+            lot_id: allocation.lot_id ?? allocation.lot?.id ?? null,
+          })),
+          serial_numbers: l.serials.map((serial) => serial.serial_number),
           image_url: null,
         }))
       : [emptyLine()],
@@ -161,6 +176,7 @@ export function DocumentForm({
   const [adjustment, setAdjustment] = useState(Number(document?.adjustment ?? 0));
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [focusKey, setFocusKey] = useState<string | null>(null);
+  const [trackingLineKey, setTrackingLineKey] = useState<string | null>(null);
   const [discountMode, setDiscountMode] = useState<DiscountType>(
     () => document?.lines[0]?.discount_type ?? "amount",
   );
@@ -186,7 +202,14 @@ export function DocumentForm({
   useEffect(() => {
     if (previousWarehouseId.current === warehouseId) return;
     if (previousWarehouseId.current !== undefined) {
-      setLines((prev) => prev.map((line) => ({ ...line, bin_id: null })));
+      setLines((prev) =>
+        prev.map((line) => ({
+          ...line,
+          bin_id: null,
+          lot_allocations: [],
+          serial_numbers: [],
+        })),
+      );
     }
     previousWarehouseId.current = warehouseId;
   }, [warehouseId]);
@@ -211,6 +234,10 @@ export function DocumentForm({
   const lineTracksInventory = (row: LineRow) => {
     const item = (sellable ?? []).find((candidate) => candidate.id === row.product_id);
     return item?.track_inventory ?? (row.track_inventory || row.product_id != null);
+  };
+  const lineTrackingMode = (row: LineRow): TrackingMode => {
+    const item = (sellable ?? []).find((candidate) => candidate.id === row.product_id);
+    return item?.tracking_mode ?? row.tracking_mode;
   };
 
   const rateOf = (id: number | null) =>
@@ -283,6 +310,9 @@ export function DocumentForm({
       fbr_rate: item?.fbr_rate ?? null,
       stock: item?.stock != null ? Number(item.stock) : null,
       track_inventory: item?.track_inventory ?? false,
+      tracking_mode: item?.tracking_mode ?? "none",
+      lot_allocations: [],
+      serial_numbers: [],
       bin_id: null,
       image_url: item?.image_url ?? null,
     });
@@ -304,6 +334,9 @@ export function DocumentForm({
                   bin_id: null,
                   stock: null,
                   track_inventory: false,
+                  tracking_mode: "none",
+                  lot_allocations: [],
+                  serial_numbers: [],
                   image_url: null,
                 })
               : pickItem(row.key, v)
@@ -373,7 +406,13 @@ export function DocumentForm({
             render: (_: unknown, row: LineRow) => (
               <Select
                 value={row.bin_id ?? undefined}
-                onChange={(value) => patchLine(row.key, { bin_id: value ?? null })}
+                onChange={(value) =>
+                  patchLine(row.key, {
+                    bin_id: value ?? null,
+                    lot_allocations: [],
+                    serial_numbers: [],
+                  })
+                }
                 options={(bins ?? []).map((bin) => ({
                   value: bin.id,
                   label: `${bin.code} · ${bin.name}`,
@@ -384,6 +423,37 @@ export function DocumentForm({
                 className="w-full"
               />
             ),
+          },
+        ] as ColumnsType<LineRow>)
+      : []),
+    ...(usesBins
+      ? ([
+          {
+            title: "Tracking",
+            key: "tracking",
+            width: 150,
+            render: (_: unknown, row: LineRow) => {
+              const mode = lineTrackingMode(row);
+              if (mode === "none") return <span className="text-gray-400">—</span>;
+              const count =
+                mode === "lot" ? row.lot_allocations.length : row.serial_numbers.length;
+              return (
+                <Button
+                  size="small"
+                  icon={<ScanLine size={14} />}
+                  disabled={!row.product_id || !warehouseId}
+                  onClick={() => setTrackingLineKey(row.key)}
+                >
+                  {count
+                    ? mode === "lot"
+                      ? `${count} ${count === 1 ? "lot" : "lots"}`
+                      : `${count} serials`
+                    : mode === "lot"
+                      ? "Allocate lots"
+                      : "Select serials"}
+                </Button>
+              );
+            },
           },
         ] as ColumnsType<LineRow>)
       : []),
@@ -584,6 +654,12 @@ export function DocumentForm({
         discount_type: l.discount_type,
         discount_value: l.discount_value,
         tax_rate_id: l.tax_rate_id,
+        ...(usesBins && l.tracking_mode === "lot"
+          ? { lot_allocations: l.lot_allocations }
+          : {}),
+        ...(usesBins && l.tracking_mode === "serial"
+          ? { serial_numbers: l.serial_numbers }
+          : {}),
       })),
     };
     try {
@@ -812,6 +888,33 @@ export function DocumentForm({
           </div>
         </div>
       </Card>
+
+      {(() => {
+        const line = lines.find((candidate) => candidate.key === trackingLineKey);
+        if (!line || line.product_id == null || line.tracking_mode === "none") return null;
+        return (
+          <LineTrackingModal
+            open
+            productId={line.product_id}
+            productName={line.description || "Item"}
+            trackingMode={line.tracking_mode}
+            inbound={inboundStock}
+            warehouseId={warehouseId}
+            binId={line.bin_id}
+            quantity={line.quantity}
+            allocations={line.lot_allocations}
+            serialNumbers={line.serial_numbers}
+            onSave={(lotAllocations, serialNumbers) => {
+              patchLine(line.key, {
+                lot_allocations: lotAllocations,
+                serial_numbers: serialNumbers,
+              });
+              setTrackingLineKey(null);
+            }}
+            onClose={() => setTrackingLineKey(null)}
+          />
+        );
+      })()}
 
       <Card title="Notes & Terms" className="border-gray-100">
         <div className="grid grid-cols-1 gap-x-6 md:grid-cols-2">

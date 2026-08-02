@@ -23,6 +23,8 @@ from app.modules.documents.models import (
     DeliveryChallan,
     Document,
     DocumentLine,
+    DocumentLineLotAllocation,
+    DocumentLineSerial,
     GoodsReceipt,
     Invoice,
     PurchaseOrder,
@@ -40,6 +42,7 @@ from app.modules.documents.schemas import (
 )
 from app.modules.fbr.models import FbrSubmissionAttempt
 from app.modules.inventory.service import InventoryService
+from app.modules.inventory.tracking_service import TrackingService
 from app.modules.locations.models import Location
 from app.modules.parties.models import Party
 from app.modules.products.models import Product
@@ -111,6 +114,7 @@ class DocumentService:
         self.db = db
         self.activity = ActivityService(db)
         self.inventory = InventoryService(db)
+        self.tracking = TrackingService(db)
         self.ledger = _ledger.ledger_poster
 
     # --- Seeding ----------------------------------------------------------
@@ -176,6 +180,7 @@ class DocumentService:
                     else None
                 ),
                 track_inventory=p.track_inventory,
+                tracking_mode=p.tracking_mode,
                 stock=stock.get(p.id, _ZERO) if p.track_inventory else None,
             )
             for p in products
@@ -285,10 +290,17 @@ class DocumentService:
             raise NotFoundError("One or more items were not found")
 
     def _build_lines(
-        self, org_id: int, line_inputs: list[DocumentLineInput]
+        self, org_id: int, doc_type: DocumentType, line_inputs: list[DocumentLineInput]
     ) -> tuple[list[DocumentLine], Decimal, Decimal, Decimal]:
         self._validate_products(org_id, line_inputs)
         tax_map = self._tax_map(org_id, line_inputs)
+        product_ids = {line.product_id for line in line_inputs if line.product_id is not None}
+        products = {
+            product.id: product
+            for product in self.db.scalars(
+                select(Product).where(Product.org_id == org_id, Product.id.in_(product_ids))
+            )
+        }
         lines: list[DocumentLine] = []
         subtotal = discount_total = tax_total = _ZERO
         for i, line in enumerate(line_inputs):
@@ -301,22 +313,59 @@ class DocumentService:
             taxable = base - discount
             rate = tax_map[line.tax_rate_id].rate if line.tax_rate_id is not None else _ZERO
             tax = _q(taxable * rate / _HUNDRED)
-            lines.append(
-                DocumentLine(
-                    product_id=line.product_id,
-                    bin_id=line.bin_id,
-                    description=line.description,
-                    quantity=line.quantity,
-                    unit_price=line.unit_price,
-                    discount_type=line.discount_type,
-                    discount_value=line.discount_value,
-                    discount=discount,
-                    tax_rate_id=line.tax_rate_id,
-                    tax_amount=tax,
-                    line_total=taxable + tax,
-                    sort_order=i,
+            product = products.get(line.product_id)
+            if doc_type not in BIN_ENABLED_TYPES and (line.lot_allocations or line.serial_numbers):
+                raise BadRequestError(
+                    "Lots and serial numbers are selected when goods are received or dispatched"
                 )
+            if line.lot_allocations and (product is None or product.tracking_mode != "lot"):
+                raise BadRequestError("Lot allocations require a lot-tracked item")
+            if line.serial_numbers and (product is None or product.tracking_mode != "serial"):
+                raise BadRequestError("Serial numbers require a serial-tracked item")
+            document_line = DocumentLine(
+                product_id=line.product_id,
+                bin_id=line.bin_id,
+                description=line.description,
+                quantity=line.quantity,
+                unit_price=line.unit_price,
+                discount_type=line.discount_type,
+                discount_value=line.discount_value,
+                discount=discount,
+                tax_rate_id=line.tax_rate_id,
+                tax_amount=tax,
+                line_total=taxable + tax,
+                sort_order=i,
             )
+            if product is not None and line.lot_allocations:
+                allow_create = DOCUMENT_CLASSES[doc_type].stock_direction > 0
+                resolved_allocations = [
+                    (
+                        self.tracking.resolve_lot(
+                            org_id,
+                            product.id,
+                            lot_id=allocation.lot_id,
+                            lot_number=allocation.lot_number,
+                            manufactured_date=allocation.manufactured_date,
+                            expiry_date=allocation.expiry_date,
+                            allow_create=allow_create,
+                        ),
+                        allocation.quantity,
+                    )
+                    for allocation in line.lot_allocations
+                ]
+                lot_ids = [lot.id for lot, _ in resolved_allocations]
+                if len(lot_ids) != len(set(lot_ids)):
+                    raise BadRequestError("A lot can only be allocated once on each line")
+                document_line.lot_allocations = [
+                    DocumentLineLotAllocation(lot_id=lot.id, quantity=quantity)
+                    for lot, quantity in resolved_allocations
+                ]
+            if product is not None and line.serial_numbers:
+                document_line.serials = [
+                    DocumentLineSerial(serial_number=serial_number)
+                    for serial_number in self.tracking.normalize_serials(line.serial_numbers)
+                ]
+            lines.append(document_line)
             subtotal += base
             discount_total += discount
             tax_total += tax
@@ -524,7 +573,9 @@ class DocumentService:
                 payload.fbr_reason_remarks if doc_type == DocumentType.CREDIT_NOTE else None
             ),
         )
-        lines, subtotal, discount_total, tax_total = self._build_lines(org_id, payload.lines)
+        lines, subtotal, discount_total, tax_total = self._build_lines(
+            org_id, doc_type, payload.lines
+        )
         self._validate_line_bins(org_id, doc_type, doc.warehouse_id, lines)
         doc.lines = lines
         further_total = _ZERO
@@ -622,7 +673,9 @@ class DocumentService:
         if payload.adjustment is not None:
             doc.adjustment = _q(payload.adjustment)
         if payload.lines is not None:
-            lines, subtotal, discount_total, tax_total = self._build_lines(org_id, payload.lines)
+            lines, subtotal, discount_total, tax_total = self._build_lines(
+                org_id, doc_type, payload.lines
+            )
             self._validate_line_bins(org_id, doc_type, doc.warehouse_id, lines)
             doc.lines = lines
             further_total = _ZERO
@@ -654,6 +707,69 @@ class DocumentService:
         if source is None or not source.stock_posted:
             return False
         return source.stock_direction == doc.stock_direction
+
+    def _validate_tracking(self, org_id: int, doc: Document, *, moves_stock: bool) -> None:
+        if not moves_stock:
+            return
+        product_ids = {line.product_id for line in doc.lines if line.product_id is not None}
+        products = {
+            product.id: product
+            for product in self.db.scalars(
+                select(Product).where(Product.org_id == org_id, Product.id.in_(product_ids))
+            )
+        }
+        for line in doc.lines:
+            product = products.get(line.product_id)
+            if product is None or not product.track_inventory:
+                continue
+            if product.tracking_mode == "lot":
+                allocated = sum(
+                    (allocation.quantity for allocation in line.lot_allocations), _ZERO
+                )
+                if allocated != line.quantity:
+                    raise BadRequestError(
+                        f"Allocate exactly {line.quantity} units across lots for {product.name}"
+                    )
+                if line.serials:
+                    raise BadRequestError(f"{product.name} is tracked by lot, not serial number")
+                if doc.stock_direction < 0:
+                    for allocation in line.lot_allocations:
+                        if (
+                            allocation.lot.expiry_date
+                            and allocation.lot.expiry_date < doc.issue_date
+                        ):
+                            raise BadRequestError(
+                                f"Lot {allocation.lot.lot_number} for {product.name} is expired"
+                            )
+            elif product.tracking_mode == "serial":
+                if line.quantity != line.quantity.to_integral_value():
+                    raise BadRequestError(
+                        f"Serial-tracked item {product.name} requires whole units"
+                    )
+                if len(line.serials) != int(line.quantity):
+                    raise BadRequestError(
+                        f"Enter exactly {int(line.quantity)} serial numbers for {product.name}"
+                    )
+                if line.lot_allocations:
+                    raise BadRequestError(f"{product.name} is tracked by serial number, not lot")
+                numbers = [serial.serial_number for serial in line.serials]
+                if doc.stock_direction < 0:
+                    self.tracking.validate_serials_available(
+                        org_id,
+                        product.id,
+                        doc.warehouse_id,
+                        line.bin_id,
+                        numbers,
+                    )
+                else:
+                    self.tracking.validate_serials_receivable(
+                        org_id,
+                        product.id,
+                        numbers,
+                        sales_return=doc.type == DocumentType.CREDIT_NOTE,
+                    )
+            elif line.lot_allocations or line.serials:
+                raise BadRequestError(f"{product.name} does not use lot or serial tracking")
 
     def _apply_credit(self, org_id: int, doc: Document) -> None:
         """A credit note settles the invoice it was raised against, so the
@@ -822,10 +938,26 @@ class DocumentService:
                 discount_type=line.discount_type,
                 discount_value=line.discount_value,
                 tax_rate_id=line.tax_rate_id,
+                lot_allocations=(
+                    [
+                        {
+                            "lot_id": allocation.lot_id,
+                            "quantity": allocation.quantity,
+                        }
+                        for allocation in line.lot_allocations
+                    ]
+                    if preserve_bins
+                    else []
+                ),
+                serial_numbers=(
+                    [serial.serial_number for serial in line.serials] if preserve_bins else []
+                ),
             )
             for line in source.lines
         ]
-        lines, subtotal, discount_total, tax_total = self._build_lines(org_id, line_inputs)
+        lines, subtotal, discount_total, tax_total = self._build_lines(
+            org_id, target_type, line_inputs
+        )
         prefix, start, restart = numbering_format(
             self.db, org_id, str(target_type), DEFAULT_PREFIXES[target_type]
         )
@@ -912,6 +1044,7 @@ class DocumentService:
                 raise BadRequestError("No warehouse available to move stock")
         if doc.warehouse_id is not None:
             self._validate_warehouse(org_id, doc.warehouse_id)
+        self._validate_tracking(org_id, doc, moves_stock=moves_stock)
         if moves_stock and doc.stock_direction < 0:
             self._preflight_outbound_stock(org_id, doc)
         if doc.type in (DocumentType.INVOICE, DocumentType.CREDIT_NOTE):
@@ -1009,7 +1142,26 @@ class DocumentService:
         }
         required: dict[tuple[int, int | None], Decimal] = {}
         for line in doc.lines:
-            if line.product_id in products:
+            product = products.get(line.product_id)
+            if product is None:
+                continue
+            if product.tracking_mode == "lot":
+                for allocation in line.lot_allocations:
+                    available = self.inventory.on_hand_in_lot(
+                        org_id,
+                        product.id,
+                        doc.warehouse_id,
+                        line.bin_id,
+                        allocation.lot_id,
+                    )
+                    if available < allocation.quantity:
+                        raise BadRequestError(
+                            f"Not enough stock in lot {allocation.lot.lot_number} "
+                            f"for {product.name}"
+                        )
+            elif product.tracking_mode == "serial":
+                continue
+            else:
                 key = (line.product_id, line.bin_id)
                 required[key] = required.get(key, _ZERO) + line.quantity
         for (product_id, bin_id), quantity in required.items():
@@ -1043,14 +1195,41 @@ class DocumentService:
             if product is None or not product.track_inventory:
                 continue
             unit_cost = line.unit_price if doc.stock_direction > 0 else product.purchase_price
-            self.inventory.post_document_movement(
-                org_id=org_id,
-                product_id=line.product_id,
-                location_id=doc.warehouse_id,
-                qty_delta=direction * line.quantity,
-                type_=doc.movement_type,
-                reference_type=doc.type,
-                reference_id=doc.id,
-                unit_cost=unit_cost,
-                bin_id=line.bin_id,
-            )
+            if product.tracking_mode == "lot":
+                for allocation in line.lot_allocations:
+                    self.inventory.post_document_movement(
+                        org_id=org_id,
+                        product_id=line.product_id,
+                        location_id=doc.warehouse_id,
+                        qty_delta=direction * allocation.quantity,
+                        type_=doc.movement_type,
+                        reference_type=doc.type,
+                        reference_id=doc.id,
+                        unit_cost=unit_cost,
+                        bin_id=line.bin_id,
+                        lot_id=allocation.lot_id,
+                    )
+            else:
+                movement = self.inventory.post_document_movement(
+                    org_id=org_id,
+                    product_id=line.product_id,
+                    location_id=doc.warehouse_id,
+                    qty_delta=direction * line.quantity,
+                    type_=doc.movement_type,
+                    reference_type=doc.type,
+                    reference_id=doc.id,
+                    unit_cost=unit_cost,
+                    bin_id=line.bin_id,
+                )
+                if product.tracking_mode == "serial":
+                    self.tracking.apply_serial_movement(
+                        org_id,
+                        product.id,
+                        doc.warehouse_id,
+                        line.bin_id,
+                        [serial.serial_number for serial in line.serials],
+                        movement,
+                        direction=direction,
+                        movement_type=doc.movement_type,
+                        reverse=reverse,
+                    )

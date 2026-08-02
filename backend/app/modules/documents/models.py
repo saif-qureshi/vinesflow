@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
@@ -28,6 +29,10 @@ from app.modules.documents.enums import (
     DocumentType,
 )
 from app.modules.parties.models import Party
+
+if TYPE_CHECKING:
+    from app.modules.inventory.models import StockLot
+    from app.modules.products.models import Product
 
 _MONEY = Numeric(18, 2)
 _QTY = Numeric(14, 3)
@@ -257,3 +262,51 @@ class DocumentLine(Base, TimestampMixin):
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     document: Mapped[Document] = relationship(back_populates="lines")
+    product: Mapped[Product | None] = relationship(lazy="joined")
+    lot_allocations: Mapped[list[DocumentLineLotAllocation]] = relationship(
+        back_populates="line", cascade="all, delete-orphan", lazy="selectin"
+    )
+    serials: Mapped[list[DocumentLineSerial]] = relationship(
+        back_populates="line", cascade="all, delete-orphan", lazy="selectin"
+    )
+
+    @property
+    def tracking_mode(self) -> str:
+        return self.product.tracking_mode if self.product else "none"
+
+
+class DocumentLineLotAllocation(Base):
+    __tablename__ = "document_line_lot_allocations"
+    __table_args__ = (
+        UniqueConstraint("document_line_id", "lot_id", name="uq_document_line_lot"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_line_id: Mapped[int] = mapped_column(
+        ForeignKey("document_lines.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    lot_id: Mapped[int] = mapped_column(
+        ForeignKey("stock_lots.id", ondelete="RESTRICT"), nullable=False
+    )
+    quantity: Mapped[Decimal] = mapped_column(_QTY, nullable=False)
+
+    line: Mapped[DocumentLine] = relationship(back_populates="lot_allocations")
+    lot: Mapped[StockLot] = relationship(lazy="joined")
+
+
+class DocumentLineSerial(Base):
+    __tablename__ = "document_line_serials"
+    __table_args__ = (
+        UniqueConstraint("document_line_id", "serial_number", name="uq_document_line_serial"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_line_id: Mapped[int] = mapped_column(
+        ForeignKey("document_lines.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    serial_number: Mapped[str] = mapped_column(String(150), nullable=False)
+    serial_unit_id: Mapped[int | None] = mapped_column(
+        ForeignKey("serial_units.id", ondelete="RESTRICT"), nullable=True
+    )
+
+    line: Mapped[DocumentLine] = relationship(back_populates="serials")
