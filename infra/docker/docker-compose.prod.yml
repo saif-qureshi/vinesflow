@@ -88,10 +88,19 @@ services:
       - internal
     mem_limit: 500m
     logging: *default-logging
-    # The image healthcheck probes the HTTP API, which is not served by Celery.
-    # Docker already restarts the worker when its main Celery process exits.
+    # Override the image's HTTP healthcheck: this container's PID 1 is Celery.
     healthcheck:
-      disable: true
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "from pathlib import Path; import sys; sys.exit(0 if b'celery' in Path('/proc/1/cmdline').read_bytes() else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   # Scheduler for periodic tasks (e.g. FBR reference sync). Enable once such tasks exist.
   # beat:
