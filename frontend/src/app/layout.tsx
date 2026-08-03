@@ -12,8 +12,8 @@ export const metadata: Metadata = {
   title: "Vineflow — Invoicing",
   description: "Multi-organization invoicing platform",
   icons: {
-    icon: [{ url: "/logo.svg", type: "image/svg+xml" }],
-    shortcut: "/logo.svg",
+    icon: [{ url: "/logo.png", type: "image/png" }],
+    shortcut: "/logo.png",
   },
 };
 
