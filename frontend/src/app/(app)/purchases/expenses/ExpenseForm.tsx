@@ -9,7 +9,7 @@ import { useAccounts } from "@/hooks/useAccounting";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useParties } from "@/hooks/useParties";
 
-const GRID = "grid grid-cols-[1.6fr_1.4fr_150px_40px] gap-2";
+const GRID_COLUMNS = "md:grid-cols-[1.6fr_1.4fr_150px_40px]";
 
 export interface ExpenseLineForm {
   account_id?: number;
@@ -98,14 +98,17 @@ export function ExpenseForm({
         <Form.List name="lines">
           {(fields, { add, remove }) => (
             <div className="space-y-2">
-              <div className={`${GRID} px-1 text-xs text-gray-400`}>
+              <div className={`hidden ${GRID_COLUMNS} px-1 text-xs text-gray-400 md:grid`}>
                 <span>Category account</span>
                 <span>Description</span>
                 <span className="text-right">Amount</span>
                 <span />
               </div>
               {fields.map(({ key, name, ...rest }) => (
-                <div key={key} className={GRID}>
+                <div
+                  key={key}
+                  className={`grid grid-cols-1 gap-2 rounded-lg border border-gray-100 p-3 ${GRID_COLUMNS} md:rounded-none md:border-0 md:p-0`}
+                >
                   <Form.Item
                     {...rest}
                     name={[name, "account_id"]}
@@ -129,7 +132,7 @@ export function ExpenseForm({
                     rules={[{ required: true, message: "" }]}
                     className="!mb-0"
                   >
-                    <InputNumber className="!w-full" min={0} placeholder="0" />
+                    <InputNumber className="!w-full" min={0} placeholder="Amount" />
                   </Form.Item>
                   <Button
                     type="text"
@@ -159,7 +162,7 @@ export function ExpenseForm({
           <TextArea rows={2} maxLength={500} placeholder="What was this expense for?" />
         </Form.Item>
 
-        <div className="mt-2 flex items-center justify-end gap-6 rounded-lg bg-slate-50 p-3 text-sm text-gray-500">
+        <div className="mt-2 flex flex-wrap items-center justify-end gap-x-6 gap-y-2 rounded-lg bg-slate-50 p-3 text-sm text-gray-500">
           <span>
             Subtotal <b className="tabular-nums text-slate-800">{money(subtotal)}</b>
           </span>

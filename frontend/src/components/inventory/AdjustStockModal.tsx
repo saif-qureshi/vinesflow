@@ -252,7 +252,7 @@ export function AdjustStockModal({
 
         {mode === "quantity" ? (
           <>
-            <div className="mb-4 grid grid-cols-2 gap-4 rounded-lg bg-slate-50 p-3">
+            <div className="mb-4 grid grid-cols-1 gap-3 rounded-lg bg-slate-50 p-3 sm:grid-cols-2 sm:gap-4">
               <div>
                 <div className="text-xs text-gray-400">Quantity available</div>
                 <div className="text-lg font-semibold tabular-nums">
@@ -266,7 +266,7 @@ export function AdjustStockModal({
                 </div>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
               <Form.Item
                 name="qty_delta"
                 label="Quantity adjusted"

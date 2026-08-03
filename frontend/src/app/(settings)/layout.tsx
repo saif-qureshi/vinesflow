@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Button, Divider, Input, Layout, Menu, Typography, type MenuProps } from "antd";
-import { Boxes, Building2, ChevronLeft, Search, ShieldCheck, SlidersHorizontal, UserRound } from "lucide-react";
+import { Button, Divider, Drawer, Grid, Input, Layout, Menu, Typography, type MenuProps } from "antd";
+import { Boxes, Building2, ChevronLeft, Menu as MenuIcon, Search, ShieldCheck, SlidersHorizontal, UserRound } from "lucide-react";
 
 import { AppFooter } from "@/components/AppFooter";
 import { Logo } from "@/components/Logo";
@@ -91,6 +91,9 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
   const can = useCan();
   const router = useRouter();
   const pathname = usePathname();
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const items: MenuProps["items"] = useMemo(
     () =>
@@ -126,19 +129,44 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
   useEffect(() => setOpenKeys((prev) => Array.from(new Set([...prev, parentKey]))), [parentKey]);
 
   const close = () => router.push("/dashboard");
+  const navigate = (key: string) => {
+    router.push(key);
+    setDrawerOpen(false);
+  };
+
+  const settingsMenu = (
+    <Menu
+      mode="inline"
+      items={items}
+      selectedKeys={[pathname]}
+      openKeys={openKeys}
+      onOpenChange={(keys) => setOpenKeys(keys as string[])}
+      onClick={({ key }) => navigate(key)}
+      className="!border-r-0 py-2"
+    />
+  );
 
   return (
     <Layout className="h-screen">
       <Header
         style={{ paddingInline: 12 }}
-        className="flex items-center gap-3 border-b border-gray-200"
+        className="flex min-h-16 items-center gap-2 border-b border-gray-200 !leading-normal sm:gap-3"
       >
-        <Logo size={28} priority />
-        <Divider orientation="vertical" className="!mx-0 !h-7" />
+        <div className="hidden sm:block">
+          <Logo size={28} priority />
+        </div>
+        <Divider orientation="vertical" className="!mx-0 !hidden !h-7 sm:!block" />
         <Button icon={<ChevronLeft size={18} />} onClick={close} />
-        <div className="leading-tight">
+        {isMobile && (
+          <Button
+            aria-label="Open settings navigation"
+            icon={<MenuIcon size={18} />}
+            onClick={() => setDrawerOpen(true)}
+          />
+        )}
+        <div className="min-w-0 leading-tight">
           <div className="text-sm font-semibold">All Settings</div>
-          <Typography.Text type="secondary" className="text-xs">
+          <Typography.Text type="secondary" className="block max-w-36 truncate text-xs sm:max-w-56">
             {currentMembership?.organization.name}
           </Typography.Text>
         </div>
@@ -146,26 +174,29 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
           prefix={<Search size={16} className="text-gray-400" />}
           placeholder="Search settings"
           variant="filled"
-          className="mx-auto max-w-md"
+          className="mx-auto hidden max-w-md lg:block"
         />
       </Header>
-      <Layout>
-        <Sider width={230} theme="light" className="overflow-auto border-r border-gray-100">
-          <Menu
-            mode="inline"
-            items={items}
-            selectedKeys={[pathname]}
-            openKeys={openKeys}
-            onOpenChange={(keys) => setOpenKeys(keys as string[])}
-            onClick={({ key }) => router.push(key)}
-            className="!border-r-0 py-2"
-          />
-        </Sider>
+      <Drawer
+        placement="left"
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        title="Settings"
+        styles={{ body: { padding: 0 }, wrapper: { width: "min(280px, 88vw)" } }}
+      >
+        {settingsMenu}
+      </Drawer>
+      <Layout className="min-h-0 min-w-0">
+        {!isMobile && (
+          <Sider width={230} theme="light" className="overflow-auto border-r border-gray-100">
+            {settingsMenu}
+          </Sider>
+        )}
         <Content
           style={{ background: "var(--settings-content)" }}
-          className="flex flex-col overflow-auto"
+          className="flex min-w-0 flex-col overflow-auto"
         >
-          <div className="flex-1 p-8">{children}</div>
+          <div className="min-w-0 flex-1 p-4 sm:p-8">{children}</div>
           <AppFooter />
         </Content>
       </Layout>

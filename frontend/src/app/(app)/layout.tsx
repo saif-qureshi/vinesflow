@@ -220,7 +220,7 @@ function Shell({ children }: { children: React.ReactNode }) {
       </Drawer>
 
       <Layout
-        className="flex flex-col"
+        className="flex min-w-0 flex-col"
         style={{
           marginLeft: isMobile ? 0 : collapsed ? COLLAPSED : WIDTH,
           transition: "margin-left 0.2s",
@@ -229,12 +229,14 @@ function Shell({ children }: { children: React.ReactNode }) {
       >
         <Header
           style={{ paddingInline: 8 }}
-          className="sticky top-0 z-10 flex items-center gap-2 shadow-sm"
+          className="sticky top-0 z-10 flex min-h-16 items-center gap-2 !leading-normal shadow-sm"
         >
           {isMobile && (
             <Button type="text" icon={<MenuIcon size={ICON} />} onClick={() => setDrawerOpen(true)} />
           )}
-          <RecentActivity />
+          <div className="hidden xl:block">
+            <RecentActivity />
+          </div>
           <Input
             prefix={<Search size={16} className="text-gray-400" />}
             suffix={
@@ -244,14 +246,15 @@ function Shell({ children }: { children: React.ReactNode }) {
             }
             placeholder="Search…"
             variant="filled"
-            className="ml-1 hidden max-w-md sm:block"
+            className="ml-1 hidden max-w-md xl:block"
           />
-          <div className="ml-auto flex items-center gap-2 sm:gap-3">
+          <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-1 sm:gap-2 lg:flex-none lg:gap-3">
             <Select
               value={currentOrgId ?? undefined}
               onChange={(v) => switchOrg(v)}
               variant="borderless"
-              className="min-w-44 sm:min-w-52"
+              popupMatchSelectWidth={false}
+              className="!w-full max-w-40 sm:!w-52 sm:max-w-none"
               options={memberships.map((m) => ({
                 value: m.org_id,
                 label: (
@@ -267,12 +270,17 @@ function Shell({ children }: { children: React.ReactNode }) {
             <QuickCreate />
             <Popover trigger="click" placement="bottomRight" title="Notifications" content={notifications}>
               <Badge dot>
-                <Button type="text" icon={<Bell size={ICON} />} />
+                <Button className="hidden md:inline-flex" type="text" icon={<Bell size={ICON} />} />
               </Badge>
             </Popover>
-            <Button type="text" icon={<Settings size={ICON} />} onClick={() => router.push("/settings")} />
+            <Button
+              className="hidden md:inline-flex"
+              type="text"
+              icon={<Settings size={ICON} />}
+              onClick={() => router.push("/settings")}
+            />
             <Dropdown menu={{ items: userMenu, onClick: onUserMenu }} trigger={["click"]}>
-              <div className="flex cursor-pointer items-center gap-2 pr-1">
+              <div className="flex shrink-0 cursor-pointer items-center gap-2 pr-1">
                 <Avatar src={user?.avatar_url ?? undefined} style={{ backgroundColor: accent }}>
                   {(user?.full_name ?? user?.email ?? "?").charAt(0).toUpperCase()}
                 </Avatar>
@@ -280,8 +288,8 @@ function Shell({ children }: { children: React.ReactNode }) {
             </Dropdown>
           </div>
         </Header>
-        <Content className="flex flex-1 flex-col bg-slate-50">
-          <div className="flex-1 p-4 sm:p-6">{children}</div>
+        <Content className="flex min-w-0 flex-1 flex-col bg-slate-50">
+          <div className="min-w-0 flex-1 p-3 sm:p-6">{children}</div>
           <AppFooter />
         </Content>
       </Layout>

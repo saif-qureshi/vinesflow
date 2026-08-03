@@ -189,7 +189,7 @@ export default function ViewItemPage() {
             </Card>
           ) : (
             <Card title="Pricing" className="border-gray-100">
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6">
                 <Field label="Sale price">
                   <span className="text-lg font-semibold tabular-nums">
                     {p.sale_price != null ? money(p.sale_price) : dash}

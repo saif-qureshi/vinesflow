@@ -63,8 +63,7 @@ export function QuickCreate() {
 
   const panel = (
     <div
-      className="grid grid-cols-2 gap-6 rounded-lg border border-gray-100 bg-white p-5 shadow-xl md:grid-cols-4"
-      style={{ minWidth: 720 }}
+      className="grid max-h-[calc(100vh-88px)] w-[calc(100vw-24px)] grid-cols-2 gap-3 overflow-y-auto rounded-lg border border-gray-100 bg-white p-4 shadow-xl sm:w-auto sm:min-w-[640px] sm:gap-6 sm:p-5 md:grid-cols-4 md:min-w-[720px]"
     >
       {SECTIONS.map((section) => (
         <div key={section.title}>

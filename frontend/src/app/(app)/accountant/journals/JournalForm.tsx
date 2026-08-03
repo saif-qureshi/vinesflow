@@ -8,7 +8,7 @@ import { Button, Card, Form, Input, Select, Tag } from "@/components/ui";
 import { useAccounts } from "@/hooks/useAccounting";
 import { useCurrency } from "@/hooks/useCurrency";
 
-const GRID = "grid grid-cols-[1.4fr_1fr_130px_130px_40px] gap-2";
+const GRID_COLUMNS = "md:grid-cols-[1.4fr_1fr_130px_130px_40px]";
 
 export interface JournalLineForm {
   account_id?: number;
@@ -54,7 +54,7 @@ export function JournalForm({
   return (
     <Card>
       <Form form={form} layout="vertical" onFinish={onSubmit} initialValues={initialValues}>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Form.Item name="date" label="Date" rules={[{ required: true }]}>
             <DatePicker className="!w-full" format="DD MMM YYYY" allowClear={false} />
           </Form.Item>
@@ -69,7 +69,7 @@ export function JournalForm({
         <Form.List name="lines">
           {(fields, { add, remove }) => (
             <div className="space-y-2">
-              <div className={`${GRID} px-1 text-xs text-gray-400`}>
+              <div className={`hidden ${GRID_COLUMNS} px-1 text-xs text-gray-400 md:grid`}>
                 <span>Account</span>
                 <span>Description</span>
                 <span className="text-right">Debit</span>
@@ -77,7 +77,10 @@ export function JournalForm({
                 <span />
               </div>
               {fields.map(({ key, name, ...rest }) => (
-                <div key={key} className={GRID}>
+                <div
+                  key={key}
+                  className={`grid grid-cols-1 gap-2 rounded-lg border border-gray-100 p-3 ${GRID_COLUMNS} md:rounded-none md:border-0 md:p-0`}
+                >
                   <Form.Item
                     {...rest}
                     name={[name, "account_id"]}
@@ -96,10 +99,10 @@ export function JournalForm({
                     <Input placeholder="Line note" />
                   </Form.Item>
                   <Form.Item {...rest} name={[name, "debit"]} className="!mb-0">
-                    <InputNumber className="!w-full" min={0} placeholder="0" />
+                    <InputNumber className="!w-full" min={0} placeholder="Debit" />
                   </Form.Item>
                   <Form.Item {...rest} name={[name, "credit"]} className="!mb-0">
-                    <InputNumber className="!w-full" min={0} placeholder="0" />
+                    <InputNumber className="!w-full" min={0} placeholder="Credit" />
                   </Form.Item>
                   <Button
                     type="text"
@@ -117,8 +120,8 @@ export function JournalForm({
           )}
         </Form.List>
 
-        <div className="mt-4 flex items-center justify-between rounded-lg bg-slate-50 p-3">
-          <div className="flex gap-6 text-sm text-gray-500">
+        <div className="mt-4 flex flex-col gap-3 rounded-lg bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap gap-3 text-sm text-gray-500 sm:gap-6">
             <span>
               Debit <b className="tabular-nums text-slate-800">{money(totalDebit)}</b>
             </span>

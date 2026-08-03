@@ -27,6 +27,7 @@ export function DataTable<T extends object>({
   searchPlaceholder = "Search…",
   onSearch,
   toolbar,
+  scroll,
   ...props
 }: DataTableProps<T>) {
   const [q, setQ] = useState("");
@@ -42,7 +43,7 @@ export function DataTable<T extends object>({
   return (
     <div className="overflow-hidden rounded-xl border border-gray-100 bg-white">
       {hasToolbar && (
-        <div className="flex flex-wrap items-center justify-end gap-3 border-b border-gray-100 p-3">
+        <div className="flex flex-wrap items-center gap-3 border-b border-gray-100 p-3 sm:justify-end">
           {toolbar}
           {searchable && (
             <Input
@@ -51,7 +52,7 @@ export function DataTable<T extends object>({
               onChange={(e) => setQ(e.target.value)}
               placeholder={searchPlaceholder}
               allowClear
-              className="w-72"
+              className="!w-full sm:!w-72"
             />
           )}
         </div>
@@ -59,6 +60,7 @@ export function DataTable<T extends object>({
       <Table<T>
         rowKey="id"
         pagination={false}
+        scroll={scroll ?? { x: "max-content" }}
         onRow={
           onRowClick
             ? (row) => ({ onClick: () => onRowClick(row), style: { cursor: "pointer" } })

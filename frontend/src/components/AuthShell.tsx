@@ -23,11 +23,11 @@ export function AuthShell({
         },
       }}
     >
-      <main className="flex min-h-screen items-center justify-center bg-slate-200/80 p-4 sm:p-8">
-      <div className="grid min-h-[620px] w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-2xl shadow-slate-400/25 md:grid-cols-[48%_52%]">
-        <section className="flex items-center px-7 py-10 sm:px-12 lg:px-16">
+      <main className="flex min-h-screen items-center justify-center bg-slate-200/80 p-3 sm:p-8">
+      <div className="grid w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-2xl shadow-slate-400/25 md:min-h-[620px] md:grid-cols-[48%_52%]">
+        <section className="flex items-center px-5 py-8 sm:px-12 sm:py-10 lg:px-16">
           <div className="mx-auto w-full max-w-sm">
-            <div className="mb-10 flex items-center gap-3">
+            <div className="mb-8 flex items-center gap-3 sm:mb-10">
               <Logo size={38} priority />
               <span className="text-lg font-semibold tracking-tight text-slate-900">Vineflow</span>
             </div>

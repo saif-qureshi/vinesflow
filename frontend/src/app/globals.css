@@ -30,3 +30,29 @@ body {
   height: 100%;
   margin: 0;
 }
+
+/* Keep dense Ant Design content inside the mobile viewport. */
+.ant-layout,
+.ant-layout-content,
+.ant-card,
+.ant-table-wrapper {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ant-table-wrapper .ant-table-content {
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+@media (max-width: 639px) {
+  .ant-card .ant-card-head,
+  .ant-card .ant-card-body {
+    padding-inline: 16px;
+  }
+
+  .ant-modal {
+    max-width: calc(100vw - 16px);
+    margin-block: 8px;
+  }
+}
