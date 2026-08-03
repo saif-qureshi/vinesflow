@@ -36,7 +36,7 @@ function Row({ a }: { a: Activity }) {
   );
 }
 
-export function RecentActivity() {
+export function RecentActivity({ label }: { label?: string }) {
   const [open, setOpen] = useState(false);
   const { data, isLoading, refetch } = useActivities();
   const items = data?.pages.flatMap((p) => p.items) ?? [];
@@ -72,7 +72,14 @@ export function RecentActivity() {
       styles={{ content: { padding: 0 } }}
       content={content}
     >
-      <Button type="text" icon={<History size={ICON} />} />
+      <Button
+        block={Boolean(label)}
+        className={label ? "!justify-start" : undefined}
+        type="text"
+        icon={<History size={ICON} />}
+      >
+        {label}
+      </Button>
     </Popover>
   );
 }

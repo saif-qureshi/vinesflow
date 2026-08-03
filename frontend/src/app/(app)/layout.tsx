@@ -21,6 +21,7 @@ import {
 import {
   BarChart3,
   Bell,
+  EllipsisVertical,
   FolderOpen,
   Landmark,
   LayoutDashboard,
@@ -38,7 +39,6 @@ import {
 
 import { AppFooter } from "@/components/AppFooter";
 import { Logo } from "@/components/Logo";
-import { QuickCreate } from "@/components/QuickCreate";
 import { RecentActivity } from "@/components/layout/RecentActivity";
 import { RequireAuth } from "@/components/RequireAuth";
 import { useAppTheme, useLogout, useSession, useSwitchOrg } from "@/hooks/useSession";
@@ -177,6 +177,48 @@ function Shell({ children }: { children: React.ReactNode }) {
     </div>
   );
 
+  const organizationOptions = memberships.map((m) => ({
+    value: m.org_id,
+    label: (
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="truncate">{m.organization.name}</span>
+        <Tag color={m.is_owner ? "gold" : "geekblue"} className="!m-0 shrink-0">
+          {m.role.name}
+        </Tag>
+      </span>
+    ),
+  }));
+
+  const mobileTools = (
+    <div className="w-64 space-y-2 p-1">
+      <div className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+        Organization
+      </div>
+      <Select
+        value={currentOrgId ?? undefined}
+        onChange={(value) => switchOrg(value)}
+        className="!w-full"
+        options={organizationOptions}
+      />
+      <div className="my-2 border-t border-gray-100" />
+      <RecentActivity label="Recent activity" />
+      <Popover trigger="click" placement="leftTop" title="Notifications" content={notifications}>
+        <Button block className="!justify-start" type="text" icon={<Bell size={ICON} />}>
+          Notifications
+        </Button>
+      </Popover>
+      <Button
+        block
+        className="!justify-start"
+        type="text"
+        icon={<Settings size={ICON} />}
+        onClick={() => router.push("/settings")}
+      >
+        Settings
+      </Button>
+    </div>
+  );
+
   return (
     <Layout className="min-h-screen">
       {!isMobile && (
@@ -229,64 +271,63 @@ function Shell({ children }: { children: React.ReactNode }) {
       >
         <Header
           style={{ paddingInline: 8 }}
-          className="sticky top-0 z-10 flex min-h-16 items-center gap-2 !leading-normal shadow-sm"
+          className="sticky top-0 z-10 flex min-h-16 items-center gap-2 !leading-normal shadow-sm lg:gap-3"
         >
           {isMobile && (
             <Button type="text" icon={<MenuIcon size={ICON} />} onClick={() => setDrawerOpen(true)} />
           )}
-          <div className="hidden xl:block">
+          <div className="hidden lg:block">
             <RecentActivity />
           </div>
           <Input
             prefix={<Search size={16} className="text-gray-400" />}
             suffix={
-              <kbd className="rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[11px] font-medium text-gray-400">
+              <kbd className="hidden rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[11px] font-medium text-gray-400 sm:inline">
                 ⌘K
               </kbd>
             }
             placeholder="Search…"
             variant="filled"
-            className="ml-1 hidden max-w-md xl:block"
+            className="!w-full min-w-0 flex-1 lg:ml-1 lg:max-w-md"
           />
-          <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-1 sm:gap-2 lg:flex-none lg:gap-3">
+          <div className="hidden lg:ml-auto lg:block">
             <Select
               value={currentOrgId ?? undefined}
-              onChange={(v) => switchOrg(v)}
+              onChange={(value) => switchOrg(value)}
               variant="borderless"
               popupMatchSelectWidth={false}
-              className="!w-full max-w-40 sm:!w-52 sm:max-w-none"
-              options={memberships.map((m) => ({
-                value: m.org_id,
-                label: (
-                  <span className="flex items-center gap-2">
-                    {m.organization.name}
-                    <Tag color={m.is_owner ? "gold" : "geekblue"} className="!m-0">
-                      {m.role.name}
-                    </Tag>
-                  </span>
-                ),
-              }))}
+              className="!w-52"
+              options={organizationOptions}
             />
-            <QuickCreate />
+          </div>
+          <div className="hidden items-center gap-3 lg:flex">
             <Popover trigger="click" placement="bottomRight" title="Notifications" content={notifications}>
               <Badge dot>
-                <Button className="hidden md:inline-flex" type="text" icon={<Bell size={ICON} />} />
+                <Button type="text" icon={<Bell size={ICON} />} />
               </Badge>
             </Popover>
             <Button
-              className="hidden md:inline-flex"
               type="text"
               icon={<Settings size={ICON} />}
               onClick={() => router.push("/settings")}
             />
-            <Dropdown menu={{ items: userMenu, onClick: onUserMenu }} trigger={["click"]}>
-              <div className="flex shrink-0 cursor-pointer items-center gap-2 pr-1">
-                <Avatar src={user?.avatar_url ?? undefined} style={{ backgroundColor: accent }}>
-                  {(user?.full_name ?? user?.email ?? "?").charAt(0).toUpperCase()}
-                </Avatar>
-              </div>
-            </Dropdown>
           </div>
+          <div className="lg:hidden">
+            <Popover trigger="click" placement="bottomRight" content={mobileTools}>
+              <Button
+                type="text"
+                aria-label="More actions"
+                icon={<EllipsisVertical size={ICON} />}
+              />
+            </Popover>
+          </div>
+          <Dropdown menu={{ items: userMenu, onClick: onUserMenu }} trigger={["click"]}>
+            <div className="flex shrink-0 cursor-pointer items-center pr-1">
+              <Avatar src={user?.avatar_url ?? undefined} style={{ backgroundColor: accent }}>
+                {(user?.full_name ?? user?.email ?? "?").charAt(0).toUpperCase()}
+              </Avatar>
+            </div>
+          </Dropdown>
         </Header>
         <Content className="flex min-w-0 flex-1 flex-col bg-slate-50">
           <div className="min-w-0 flex-1 p-3 sm:p-6">{children}</div>
