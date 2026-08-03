@@ -26,8 +26,36 @@ jobs:
     # Native ARM runner — no QEMU emulation. If unavailable on your plan,
     # revert to ubuntu-latest and re-add docker/setup-qemu-action@v3.
     runs-on: ubuntu-24.04-arm
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: vineflow_migration_check
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: migration-check-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d vineflow_migration_check"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.14"
+          enable-cache: true
+
+      - name: Verify migrations from an empty PostgreSQL database
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+psycopg://postgres:migration-check-only@localhost:5432/vineflow_migration_check
+        run: |
+          uv sync --frozen --dev
+          uv run alembic upgrade head
+          uv run alembic check
 
       - name: Verify GitHub OIDC identity
         uses: actions/github-script@v8
@@ -79,6 +107,7 @@ jobs:
             --arg sha "$GITHUB_SHA" \
             --arg ssm "${{ vars.SSM_ENV_PARAM }}" \
             '{commands: [
+              "set -euo pipefail",
               "cd /opt/vineflow",
               ("echo " + $compose + " | base64 -d > docker-compose.yml.next"),
               ("echo " + $caddy + " | base64 -d > Caddyfile.next"),
