@@ -1,0 +1,25 @@
+<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Vineflow">
+  <defs>
+    <linearGradient id="vf" x1="32" y1="62" x2="52" y2="6" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0f766e"/>
+      <stop offset="0.5" stop-color="#22c55e"/>
+      <stop offset="1" stop-color="#86efac"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke="url(#vf)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <g id="half">
+      <path d="M32 60 C 33 48 38 36 48 16"/>
+      <path d="M41 34 C 45 33 49 34 51 31"/>
+      <path d="M37 43 C 41 43 44 44 46 41"/>
+      <path d="M44 25 C 47 25 50 26 51 23"/>
+      <path d="M35 39 C 33 36 33 33 36 32 C 37 35 37 38 35 39 Z" fill="url(#vf)" stroke="none"/>
+      <path d="M31 49 C 29 46 29 43 32 42 C 33 45 33 48 31 49 Z" fill="url(#vf)" stroke="none"/>
+      <circle cx="49.5" cy="14.5" r="2.4"/>
+      <circle cx="52.5" cy="30" r="2.2"/>
+      <circle cx="47" cy="40" r="2.2"/>
+      <circle cx="52" cy="22" r="2"/>
+    </g>
+    <use href="#half" transform="matrix(-1,0,0,1,64,0)"/>
+    <path d="M32 60 C 28 56 30 50 32 46 C 34 50 36 56 32 60 Z" fill="url(#vf)" stroke="none"/>
+  </g>
+</svg>
