@@ -24,6 +24,7 @@ done
 
 SSM_ENV_PARAM=$(awk -F= '$1 == "SSM_ENV_PARAM" { print substr($0, index($0, "=") + 1) }' deploy.env)
 AWS_REGION=$(awk -F= '$1 == "AWS_REGION" { print substr($0, index($0, "=") + 1) }' deploy.env)
+PREVIOUS_TAG=$(awk -F= '$1 == "IMAGE_TAG" { print substr($0, index($0, "=") + 1) }' deploy.env)
 if [[ -n "$SSM_ENV_OVERRIDE" ]]; then
   SSM_ENV_PARAM="$SSM_ENV_OVERRIDE"
 fi
@@ -56,7 +57,11 @@ rollback() {
   mv -f docker-compose.yml.rollback docker-compose.yml
   mv -f Caddyfile.rollback Caddyfile
   mv -f backend.env.rollback backend.env
-  docker compose --env-file deploy.env up -d --remove-orphans || true
+  if [[ "$PREVIOUS_TAG" =~ ^[0-9a-f]{40}$ ]]; then
+    docker compose --env-file deploy.env up -d --remove-orphans || true
+  else
+    echo "No previous immutable image is available for rollback" >&2
+  fi
   exit "$status"
 }
 trap rollback ERR

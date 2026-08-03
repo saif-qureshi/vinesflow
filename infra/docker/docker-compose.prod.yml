@@ -88,6 +88,10 @@ services:
       - internal
     mem_limit: 500m
     logging: *default-logging
+    # The image healthcheck probes the HTTP API, which is not served by Celery.
+    # Docker already restarts the worker when its main Celery process exits.
+    healthcheck:
+      disable: true
 
   # Scheduler for periodic tasks (e.g. FBR reference sync). Enable once such tasks exist.
   # beat:
