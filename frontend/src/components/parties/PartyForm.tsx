@@ -11,7 +11,7 @@ import { useCurrency } from "@/hooks/useCurrency";
 import { useCreateParty, useUpdateParty } from "@/hooks/useParties";
 import { apiErrorMessage } from "@/lib/api";
 import type { Address, Party, PartyInput, PartyRole } from "@/types";
-import { CURRENCIES, PAYMENT_TERMS, SALUTATIONS, basePath, otherRole, roleLabel } from "./constants";
+import { CURRENCIES, PAYMENT_TERMS, SALUTATIONS } from "./constants";
 
 interface FormValues {
   type: "business" | "individual";
@@ -23,7 +23,7 @@ interface FormValues {
   email?: string;
   work_phone?: string;
   mobile?: string;
-  also_other?: boolean;
+  roles: PartyRole[];
   currency?: string;
   ntn?: string;
   strn?: string;
@@ -42,7 +42,7 @@ function cleanAddress(a?: Address): Address | null {
   return Object.values(a).some((v) => v != null && v !== "") ? a : null;
 }
 
-export function PartyForm({ role, party }: { role: PartyRole; party?: Party }) {
+export function PartyForm({ party }: { party?: Party }) {
   const router = useRouter();
   const { message } = App.useApp();
   const { currency } = useCurrency();
@@ -52,11 +52,9 @@ export function PartyForm({ role, party }: { role: PartyRole; party?: Party }) {
   const [avatar, setAvatar] = useState<string[]>(() => (party?.avatar_url ? [party.avatar_url] : []));
 
   const isEdit = !!party;
-  const label = roleLabel(role);
-  const other = otherRole(role);
   const type = Form.useWatch("type", form);
   const saving = create.isPending || update.isPending;
-  const backHref = isEdit ? `${basePath(role)}/${party.id}` : basePath(role);
+  const backHref = isEdit ? `/parties/${party.id}` : "/parties";
 
   useEffect(() => {
     if (!party) return;
@@ -70,7 +68,10 @@ export function PartyForm({ role, party }: { role: PartyRole; party?: Party }) {
       email: party.email ?? undefined,
       work_phone: party.work_phone ?? undefined,
       mobile: party.mobile ?? undefined,
-      also_other: other === "vendor" ? party.is_vendor : party.is_customer,
+      roles: [
+        ...(party.is_customer ? (["customer"] as PartyRole[]) : []),
+        ...(party.is_vendor ? (["vendor"] as PartyRole[]) : []),
+      ],
       currency: party.currency ?? undefined,
       ntn: party.ntn ?? undefined,
       strn: party.strn ?? undefined,
@@ -80,13 +81,13 @@ export function PartyForm({ role, party }: { role: PartyRole; party?: Party }) {
       shipping_address: party.shipping_address ?? undefined,
       notes: party.notes ?? undefined,
     });
-  }, [party, form, other]);
+  }, [party, form]);
 
   const copyBillingToShipping = () =>
     form.setFieldValue("shipping_address", form.getFieldValue("billing_address"));
 
   const submit = async (values: FormValues) => {
-    const alsoOther = !!values.also_other;
+    const roles = values.roles ?? [];
     const payload: PartyInput = {
       type: values.type,
       name: values.name,
@@ -106,14 +107,14 @@ export function PartyForm({ role, party }: { role: PartyRole; party?: Party }) {
       billing_address: cleanAddress(values.billing_address),
       shipping_address: cleanAddress(values.shipping_address),
       notes: values.notes || null,
-      is_active: true,
-      is_customer: role === "customer" || (role === "vendor" && alsoOther),
-      is_vendor: role === "vendor" || (role === "customer" && alsoOther),
+      is_active: party?.is_active ?? true,
+      is_customer: roles.includes("customer"),
+      is_vendor: roles.includes("vendor"),
     };
     try {
       if (isEdit) await update.mutateAsync({ id: party.id, payload });
       else await create.mutateAsync(payload);
-      message.success(isEdit ? `${label} updated` : `${label} created`);
+      message.success(isEdit ? "Party updated" : "Party created");
       router.push(backHref);
     } catch (err) {
       message.error(apiErrorMessage(err));
@@ -192,12 +193,17 @@ export function PartyForm({ role, party }: { role: PartyRole; party?: Party }) {
       wrapperCol={WRAPPER_COL}
       colon={false}
       onFinish={submit}
-      initialValues={{ type: "business", currency, payment_term_days: 0 }}
+      initialValues={{
+        type: "business",
+        currency,
+        payment_term_days: 0,
+        roles: [],
+      }}
       className="flex flex-col gap-6 pb-24"
     >
       <div className="flex items-center justify-between">
         <Typography.Title level={3} className="!mb-0">
-          {isEdit ? `Edit ${label}` : `New ${label}`}
+          {isEdit ? "Edit Party" : "New Party"}
         </Typography.Title>
         <Button type="text" icon={<X size={18} />} onClick={() => router.push(backHref)} />
       </div>
@@ -214,7 +220,7 @@ export function PartyForm({ role, party }: { role: PartyRole; party?: Party }) {
           />
         </Form.Item>
 
-        <Form.Item name="type" label={`${label} type`}>
+        <Form.Item name="type" label="Party type">
           <Radio.Group
             options={[
               { label: "Business", value: "business" },
@@ -269,12 +275,18 @@ export function PartyForm({ role, party }: { role: PartyRole; party?: Party }) {
           </div>
         </Form.Item>
 
-        <div className="flex">
-          <div style={LABEL_COL} />
-          <Form.Item name="also_other" valuePropName="checked" noStyle>
-            <Checkbox>Also a {other}</Checkbox>
-          </Form.Item>
-        </div>
+        <Form.Item
+          name="roles"
+          label="Roles"
+          rules={[{ required: true, message: "Select at least one role" }]}
+        >
+          <Checkbox.Group
+            options={[
+              { label: "Customer", value: "customer" },
+              { label: "Vendor", value: "vendor" },
+            ]}
+          />
+        </Form.Item>
       </Card>
 
       <Card className="border-gray-100">
@@ -283,7 +295,7 @@ export function PartyForm({ role, party }: { role: PartyRole; party?: Party }) {
 
       <div className="sticky bottom-0 flex gap-3 border-t border-gray-100 bg-slate-50 px-6 py-3">
         <Button type="primary" htmlType="submit" loading={saving}>
-          {isEdit ? "Save" : `Create ${label}`}
+          {isEdit ? "Save" : "Create Party"}
         </Button>
         <Button onClick={() => router.push(backHref)}>Cancel</Button>
       </div>

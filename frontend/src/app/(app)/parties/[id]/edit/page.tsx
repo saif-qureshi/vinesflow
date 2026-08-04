@@ -1,12 +1,12 @@
 "use client";
 
-import { useParams } from "next/navigation";
 import { Spin } from "antd";
+import { useParams } from "next/navigation";
 
 import { PartyForm } from "@/components/parties/PartyForm";
 import { useParty } from "@/hooks/useParties";
 
-export default function EditVendorPage() {
+export default function EditPartyPage() {
   const { id } = useParams<{ id: string }>();
   const { data, isLoading } = useParty(Number(id));
 
@@ -18,5 +18,5 @@ export default function EditVendorPage() {
     );
   }
 
-  return <PartyForm key={data.id} role="vendor" party={data} />;
+  return <PartyForm key={data.id} party={data} />;
 }

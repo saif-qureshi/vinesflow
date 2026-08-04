@@ -34,6 +34,7 @@ import {
   Settings,
   ShoppingBag,
   ShoppingCart,
+  Users,
   Warehouse,
 } from "lucide-react";
 
@@ -51,6 +52,7 @@ const COLLAPSED = 72;
 const NAV: MenuProps["items"] = [
   { key: "/dashboard", icon: <LayoutDashboard size={ICON} />, label: "Dashboard" },
   { key: "/items", icon: <Package size={ICON} />, label: "Items" },
+  { key: "/parties", icon: <Users size={ICON} />, label: "Parties" },
   {
     key: "inventory",
     icon: <Warehouse size={ICON} />,
@@ -65,7 +67,6 @@ const NAV: MenuProps["items"] = [
     icon: <ShoppingCart size={ICON} />,
     label: "Sales",
     children: [
-      { key: "/sales/customers", label: "Customers" },
       { key: "/sales/orders", label: "Sales Orders" },
       { key: "/sales/challans", label: "Delivery Challans" },
       { key: "/sales/invoices", label: "Invoices" },
@@ -79,7 +80,6 @@ const NAV: MenuProps["items"] = [
     icon: <ShoppingBag size={ICON} />,
     label: "Purchases",
     children: [
-      { key: "/purchases/vendors", label: "Vendors" },
       { key: "/purchases/orders", label: "Purchase Orders" },
       { key: "/purchases/receipts", label: "Goods Receipts" },
       { key: "/purchases/bills", label: "Bills" },
@@ -163,7 +163,7 @@ function Shell({ children }: { children: React.ReactNode }) {
       theme={theme}
       mode="inline"
       items={NAV}
-      selectedKeys={[pathname]}
+      selectedKeys={[pathname.startsWith("/parties") ? "/parties" : pathname]}
       openKeys={openKeys}
       onOpenChange={(keys) => setOpenKeys(keys as string[])}
       onClick={({ key }) => navigate(key)}

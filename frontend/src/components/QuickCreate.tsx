@@ -17,6 +17,7 @@ const SECTIONS: { title: string; items: QuickItem[] }[] = [
       { label: "Add User", href: "/settings/users" },
       { label: "Item", href: "/items" },
       { label: "Composite Items", href: "/items" },
+      { label: "Party", href: "/parties/new" },
     ],
   },
   {
@@ -32,7 +33,6 @@ const SECTIONS: { title: string; items: QuickItem[] }[] = [
   {
     title: "Sales",
     items: [
-      { label: "Customer", href: "/sales/customers" },
       { label: "Invoice", href: "/sales/invoices" },
       { label: "Sales Receipt", href: "/sales/receipts" },
       { label: "Sales Order", href: "/sales/orders" },
@@ -43,7 +43,6 @@ const SECTIONS: { title: string; items: QuickItem[] }[] = [
   {
     title: "Purchases",
     items: [
-      { label: "Vendor", href: "/purchases/vendors" },
       { label: "Bill", href: "/purchases/bills" },
       { label: "Purchase Order", href: "/purchases/orders" },
       { label: "Purchase Receive", href: "/purchases/orders" },

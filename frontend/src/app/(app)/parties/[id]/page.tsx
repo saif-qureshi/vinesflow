@@ -4,7 +4,7 @@ import { useParams } from "next/navigation";
 
 import { PartyView } from "@/components/parties/PartyView";
 
-export default function CustomerViewPage() {
+export default function PartyViewPage() {
   const { id } = useParams<{ id: string }>();
-  return <PartyView role="customer" id={Number(id)} />;
+  return <PartyView id={Number(id)} />;
 }

@@ -18,18 +18,20 @@ interface PartyPage {
 }
 
 export interface PartyFilters {
+  role?: PartyRole | null;
   search?: string;
   type?: PartyType | null;
   is_active?: boolean | null;
 }
 
-export function useParties(role: PartyRole, filters: PartyFilters = {}, limit = 25) {
+export function useParties(role?: PartyRole, filters: PartyFilters = {}, limit = 25) {
   const token = useSessionStore((s) => s.accessToken);
   const orgId = useSessionStore((s) => s.currentOrgId);
   return useInfiniteQuery({
-    queryKey: ["parties", orgId, role, filters],
+    queryKey: ["parties", orgId, role ?? "all", filters],
     queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: String(limit), role });
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (role) params.set("role", role);
       if (pageParam) params.set("cursor", pageParam as string);
       if (filters.search) params.set("search", filters.search);
       if (filters.type) params.set("type", filters.type);

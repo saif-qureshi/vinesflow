@@ -9,47 +9,33 @@ import type { MenuProps } from "antd";
 import { App, Avatar, Button, DataTable, Dropdown, PageHeader, Tag, Typography } from "@/components/ui";
 import { FilterDropdown } from "@/components/ui/FilterDropdown";
 import { useCan } from "@/hooks/useSession";
-import { useDeleteParty, useParties, useUpdateParty, type PartyFilters } from "@/hooks/useParties";
+import { useDeleteParty, useParties, type PartyFilters } from "@/hooks/useParties";
 import { apiErrorMessage } from "@/lib/api";
 import type { Party, PartyRole } from "@/types";
-import { basePath, otherRole, roleLabel } from "./constants";
 
-export function PartyList({ role }: { role: PartyRole }) {
+export function PartyList() {
   const router = useRouter();
   const { message, modal } = App.useApp();
   const can = useCan();
   const del = useDeleteParty();
-  const update = useUpdateParty();
   const [filters, setFilters] = useState<PartyFilters>({});
-  const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useParties(role, filters);
+  const activeRole = filters.role ?? undefined;
+  const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useParties(activeRole, filters);
 
-  const label = roleLabel(role);
-  const other = otherRole(role);
-  const base = basePath(role);
   const parties = data?.pages.flatMap((p) => p.items) ?? [];
   const patch = (f: Partial<PartyFilters>) => setFilters((prev) => ({ ...prev, ...f }));
   const dash = <span className="text-gray-400">—</span>;
 
   const confirmDelete = (p: Party) => {
-    const hasOther = other === "vendor" ? p.is_vendor : p.is_customer;
     modal.confirm({
-      title: `Remove this ${role}?`,
-      content: hasOther
-        ? `"${p.name}" will be removed from ${label}s but kept as a ${other}.`
-        : `"${p.name}" will be permanently removed.`,
-      okText: "Remove",
+      title: "Delete this party?",
+      content: `"${p.name}" will be permanently deleted.`,
+      okText: "Delete",
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
-          if (hasOther) {
-            await update.mutateAsync({
-              id: p.id,
-              payload: role === "customer" ? { is_customer: false } : { is_vendor: false },
-            });
-          } else {
-            await del.mutateAsync(p.id);
-          }
-          message.success(`${label} removed`);
+          await del.mutateAsync(p.id);
+          message.success("Party deleted");
         } catch (err) {
           message.error(apiErrorMessage(err));
           throw err;
@@ -59,14 +45,14 @@ export function PartyList({ role }: { role: PartyRole }) {
   };
 
   const rowMenu = (p: Party): MenuProps["items"] => [
-    { key: "view", icon: <Eye size={14} />, label: "View", onClick: () => router.push(`${base}/${p.id}`) },
+    { key: "view", icon: <Eye size={14} />, label: "View", onClick: () => router.push(`/parties/${p.id}`) },
     ...(can("parties:update")
-      ? [{ key: "edit", icon: <Pencil size={14} />, label: "Edit", onClick: () => router.push(`${base}/${p.id}/edit`) }]
+      ? [{ key: "edit", icon: <Pencil size={14} />, label: "Edit", onClick: () => router.push(`/parties/${p.id}/edit`) }]
       : []),
     ...(can("parties:delete")
       ? [
           { type: "divider" as const },
-          { key: "delete", icon: <Trash2 size={14} />, label: "Remove", danger: true, onClick: () => confirmDelete(p) },
+          { key: "delete", icon: <Trash2 size={14} />, label: "Delete", danger: true, onClick: () => confirmDelete(p) },
         ]
       : []),
   ];
@@ -127,6 +113,16 @@ export function PartyList({ role }: { role: PartyRole }) {
     <FilterDropdown
       groups={[
         {
+          key: "role",
+          label: "Role",
+          value: filters.role ?? null,
+          options: [
+            { value: "customer", label: "Customer" },
+            { value: "vendor", label: "Vendor" },
+          ],
+          onChange: (v) => patch({ role: (v as PartyRole | null) ?? null }),
+        },
+        {
           key: "type",
           label: "Type",
           value: filters.type ?? null,
@@ -153,12 +149,12 @@ export function PartyList({ role }: { role: PartyRole }) {
   return (
     <div className="space-y-4">
       <PageHeader
-        title={`${label}s`}
-        description={role === "customer" ? "People and businesses you sell to" : "People and businesses you buy from"}
+        title="Parties"
+        description="People and businesses you buy from or sell to"
         actions={
           can("parties:create") && (
-            <Button type="primary" icon={<Plus size={16} />} onClick={() => router.push(`${base}/new`)}>
-              New {label}
+            <Button type="primary" icon={<Plus size={16} />} onClick={() => router.push("/parties/new")}>
+              New Party
             </Button>
           )
         }
@@ -169,10 +165,10 @@ export function PartyList({ role }: { role: PartyRole }) {
         columns={columns}
         dataSource={parties}
         searchable
-        searchPlaceholder={`Search ${label.toLowerCase()}s`}
+        searchPlaceholder="Search parties"
         onSearch={(search) => patch({ search })}
         toolbar={toolbar}
-        onRowClick={(p) => router.push(`${base}/${p.id}`)}
+        onRowClick={(p) => router.push(`/parties/${p.id}`)}
         hasMore={hasNextPage}
         onLoadMore={() => fetchNextPage()}
         loadingMore={isFetchingNextPage}

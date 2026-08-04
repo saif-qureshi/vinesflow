@@ -2,14 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { Descriptions, Spin } from "antd";
-import { Pencil, Plus, Trash2, X } from "lucide-react";
+import { Pencil, Trash2, X } from "lucide-react";
 
 import { App, Avatar, Button, Card, Popconfirm, Tag, Typography } from "@/components/ui";
 import { useCan } from "@/hooks/useSession";
-import { useDeleteParty, useParty, useUpdateParty } from "@/hooks/useParties";
+import { useDeleteParty, useParty } from "@/hooks/useParties";
 import { apiErrorMessage } from "@/lib/api";
-import type { Address, PartyRole } from "@/types";
-import { PAYMENT_TERMS, basePath, otherRole, roleLabel } from "./constants";
+import type { Address } from "@/types";
+import { PAYMENT_TERMS } from "./constants";
 
 const dash = <span className="text-gray-400">—</span>;
 
@@ -39,18 +39,12 @@ function termLabel(days: number | null) {
   return PAYMENT_TERMS.find((t) => t.value === days)?.label ?? `Net ${days}`;
 }
 
-export function PartyView({ role, id }: { role: PartyRole; id: number }) {
+export function PartyView({ id }: { id: number }) {
   const router = useRouter();
   const { message } = App.useApp();
   const can = useCan();
-  const update = useUpdateParty();
   const del = useDeleteParty();
   const { data: p, isLoading } = useParty(id);
-
-  const label = roleLabel(role);
-  const base = basePath(role);
-  const other = otherRole(role);
-  const otherLabel = roleLabel(other);
 
   if (isLoading || !p) {
     return (
@@ -60,32 +54,11 @@ export function PartyView({ role, id }: { role: PartyRole; id: number }) {
     );
   }
 
-  const hasOtherRole = other === "vendor" ? p.is_vendor : p.is_customer;
-
-  const enableOther = async () => {
-    try {
-      await update.mutateAsync({
-        id: p.id,
-        payload: other === "vendor" ? { is_vendor: true } : { is_customer: true },
-      });
-      message.success(`Enabled as ${otherLabel.toLowerCase()}`);
-    } catch (err) {
-      message.error(apiErrorMessage(err));
-    }
-  };
-
   const remove = async () => {
     try {
-      if (hasOtherRole) {
-        await update.mutateAsync({
-          id: p.id,
-          payload: role === "customer" ? { is_customer: false } : { is_vendor: false },
-        });
-      } else {
-        await del.mutateAsync(p.id);
-      }
-      message.success(`${label} removed`);
-      router.push(base);
+      await del.mutateAsync(p.id);
+      message.success("Party deleted");
+      router.push("/parties");
     } catch (err) {
       message.error(apiErrorMessage(err));
     }
@@ -118,30 +91,25 @@ export function PartyView({ role, id }: { role: PartyRole; id: number }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {can("parties:update") && !hasOtherRole && (
-            <Button icon={<Plus size={16} />} loading={update.isPending} onClick={enableOther}>
-              Enable as {otherLabel.toLowerCase()}
-            </Button>
-          )}
           {can("parties:update") && (
-            <Button icon={<Pencil size={16} />} onClick={() => router.push(`${base}/${p.id}/edit`)}>
+            <Button icon={<Pencil size={16} />} onClick={() => router.push(`/parties/${p.id}/edit`)}>
               Edit
             </Button>
           )}
           {can("parties:delete") && (
             <Popconfirm
-              title={`Remove this ${role}?`}
-              description={hasOtherRole ? `Kept as a ${other}.` : "This cannot be undone."}
-              okText="Remove"
+              title="Delete this party?"
+              description="This cannot be undone."
+              okText="Delete"
               okButtonProps={{ danger: true, loading: del.isPending }}
               onConfirm={remove}
             >
               <Button danger icon={<Trash2 size={16} />}>
-                Remove
+                Delete
               </Button>
             </Popconfirm>
           )}
-          <Button type="text" icon={<X size={18} />} onClick={() => router.push(base)} />
+          <Button type="text" icon={<X size={18} />} onClick={() => router.push("/parties")} />
         </div>
       </div>
 
