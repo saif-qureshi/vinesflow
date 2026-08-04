@@ -9,6 +9,7 @@ import { makeQueryClient } from "@/lib/queryClient";
 import { useAppTheme, useMe } from "@/hooks/useSession";
 import { useSessionStore } from "@/stores/session";
 import { buildAntdTheme } from "@/theme/tokens";
+import { AppLoaderIndicator } from "@/components/ui/AppLoader";
 
 function SessionSync() {
   const { data } = useMe();
@@ -61,7 +62,7 @@ function ThemedApp({ children }: { children: React.ReactNode }) {
   const themeConfig = useMemo(() => buildAntdTheme(theme, accent), [theme, accent]);
 
   return (
-    <ConfigProvider theme={themeConfig}>
+    <ConfigProvider theme={themeConfig} spin={{ indicator: <AppLoaderIndicator /> }}>
       <App>
         <AuthBootstrap>{children}</AuthBootstrap>
       </App>

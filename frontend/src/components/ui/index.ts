@@ -11,6 +11,7 @@ export { PageHeader } from "./PageHeader";
 export { DataTable } from "./DataTable";
 export { StatCard } from "./StatCard";
 export { FormModal } from "./FormModal";
+export { AppLoaderIndicator } from "./AppLoader";
 
 export {
   Alert,

@@ -45,6 +45,61 @@ body {
   overscroll-behavior-inline: contain;
 }
 
+.vineflow-logo-loader {
+  position: relative;
+  display: inline-block;
+  width: 32px !important;
+  height: 32px !important;
+  flex: none;
+}
+
+.ant-spin-sm .vineflow-logo-loader {
+  width: 24px !important;
+  height: 24px !important;
+}
+
+.ant-spin-lg .vineflow-logo-loader {
+  width: 48px !important;
+  height: 48px !important;
+}
+
+.vineflow-logo-loader__grey {
+  filter: grayscale(1);
+  opacity: 0.28;
+}
+
+.vineflow-logo-loader__fill {
+  position: absolute;
+  inset: 0;
+  animation: vineflow-logo-fill 1.8s ease-in-out infinite;
+  clip-path: inset(100% 0 0 0);
+}
+
+@keyframes vineflow-logo-fill {
+  0% {
+    clip-path: inset(100% 0 0 0);
+    opacity: 1;
+  }
+
+  72%,
+  88% {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+
+  100% {
+    clip-path: inset(0 0 0 0);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vineflow-logo-loader__fill {
+    animation: none;
+    clip-path: inset(45% 0 0 0);
+  }
+}
+
 @media (max-width: 639px) {
   .ant-card .ant-card-head,
   .ant-card .ant-card-body {
