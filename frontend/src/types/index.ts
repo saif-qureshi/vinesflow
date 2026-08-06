@@ -87,6 +87,7 @@ export type {
   NamedRecordInput,
   NamedSummary,
 } from "./product";
+export type { BankAccount, BankAccountInput, BankOption } from "./bank";
 export type {
   CommissionBalance,
   CommissionPayout,

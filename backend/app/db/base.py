@@ -10,6 +10,7 @@ from app.modules.accounting.models import (
 from app.modules.activities.models import Activity
 from app.modules.attributes.models import Attribute, AttributeValue
 from app.modules.auth.models import RefreshSession
+from app.modules.banks.models import BankAccount
 from app.modules.brands.models import Brand
 from app.modules.categories.models import Category
 from app.modules.commissions.models import CommissionPayout

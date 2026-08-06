@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.modules.accounting.router import router as accounting_router
 from app.modules.activities.router import router as activities_router
 from app.modules.auth.router import router as auth_router
+from app.modules.banks.router import router as banks_router
 from app.modules.brands.router import router as brands_router
 from app.modules.categories.router import router as categories_router
 from app.modules.commissions.router import router as commissions_router
@@ -46,6 +47,7 @@ api_router.include_router(brands_router)
 api_router.include_router(manufacturers_router)
 api_router.include_router(salespeople_router)
 api_router.include_router(commissions_router)
+api_router.include_router(banks_router)
 api_router.include_router(dashboard_router)
 api_router.include_router(uoms_router)
 api_router.include_router(media_router)
