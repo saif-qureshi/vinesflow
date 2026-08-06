@@ -103,6 +103,7 @@ const NAV: NavEntry[] = [
       { key: "/accountant/chart-of-accounts", label: "Chart of Accounts", permission: "accounting:read" },
       { key: "/accountant/opening-balances", label: "Opening Balances", permission: "accounting:read" },
       { key: "/accountant/journals", label: "Manual Journals", permission: "accounting:read" },
+      { key: "/accountant/commissions", label: "Commissions", permission: "payments:read" },
       { key: "/accountant/periods", label: "Fiscal Periods", permission: "accounting:read" },
     ],
   },

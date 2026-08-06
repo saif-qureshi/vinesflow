@@ -111,3 +111,26 @@ def test_a_return_reduces_what_is_owed(db):
     docs.finalize(org_id, note.id)
 
     assert CommissionService(db).balance_for(org_id, rep_id) == Decimal("0.00")
+
+
+def test_commission_summary_report(db):
+    from app.modules.reports.service import ReportService
+
+    org_id, party_id, pid, tax_id, rep_id = _setup(db)
+    _earned_invoice(db, org_id, party_id, pid, tax_id, rep_id)
+    svc = CommissionService(db)
+    payout = svc.create(
+        org_id,
+        CommissionPayoutCreate(
+            salesperson_id=rep_id,
+            amount=Decimal("4"),
+            paid_through_account_id=_acct(db, org_id, "cash"),
+        ),
+    )
+    svc.submit(org_id, payout.id)
+
+    result = ReportService(db).run(org_id, "commission_summary", {})
+    assert result.grand_total["earned"] == Decimal("10.00")
+    assert result.grand_total["paid"] == Decimal("4.00")
+    assert result.grand_total["outstanding"] == Decimal("6.00")
+    assert result.sections[0].rows[0]["salesperson"] == "Ali"
