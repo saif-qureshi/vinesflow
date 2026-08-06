@@ -222,6 +222,12 @@ class TaxRateCreate(BaseModel):
     is_active: bool = True
 
 
+class TaxRateUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=50)
+    rate: Decimal | None = Field(default=None, ge=0, le=100)
+    is_active: bool | None = None
+
+
 class TaxRateRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

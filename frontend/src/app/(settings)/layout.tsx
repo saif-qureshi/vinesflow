@@ -71,6 +71,7 @@ const SECTIONS: { heading: string; groups: Group[] }[] = [
           { key: "/settings/master-data/brands", label: "Brands", permission: "products:read" },
           { key: "/settings/master-data/manufacturers", label: "Manufacturers", permission: "products:read" },
           { key: "/settings/master-data/units", label: "Units", permission: "products:read" },
+          { key: "/settings/master-data/tax-rates", label: "Tax Rates", permission: "products:read" },
         ],
       },
     ],

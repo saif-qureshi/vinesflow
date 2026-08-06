@@ -39,6 +39,7 @@ from app.modules.documents.schemas import (
     DocumentUpdate,
     SellableItemRead,
     TaxRateCreate,
+    TaxRateUpdate,
 )
 from app.modules.fbr.models import FbrSubmissionAttempt
 from app.modules.inventory.models import StockMovement
@@ -148,6 +149,35 @@ class DocumentService:
         self.db.commit()
         self.db.refresh(rate)
         return rate
+
+    def update_tax_rate(self, org_id: int, rate_id: int, payload: TaxRateUpdate) -> TaxRate:
+        rate = self.db.scalar(
+            select(TaxRate).where(TaxRate.id == rate_id, TaxRate.org_id == org_id)
+        )
+        if rate is None:
+            raise NotFoundError("Tax rate not found")
+        if payload.name is not None and payload.name != rate.name:
+            if self.db.scalar(
+                select(TaxRate.id).where(
+                    TaxRate.org_id == org_id, TaxRate.name == payload.name, TaxRate.id != rate_id
+                )
+            ):
+                raise ConflictError("A tax rate with that name already exists")
+        # Editing the percentage of a rate already used would silently restate
+        # finalized documents, so only its name and availability can change.
+        if payload.rate is not None and payload.rate != rate.rate and self._rate_in_use(rate_id):
+            raise ConflictError("This rate is used on documents; add a new rate instead")
+        for field, value in payload.model_dump(exclude_unset=True).items():
+            setattr(rate, field, value)
+        self.db.commit()
+        self.db.refresh(rate)
+        return rate
+
+    def _rate_in_use(self, rate_id: int) -> bool:
+        return (
+            self.db.scalar(select(DocumentLine.id).where(DocumentLine.tax_rate_id == rate_id).limit(1))
+            is not None
+        )
 
     # --- Sellable items (document line picker) ----------------------------
 
