@@ -1,5 +1,24 @@
 import type { CategorySummary } from "./category";
 import type { Media, MediaInput } from "./media";
+
+export interface NamedRecord {
+  id: number;
+  name: string;
+  description: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface NamedRecordInput {
+  name: string;
+  description?: string | null;
+  is_active?: boolean;
+}
+
+export interface NamedSummary {
+  id: number;
+  name: string;
+}
 import type { UomSummary } from "./uom";
 
 export type ProductNature = "good" | "service";
@@ -62,6 +81,8 @@ export interface Product {
   sro_item_serial: string | null;
   category: CategorySummary | null;
   uom: UomSummary | null;
+  brand: NamedSummary | null;
+  manufacturer: NamedSummary | null;
   media: Media[];
   variant_attributes: VariantAttribute[];
   variants: ProductVariant[];
@@ -88,6 +109,8 @@ export interface ProductInput {
   tax_rate_code?: string | null;
   sro_schedule_code?: string | null;
   sro_item_serial?: string | null;
+  brand_id?: number | null;
+  manufacturer_id?: number | null;
   media?: MediaInput[];
   variant_attributes?: VariantAttribute[];
   variants?: VariantInput[];

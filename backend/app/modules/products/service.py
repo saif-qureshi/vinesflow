@@ -7,7 +7,9 @@ from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.core.pagination import paginate_cursor
 from app.modules.activities.service import ActivityService
 from app.modules.attributes.models import Attribute, AttributeValue
+from app.modules.brands.models import Brand
 from app.modules.categories.models import Category
+from app.modules.manufacturers.models import Manufacturer
 from app.modules.media.service import MediaService
 from app.modules.products.models import PRODUCT_MEDIA_TYPE, Product
 from app.modules.products.schemas import (
@@ -33,6 +35,10 @@ class ProductService:
             stmt = stmt.where(or_(Product.name.ilike(like), Product.sku.ilike(like)))
         if query.category_id is not None:
             stmt = stmt.where(Product.category_id == query.category_id)
+        if query.brand_id is not None:
+            stmt = stmt.where(Product.brand_id == query.brand_id)
+        if query.manufacturer_id is not None:
+            stmt = stmt.where(Product.manufacturer_id == query.manufacturer_id)
         if query.nature:
             stmt = stmt.where(Product.nature == query.nature)
         if query.type:
@@ -111,20 +117,20 @@ class ProductService:
             out.append((start.strftime("%b"), start, end))
         return out
 
-    def _validate_refs(self, org_id: int, category_id: int | None, uom_id: int | None) -> None:
-        if (
-            category_id is not None
-            and self.db.scalar(
-                select(Category.id).where(Category.id == category_id, Category.org_id == org_id)
-            )
-            is None
-        ):
-            raise NotFoundError("Category not found")
-        if (
-            uom_id is not None
-            and self.db.scalar(select(Uom.id).where(Uom.id == uom_id, Uom.org_id == org_id)) is None
-        ):
-            raise NotFoundError("Unit not found")
+    def _validate_refs(self, org_id: int, payload) -> None:
+        refs = (
+            (Category, payload.category_id, "Category"),
+            (Uom, payload.uom_id, "Unit"),
+            (Brand, payload.brand_id, "Brand"),
+            (Manufacturer, payload.manufacturer_id, "Manufacturer"),
+        )
+        for model, ref_id, label in refs:
+            if ref_id is None:
+                continue
+            if self.db.scalar(
+                select(model.id).where(model.id == ref_id, model.org_id == org_id)
+            ) is None:
+                raise NotFoundError(f"{label} not found")
 
     def _require_uom_for_goods(self, nature: str, uom_id: int | None) -> None:
         if nature == "good" and uom_id is None:
@@ -188,6 +194,8 @@ class ProductService:
             child.name = name
             child.nature = product.nature
             child.category_id = product.category_id
+            child.brand_id = product.brand_id
+            child.manufacturer_id = product.manufacturer_id
             child.uom_id = product.uom_id
             child.track_inventory = product.track_inventory
             child.tracking_mode = product.tracking_mode
@@ -203,7 +211,7 @@ class ProductService:
         product.variants = reconciled
 
     def create(self, org_id: int, payload: ProductCreate) -> Product:
-        self._validate_refs(org_id, payload.category_id, payload.uom_id)
+        self._validate_refs(org_id, payload)
         self._require_uom_for_goods(payload.nature, payload.uom_id)
         self._ensure_unique_sku(org_id, payload.sku)
         if payload.tracking_mode != "none" and not payload.track_inventory:
@@ -226,7 +234,7 @@ class ProductService:
 
     def update(self, org_id: int, product_id: int, payload: ProductUpdate) -> Product:
         product = self.get(org_id, product_id)
-        self._validate_refs(org_id, payload.category_id, payload.uom_id)
+        self._validate_refs(org_id, payload)
         if payload.sku is not None:
             self._ensure_unique_sku(org_id, payload.sku, exclude_id=product_id)
 

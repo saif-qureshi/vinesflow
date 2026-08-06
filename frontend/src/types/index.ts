@@ -83,6 +83,9 @@ export type {
   ProductVariant,
   VariantAttribute,
   VariantInput,
+  NamedRecord,
+  NamedRecordInput,
+  NamedSummary,
 } from "./product";
 export type { Permission, Role, RoleSummary } from "./rbac";
 export type { Uom, UomSummary } from "./uom";

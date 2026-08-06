@@ -12,6 +12,7 @@ import { FbrSroItemSelect } from "@/components/fbr/FbrSroItemSelect";
 import { FbrUomSelect } from "@/components/fbr/FbrUomSelect";
 import { useFbrReference } from "@/hooks/useFbr";
 import { useCategories } from "@/hooks/useCategories";
+import { useNamedList } from "@/hooks/useMasterData";
 import { useUoms } from "@/hooks/useUoms";
 import { useCreateProduct, useUpdateProduct } from "@/hooks/useProducts";
 import { useCurrency } from "@/hooks/useCurrency";
@@ -26,6 +27,8 @@ interface FormValues {
   nature: "good" | "service";
   type: "single" | "variable";
   category_id?: number | null;
+  brand_id?: number | null;
+  manufacturer_id?: number | null;
   uom_id?: number | null;
   sku?: string;
   barcode?: string;
@@ -49,6 +52,8 @@ export function ItemForm({ product }: { product?: Product }) {
   const { currency } = useCurrency();
   const { currentMembership } = useSession();
   const categories = useCategories();
+  const brands = useNamedList("brands", true);
+  const manufacturers = useNamedList("manufacturers", true);
   const uoms = useUoms();
   const create = useCreateProduct();
   const update = useUpdateProduct();
@@ -132,6 +137,8 @@ export function ItemForm({ product }: { product?: Product }) {
       nature: product.nature,
       type: product.type,
       category_id: product.category?.id,
+      brand_id: product.brand?.id,
+      manufacturer_id: product.manufacturer?.id,
       uom_id: product.uom?.id,
       sku: product.sku ?? undefined,
       barcode: product.barcode ?? undefined,
@@ -184,6 +191,8 @@ export function ItemForm({ product }: { product?: Product }) {
   };
 
   const categoryOptions = (categories.data ?? []).map((c) => ({ value: c.id, label: c.name }));
+  const brandOptions = (brands.data ?? []).map((b) => ({ value: b.id, label: b.name }));
+  const manufacturerOptions = (manufacturers.data ?? []).map((m) => ({ value: m.id, label: m.name }));
   const uomOptions = (uoms.data ?? []).map((u) => ({ value: u.id, label: `${u.name} (${u.symbol})` }));
 
   return (
@@ -246,6 +255,12 @@ export function ItemForm({ product }: { product?: Product }) {
                 }
               >
                 <Select options={uomOptions} placeholder="Select unit" allowClear showSearch optionFilterProp="label" loading={uoms.isLoading} />
+              </Form.Item>
+              <Form.Item name="brand_id" label="Brand">
+                <Select options={brandOptions} placeholder="Select brand" allowClear showSearch optionFilterProp="label" loading={brands.isLoading} />
+              </Form.Item>
+              <Form.Item name="manufacturer_id" label="Manufacturer">
+                <Select options={manufacturerOptions} placeholder="Select manufacturer" allowClear showSearch optionFilterProp="label" loading={manufacturers.isLoading} />
               </Form.Item>
               <Form.Item name="sku" label="SKU">
                 <Input placeholder="Stock keeping unit" />

@@ -92,6 +92,21 @@ class ReportService:
                 .order_by(Account.code)
             ).all()
             return [{"value": i, "label": f"{code} — {name}"} for i, code, name in rows]
+        if source in ("locations", "brands", "manufacturers"):
+            from app.modules.brands.models import Brand
+            from app.modules.locations.models import Location
+            from app.modules.manufacturers.models import Manufacturer
+
+            model = {"locations": Location, "brands": Brand, "manufacturers": Manufacturer}[source]
+            rows = self.db.execute(
+                select(model.id, model.name).where(model.org_id == org_id).order_by(model.name)
+            ).all()
+            # A sentinel, because the runner's select cannot be cleared once set.
+            label = {"locations": "All branches", "brands": "All brands",
+                     "manufacturers": "All manufacturers"}[source]
+            return [{"value": "", "label": label}] + [
+                {"value": i, "label": name} for i, name in rows
+            ]
         if source in ("customers", "vendors"):
             column = Party.is_customer if source == "customers" else Party.is_vendor
             rows = self.db.execute(

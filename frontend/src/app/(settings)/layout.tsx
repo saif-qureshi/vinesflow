@@ -68,6 +68,8 @@ const SECTIONS: { heading: string; groups: Group[] }[] = [
         icon: <Boxes size={16} />,
         children: [
           { key: "/settings/master-data/categories", label: "Categories", permission: "products:read" },
+          { key: "/settings/master-data/brands", label: "Brands", permission: "products:read" },
+          { key: "/settings/master-data/manufacturers", label: "Manufacturers", permission: "products:read" },
           { key: "/settings/master-data/units", label: "Units", permission: "products:read" },
         ],
       },

@@ -10,6 +10,7 @@ from app.modules.accounting.models import (
 from app.modules.activities.models import Activity
 from app.modules.attributes.models import Attribute, AttributeValue
 from app.modules.auth.models import RefreshSession
+from app.modules.brands.models import Brand
 from app.modules.categories.models import Category
 from app.modules.documents.models import (
     Bill,
@@ -37,6 +38,7 @@ from app.modules.inventory.models import (
     StockMovementSerial,
 )
 from app.modules.locations.models import Location
+from app.modules.manufacturers.models import Manufacturer
 from app.modules.media.models import MediaAsset
 from app.modules.orgs.models import Membership, Organization
 from app.modules.parties.models import Party

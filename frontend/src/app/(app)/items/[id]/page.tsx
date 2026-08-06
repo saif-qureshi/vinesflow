@@ -157,6 +157,12 @@ export default function ViewItemPage() {
         <div className="flex flex-col gap-6 lg:col-span-2">
           <Card title="Primary Details" className="border-gray-100">
             <Descriptions column={{ xs: 1, md: 2 }} colon={false} size="small">
+              <Descriptions.Item label="Brand">
+                {p.brand ? <Tag>{p.brand.name}</Tag> : dash}
+              </Descriptions.Item>
+              <Descriptions.Item label="Manufacturer">
+                {p.manufacturer ? <Tag>{p.manufacturer.name}</Tag> : dash}
+              </Descriptions.Item>
               <Descriptions.Item label="Category">
                 {p.category ? <Tag>{p.category.name}</Tag> : dash}
               </Descriptions.Item>

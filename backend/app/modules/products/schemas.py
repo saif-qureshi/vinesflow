@@ -8,7 +8,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.pagination import ListQuery
 from app.modules.attributes.schemas import AttributeValueSummary
+from app.modules.brands.schemas import BrandSummary
 from app.modules.categories.schemas import CategorySummary
+from app.modules.manufacturers.schemas import ManufacturerSummary
 from app.modules.media.schemas import MediaCreate, MediaRead
 from app.modules.uoms.schemas import UomSummary
 
@@ -27,6 +29,8 @@ class ProductListQuery(ListQuery):
     """Pagination + search + product filters, injected as one query object."""
 
     category_id: int | None = None
+    brand_id: int | None = None
+    manufacturer_id: int | None = None
     nature: Nature | None = None
     type: ProductType | None = None
     is_active: bool | None = None
@@ -76,6 +80,8 @@ class ProductBase(BaseModel):
     sku: str | None = Field(default=None, max_length=100)
     barcode: str | None = Field(default=None, max_length=64)
     category_id: int | None = None
+    brand_id: int | None = None
+    manufacturer_id: int | None = None
     uom_id: int | None = None
     sale_price: float | None = Field(default=None, ge=0)
     purchase_price: float | None = Field(default=None, ge=0)
@@ -105,6 +111,8 @@ class ProductUpdate(BaseModel):
     sku: str | None = Field(default=None, max_length=100)
     barcode: str | None = Field(default=None, max_length=64)
     category_id: int | None = None
+    brand_id: int | None = None
+    manufacturer_id: int | None = None
     uom_id: int | None = None
     sale_price: float | None = Field(default=None, ge=0)
     purchase_price: float | None = Field(default=None, ge=0)
@@ -146,6 +154,8 @@ class ProductRead(BaseModel):
     sro_schedule_code: str | None = None
     sro_item_serial: str | None = None
     category: CategorySummary | None = None
+    brand: BrandSummary | None = None
+    manufacturer: ManufacturerSummary | None = None
     uom: UomSummary | None = None
     media: list[MediaRead] = Field(default_factory=list)
     variant_attributes: list[VariantAttributeRead] = Field(default_factory=list)
