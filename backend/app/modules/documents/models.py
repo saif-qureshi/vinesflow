@@ -29,6 +29,7 @@ from app.modules.documents.enums import (
     DocumentType,
 )
 from app.modules.parties.models import Party
+from app.modules.salespeople.models import Salesperson
 
 if TYPE_CHECKING:
     from app.modules.inventory.models import StockLot
@@ -148,6 +149,18 @@ class Document(Base, TimestampMixin, AuditMixin):
         String(10), default=DocumentPaymentStatus.UNPAID, nullable=False
     )
 
+    salesperson_id: Mapped[int | None] = mapped_column(
+        ForeignKey("salespeople.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    # Snapshot taken when the document is finalized, so later rate changes
+    # never restate commission already earned.
+    commission_rate: Mapped[Decimal] = mapped_column(
+        Numeric(6, 3), default=0, server_default="0", nullable=False
+    )
+    commission_amount: Mapped[Decimal] = mapped_column(
+        _MONEY, default=0, server_default="0", nullable=False
+    )
+
     source_document_id: Mapped[int | None] = mapped_column(
         ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
     )
@@ -162,6 +175,7 @@ class Document(Base, TimestampMixin, AuditMixin):
         lazy="selectin",
     )
     party: Mapped[Party | None] = relationship(lazy="selectin")
+    salesperson: Mapped[Salesperson | None] = relationship(lazy="selectin")
     credit_notes: Mapped[list[Document]] = relationship(
         "Document",
         primaryjoin=lambda: and_(

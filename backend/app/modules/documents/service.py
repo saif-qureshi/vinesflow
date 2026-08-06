@@ -48,6 +48,7 @@ from app.modules.inventory.tracking_service import TrackingService
 from app.modules.locations.models import Location
 from app.modules.parties.models import Party
 from app.modules.products.models import Product
+from app.modules.salespeople.models import Salesperson
 
 _ZERO = Decimal("0")
 _CENTS = Decimal("0.01")
@@ -86,6 +87,8 @@ SALES_TYPES = {
 }
 
 FINANCIAL_TYPES = {DocumentType.INVOICE, DocumentType.BILL}
+# What a salesperson earns on, and what claws it back.
+COMMISSIONABLE_TYPES = {DocumentType.INVOICE, DocumentType.CREDIT_NOTE}
 FBR_TYPES = {DocumentType.INVOICE, DocumentType.CREDIT_NOTE}
 BIN_ENABLED_TYPES = {
     DocumentType.DELIVERY_CHALLAN,
@@ -305,6 +308,29 @@ class DocumentService:
         """Record value written back by a credit note. This is not cash."""
         doc.amount_credited = max(doc.amount_credited + delta, _ZERO)
         self._recompute_settlement(doc)
+
+    def _resolve_salesperson(self, org_id: int, salesperson_id: int | None) -> int | None:
+        if salesperson_id is None:
+            return None
+        found = self.db.scalar(
+            select(Salesperson.id).where(
+                Salesperson.id == salesperson_id, Salesperson.org_id == org_id
+            )
+        )
+        if found is None:
+            raise NotFoundError("Salesperson not found")
+        return found
+
+    def _apply_commission(self, doc: Document) -> None:
+        """Snapshot the rate and what it earns on the net value of the sale."""
+        if doc.type not in COMMISSIONABLE_TYPES or doc.salesperson_id is None:
+            return
+        salesperson = self.db.get(Salesperson, doc.salesperson_id)
+        if salesperson is None:
+            return
+        net = doc.total - doc.tax_total - doc.further_tax_total
+        doc.commission_rate = salesperson.commission_rate
+        doc.commission_amount = _q(net * salesperson.commission_rate / _HUNDRED)
 
     def _tax_map(self, org_id: int, lines: list[DocumentLineInput]) -> dict[int, TaxRate]:
         ids = {line.tax_rate_id for line in lines if line.tax_rate_id is not None}
@@ -597,6 +623,11 @@ class DocumentService:
             org_id=org_id,
             status=DocumentStatus.DRAFT,
             party_id=party.id,
+            salesperson_id=(
+                self._resolve_salesperson(org_id, payload.salesperson_id)
+                if doc_type in COMMISSIONABLE_TYPES
+                else None
+            ),
             warehouse_id=payload.warehouse_id,
             issue_date=issue_date,
             due_date=due_date,
@@ -695,6 +726,8 @@ class DocumentService:
             doc.shipping_address = party.shipping_address
         if "warehouse_id" in fields and payload.warehouse_id is not None:
             self._validate_warehouse(org_id, payload.warehouse_id)
+        if "salesperson_id" in fields and doc_type in COMMISSIONABLE_TYPES:
+            doc.salesperson_id = self._resolve_salesperson(org_id, payload.salesperson_id)
         if "issue_date" in fields:
             if payload.issue_date is None:
                 raise BadRequestError("An issue date is required")
@@ -1024,6 +1057,10 @@ class DocumentService:
             org_id=org_id,
             status=DocumentStatus.DRAFT,
             party_id=source.party_id,
+            # A credit note claws back from whoever was credited with the sale.
+            salesperson_id=(
+                source.salesperson_id if target_type in COMMISSIONABLE_TYPES else None
+            ),
             warehouse_id=source.warehouse_id,
             issue_date=target_issue_date,
             due_date=target_due_date,
@@ -1098,6 +1135,7 @@ class DocumentService:
         self._validate_tracking(org_id, doc, moves_stock=moves_stock)
         if moves_stock and doc.stock_direction < 0:
             self._preflight_outbound_stock(org_id, doc)
+        self._apply_commission(doc)
         self._apply_credit(org_id, doc)
         if moves_stock:
             self._post_stock(org_id, doc, reverse=False)

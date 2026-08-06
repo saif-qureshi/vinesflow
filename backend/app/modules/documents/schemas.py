@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validat
 
 from app.core.pagination import ListQuery
 from app.modules.inventory.schemas import StockLotRead
+from app.modules.salespeople.schemas import SalespersonSummary
 
 
 class LotAllocationInput(BaseModel):
@@ -56,6 +57,7 @@ class DocumentLineInput(BaseModel):
 
 
 class DocumentCreate(BaseModel):
+    salesperson_id: int | None = None
     party_id: int
     number: str | None = Field(default=None, max_length=40)
     issue_date: date | None = None
@@ -76,6 +78,7 @@ class DocumentCreate(BaseModel):
 
 
 class DocumentUpdate(BaseModel):
+    salesperson_id: int | None = None
     party_id: int | None = None
     number: str | None = Field(default=None, max_length=40)
     issue_date: date | None = None
@@ -173,6 +176,9 @@ class DocumentRead(BaseModel):
     amount_paid: Decimal
     amount_credited: Decimal
     balance_due: Decimal
+    salesperson: SalespersonSummary | None = None
+    commission_rate: Decimal
+    commission_amount: Decimal
     source_document_id: int | None = None
     created_at: datetime
     updated_at: datetime
@@ -204,6 +210,7 @@ class DocumentListItem(BaseModel):
     amount_credited: Decimal
     balance_due: Decimal
     party: PartySummary | None = None
+    salesperson: SalespersonSummary | None = None
 
 
 class DocumentConvertInput(BaseModel):

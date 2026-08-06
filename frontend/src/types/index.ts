@@ -88,5 +88,6 @@ export type {
   NamedSummary,
 } from "./product";
 export type { Permission, Role, RoleSummary } from "./rbac";
+export type { Salesperson, SalespersonInput, SalespersonSummary } from "./salesperson";
 export type { Uom, UomSummary } from "./uom";
 export type { User } from "./user";

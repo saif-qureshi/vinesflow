@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Button, Divider, Drawer, Grid, Input, Layout, Menu, Typography, type MenuProps } from "antd";
-import { Boxes, Building2, ChevronLeft, Menu as MenuIcon, Search, ShieldCheck, SlidersHorizontal, UserRound } from "lucide-react";
+import { Boxes, Building2, ChevronLeft, Handshake, Menu as MenuIcon, Search, ShieldCheck, SlidersHorizontal, UserRound } from "lucide-react";
 
 import { AppFooter } from "@/components/AppFooter";
 import { Logo } from "@/components/Logo";
@@ -72,6 +72,19 @@ const SECTIONS: { heading: string; groups: Group[] }[] = [
           { key: "/settings/master-data/manufacturers", label: "Manufacturers", permission: "products:read" },
           { key: "/settings/master-data/units", label: "Units", permission: "products:read" },
           { key: "/settings/master-data/tax-rates", label: "Tax Rates", permission: "products:read" },
+        ],
+      },
+    ],
+  },
+  {
+    heading: "Sales",
+    groups: [
+      {
+        key: "sales",
+        label: "Sales",
+        icon: <Handshake size={16} />,
+        children: [
+          { key: "/settings/sales/salespeople", label: "Salespeople", permission: "invoices:read" },
         ],
       },
     ],

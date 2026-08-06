@@ -1,3 +1,4 @@
+import type { SalespersonSummary } from "./salesperson";
 import type { Address } from "./party";
 
 export type DocumentStatus = "draft" | "sent" | "closed" | "void";
@@ -95,6 +96,9 @@ export interface DocumentRecord {
   total: string;
   amount_paid: string;
   amount_credited: string;
+  salesperson: SalespersonSummary | null;
+  commission_rate: string;
+  commission_amount: string;
   balance_due: string;
   source_document_id: number | null;
   created_at: string;
@@ -114,6 +118,7 @@ export interface DocumentSummary {
   total: string;
   amount_paid: string;
   amount_credited: string;
+  salesperson: SalespersonSummary | null;
   balance_due: string;
   party: DocumentParty | null;
 }
@@ -132,6 +137,7 @@ export interface DocumentLineInput {
 }
 
 export interface DocumentInput {
+  salesperson_id?: number | null;
   party_id: number;
   number?: string | null;
   issue_date?: string | null;
