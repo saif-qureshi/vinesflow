@@ -5,6 +5,7 @@ from app.modules.activities.router import router as activities_router
 from app.modules.auth.router import router as auth_router
 from app.modules.brands.router import router as brands_router
 from app.modules.categories.router import router as categories_router
+from app.modules.commissions.router import router as commissions_router
 from app.modules.dashboard.router import router as dashboard_router
 from app.modules.documents.router import router as documents_router
 from app.modules.expenses.router import router as expenses_router
@@ -44,6 +45,7 @@ api_router.include_router(categories_router)
 api_router.include_router(brands_router)
 api_router.include_router(manufacturers_router)
 api_router.include_router(salespeople_router)
+api_router.include_router(commissions_router)
 api_router.include_router(dashboard_router)
 api_router.include_router(uoms_router)
 api_router.include_router(media_router)

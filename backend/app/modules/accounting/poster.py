@@ -440,5 +440,36 @@ class RealLedgerPoster:
             source_id=expense.id,
         )
 
+    # --- commission payouts -----------------------------------------------
+
+    def post_commission_payout(self, db: Session, payout) -> None:
+        # Dr Sales Commission / Cr whatever it was paid out of.
+        source_type = "commission_payout"
+        if payout.amount <= _ZERO or self._already_posted(
+            db, payout.org_id, source_type, payout.id
+        ):
+            return
+        self._post(
+            db,
+            payout.org_id,
+            voucher_type=VoucherType.EXPENSE,
+            posting_date=payout.payout_date,
+            lines=[
+                JournalLine(
+                    account_id=self._account(db, payout.org_id, "sales_commission"),
+                    debit=payout.amount,
+                ),
+                JournalLine(
+                    account_id=payout.paid_through_account_id, credit=payout.amount
+                ),
+            ],
+            description=f"Commission payout {payout.number}",
+            source_type=source_type,
+            source_id=payout.id,
+        )
+
+    def reverse_commission_payout(self, db: Session, payout) -> None:
+        self._reverse(db, payout.org_id, "commission_payout", payout.id, payout.payout_date)
+
     def reverse_expense(self, db: Session, expense) -> None:
         self._reverse(db, expense.org_id, "expense", expense.id, expense.expense_date)
