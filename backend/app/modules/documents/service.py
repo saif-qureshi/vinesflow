@@ -777,8 +777,14 @@ class DocumentService:
         customer no longer owes for goods they returned."""
         if doc.type != DocumentType.CREDIT_NOTE or doc.source_document_id is None:
             return
-        source = self.db.get(Document, doc.source_document_id)
-        if source is None or source.org_id != org_id or source.status != DocumentStatus.SENT:
+        # Locked because a payment being submitted settles the same invoice; an
+        # unlocked read here lets both commit against a stale balance.
+        source = self.db.scalar(
+            select(Document)
+            .where(Document.id == doc.source_document_id, Document.org_id == org_id)
+            .with_for_update()
+        )
+        if source is None or source.status != DocumentStatus.SENT:
             return
         outstanding = source.total - source.amount_paid
         if doc.total > outstanding:

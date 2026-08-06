@@ -194,14 +194,24 @@ def test_payment_received_posts_cash_and_clears_ar(db):
 def test_stock_write_off_posts_loss_against_inventory_adjustments(db):
     org_id, cust_id, pid = _setup(db)
     loc_id = db.scalar(select(Location.id).where(Location.org_id == org_id))
-    InventoryService(db).adjust(
+    svc = InventoryService(db)
+    svc.adjust(
+        org_id,
+        StockAdjustInput(
+            product_id=pid, location_id=loc_id, qty_delta=Decimal("10"), reason="Opening balance"
+        ),
+    )
+    inventory = _bal(db, org_id, "inventory")
+    adjustments = _bal(db, org_id, "inventory_adjustment")
+
+    svc.adjust(
         org_id,
         StockAdjustInput(
             product_id=pid, location_id=loc_id, qty_delta=Decimal("-5"), reason="Damaged goods"
         ),
     )
-    assert _bal(db, org_id, "inventory") == Decimal("-300")  # 5 units * cost 60, credited
-    assert _bal(db, org_id, "inventory_adjustment") == Decimal("300")  # the loss, debited
+    assert _bal(db, org_id, "inventory") - inventory == Decimal("-300")  # 5 units * cost 60
+    assert _bal(db, org_id, "inventory_adjustment") - adjustments == Decimal("300")  # the loss
     assert _tb_balances(db, org_id)
 
 

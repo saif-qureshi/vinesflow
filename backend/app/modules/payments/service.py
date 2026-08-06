@@ -172,18 +172,17 @@ class PaymentService:
         self.db.refresh(payment)
         return payment
 
-    def get(self, org_id: int, payment_id: int) -> Payment:
-        payment = self.db.scalar(
-            select(Payment)
-            .where(Payment.id == payment_id, Payment.org_id == org_id)
-            .options(joinedload(Payment.party))
-        )
+    def get(self, org_id: int, payment_id: int, *, lock: bool = False) -> Payment:
+        stmt = select(Payment).where(Payment.id == payment_id, Payment.org_id == org_id)
+        # A locked read cannot eagerly join, so load the party separately.
+        stmt = stmt.with_for_update() if lock else stmt.options(joinedload(Payment.party))
+        payment = self.db.scalar(stmt)
         if payment is None:
             raise NotFoundError("Payment not found")
         return payment
 
-    def get_of_direction(self, org_id, payment_id, direction) -> Payment:
-        payment = self.get(org_id, payment_id)
+    def get_of_direction(self, org_id, payment_id, direction, *, lock: bool = False) -> Payment:
+        payment = self.get(org_id, payment_id, lock=lock)
         if payment.direction != direction:
             raise NotFoundError("Payment not found")
         return payment
@@ -253,7 +252,9 @@ class PaymentService:
         return payment
 
     def submit(self, org_id, direction, payment_id) -> Payment:
-        payment = self.get_of_direction(org_id, payment_id, direction)
+        # Locked so a double-submit serialises and the second caller sees the
+        # status the first one committed, rather than settling the invoice twice.
+        payment = self.get_of_direction(org_id, payment_id, direction, lock=True)
         if payment.status != PaymentStatus.DRAFT:
             raise BadRequestError("Only draft payments can be submitted")
         if payment.party_id is None:
@@ -287,7 +288,7 @@ class PaymentService:
         return payment
 
     def cancel(self, org_id, direction, payment_id) -> Payment:
-        payment = self.get_of_direction(org_id, payment_id, direction)
+        payment = self.get_of_direction(org_id, payment_id, direction, lock=True)
         if payment.status == PaymentStatus.CANCELLED:
             raise BadRequestError("Payment is already cancelled")
         if payment.status == PaymentStatus.SUBMITTED:

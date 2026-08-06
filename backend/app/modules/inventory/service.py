@@ -212,6 +212,12 @@ class InventoryService:
         bin_id=None,
         lot_id=None,
     ) -> StockMovement:
+        # The level row is locked here, so this is the only check that can be
+        # trusted — anything read before it may already be stale.
+        level = self._level(org_id, product_id, location_id, bin_id, lot_id)
+        new_quantity = level.quantity + qty_delta
+        if new_quantity < _ZERO:
+            raise BadRequestError("Not enough stock at the selected location")
         movement = StockMovement(
             org_id=org_id,
             product_id=product_id,
@@ -226,8 +232,7 @@ class InventoryService:
             value_delta=value_delta,
         )
         self.db.add(movement)
-        level = self._level(org_id, product_id, location_id, bin_id, lot_id)
-        level.quantity = level.quantity + qty_delta
+        level.quantity = new_quantity
         return movement
 
     def post_document_movement(
