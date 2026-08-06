@@ -33,6 +33,7 @@ import {
 } from "@/hooks/useDocuments";
 import { PartySelect } from "@/components/parties/PartySelect";
 import { useParty } from "@/hooks/useParties";
+import { useSalespeople } from "@/hooks/useSalespeople";
 import { useSession } from "@/hooks/useSession";
 import { useWarehouses } from "@/hooks/useWarehouses";
 import { apiErrorMessage } from "@/lib/api";
@@ -67,6 +68,7 @@ interface LineRow {
 interface FormValues {
   number?: string;
   party_id: number;
+  salesperson_id?: number | null;
   issue_date: Dayjs;
   due_date?: Dayjs | null;
   expected_shipment_date?: Dayjs | null;
@@ -140,6 +142,8 @@ export function DocumentForm({
   const showFbr = !!org?.fbr_enabled && config.kind === "invoice";
   const showFbrReason = !!org?.fbr_enabled && config.kind === "credit_note";
   const isSandbox = org?.fbr_environment === "sandbox";
+  const tracksCommission = config.kind === "invoice" || config.kind === "credit_note";
+  const salespeople = useSalespeople(true);
   const selectedPartyId = Form.useWatch("party_id", form);
   const selectedParty = useParty(selectedPartyId ?? null).data ?? null;
   const buyerRegistered = !!selectedParty?.strn;
@@ -608,6 +612,7 @@ export function DocumentForm({
       : undefined;
     const payload: DocumentInput = {
       party_id: values.party_id,
+      ...(tracksCommission ? { salesperson_id: values.salesperson_id ?? null } : {}),
       ...(numberOverride ? { number: numberOverride } : {}),
       issue_date: values.issue_date.format("YYYY-MM-DD"),
       ...(config.secondaryDateField
@@ -694,6 +699,7 @@ export function DocumentForm({
       initialValues={{
         number: document?.number ?? undefined,
         party_id: document?.party_id ?? undefined,
+        salesperson_id: document?.salesperson?.id ?? undefined,
         issue_date: document ? dayjs(document.issue_date) : dayjs(),
         due_date: document?.due_date ? dayjs(document.due_date) : null,
         expected_shipment_date: document?.expected_shipment_date
@@ -733,6 +739,23 @@ export function DocumentForm({
               }
             />
           </Form.Item>
+          {tracksCommission && (
+            <Form.Item name="salesperson_id" label="Salesperson">
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                placeholder="Unassigned"
+                loading={salespeople.isLoading}
+                options={(salespeople.data ?? []).map((s) => ({
+                  value: s.id,
+                  label: Number(s.commission_rate)
+                    ? `${s.name} · ${Number(s.commission_rate)}%`
+                    : s.name,
+                }))}
+              />
+            </Form.Item>
+          )}
           <Form.Item
             name="issue_date"
             label={config.labels.dateLabel}

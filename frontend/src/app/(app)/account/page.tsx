@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { App, Avatar, Button, Form, Input, Password, PageHeader } from "@/components/ui";
+import { App, Avatar, Button, Card, Form, Input } from "@/components/ui";
 import { Uploader } from "@/components/ui/Uploader";
 import { useSession } from "@/hooks/useSession";
 import { useUpdateProfile } from "@/hooks/useOrg";
@@ -10,7 +10,7 @@ import { apiErrorMessage } from "@/lib/api";
 import { brand } from "@/theme/tokens";
 import type { UploadedFile } from "@/types";
 
-export default function AccountPage() {
+export default function AccountGeneralPage() {
   const { user } = useSession();
   const { message } = App.useApp();
   const updateProfile = useUpdateProfile();
@@ -31,28 +31,28 @@ export default function AccountPage() {
     form.setFieldsValue({ full_name: user?.full_name });
   }, [user, form]);
 
-  const save = async (values: { full_name?: string; password?: string }) => {
+  const save = async (values: { full_name?: string }) => {
     try {
       await updateProfile.mutateAsync({
         full_name: values.full_name,
         avatar_key: avatar[0]?.storage_key ?? "",
-        ...(values.password ? { password: values.password } : {}),
       });
       message.success("Profile updated");
-      form.setFieldValue("password", undefined);
     } catch (err) {
       message.error(apiErrorMessage(err));
     }
   };
 
   return (
-    <div className="space-y-6">
-      <PageHeader title="Profile" description="Your personal account details" />
-
+    <Card title="General" className="border-gray-100">
       <Form form={form} layout="vertical" onFinish={save} className="max-w-lg">
         <Form.Item label="Avatar">
           <div className="flex items-center gap-4">
-            <Avatar size={64} src={avatar[0]?.url || undefined} style={{ backgroundColor: brand.primary }}>
+            <Avatar
+              size={64}
+              src={avatar[0]?.url || undefined}
+              style={{ backgroundColor: brand.primary }}
+            >
               {(user?.full_name ?? user?.email ?? "?").charAt(0).toUpperCase()}
             </Avatar>
             <Uploader
@@ -65,23 +65,16 @@ export default function AccountPage() {
             />
           </div>
         </Form.Item>
-        <Form.Item label="Email">
+        <Form.Item label="Email" extra="Your email is also how you sign in and cannot be changed here.">
           <Input value={user?.email} disabled />
         </Form.Item>
         <Form.Item name="full_name" label="Full name">
           <Input />
         </Form.Item>
-        <Form.Item
-          name="password"
-          label="New password"
-          rules={[{ min: 8, message: "At least 8 characters" }]}
-        >
-          <Password placeholder="Leave blank to keep current" autoComplete="new-password" />
-        </Form.Item>
         <Button type="primary" htmlType="submit" loading={updateProfile.isPending}>
           Save
         </Button>
       </Form>
-    </div>
+    </Card>
   );
 }

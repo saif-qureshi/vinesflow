@@ -83,7 +83,18 @@ export type {
   ProductVariant,
   VariantAttribute,
   VariantInput,
+  NamedRecord,
+  NamedRecordInput,
+  NamedSummary,
 } from "./product";
+export type { BankAccount, BankAccountInput, BankOption } from "./bank";
+export type {
+  CommissionBalance,
+  CommissionPayout,
+  CommissionPayoutInput,
+  CommissionPayoutStatus,
+} from "./commission";
 export type { Permission, Role, RoleSummary } from "./rbac";
+export type { Salesperson, SalespersonInput, SalespersonSummary } from "./salesperson";
 export type { Uom, UomSummary } from "./uom";
 export type { User } from "./user";

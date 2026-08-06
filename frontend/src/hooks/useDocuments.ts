@@ -143,6 +143,35 @@ export function useTaxRates() {
   });
 }
 
+interface TaxRateInput {
+  name?: string;
+  rate?: number;
+  is_active?: boolean;
+}
+
+function useInvalidateTaxRates() {
+  const qc = useQueryClient();
+  const orgId = useSessionStore((s) => s.currentOrgId);
+  return () => qc.invalidateQueries({ queryKey: ["tax-rates", orgId] });
+}
+
+export function useCreateTaxRate() {
+  const invalidate = useInvalidateTaxRates();
+  return useMutation({
+    mutationFn: (payload: TaxRateInput) => api.post<TaxRate>("/tax-rates", payload),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdateTaxRate() {
+  const invalidate = useInvalidateTaxRates();
+  return useMutation({
+    mutationFn: (vars: { id: number; payload: TaxRateInput }) =>
+      api.patch<TaxRate>(`/tax-rates/${vars.id}`, vars.payload),
+    onSuccess: invalidate,
+  });
+}
+
 export function useNextNumber(apiPath: string, enabled: boolean) {
   const token = useSessionStore((s) => s.accessToken);
   const orgId = useSessionStore((s) => s.currentOrgId);

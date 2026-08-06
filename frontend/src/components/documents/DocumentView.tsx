@@ -401,6 +401,16 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
               <span className="tabular-nums">{money(Number(doc.amount_paid))}</span>
             </Descriptions.Item>
           )}
+          {doc.salesperson && (
+            <Descriptions.Item label="Salesperson">
+              {doc.salesperson.name}
+              {Number(doc.commission_amount) > 0 && (
+                <span className="ml-2 text-gray-500">
+                  {money(Number(doc.commission_amount))} commission
+                </span>
+              )}
+            </Descriptions.Item>
+          )}
           {config.tracksPayment && Number(doc.amount_credited) > 0 && (
             <Descriptions.Item label="Credit notes applied">
               <span className="tabular-nums">{money(Number(doc.amount_credited))}</span>

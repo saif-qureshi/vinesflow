@@ -18,7 +18,9 @@ from sqlalchemy.orm import Mapped, foreign, mapped_column, relationship
 
 from app.db.base_class import AuditMixin, Base, TimestampMixin
 from app.modules.attributes.models import AttributeValue
+from app.modules.brands.models import Brand
 from app.modules.categories.models import Category
+from app.modules.manufacturers.models import Manufacturer
 from app.modules.media.models import MediaAsset
 from app.modules.uoms.models import Uom
 
@@ -90,6 +92,12 @@ class Product(Base, TimestampMixin, AuditMixin):
     category_id: Mapped[int | None] = mapped_column(
         ForeignKey("categories.id", ondelete="SET NULL"), nullable=True
     )
+    brand_id: Mapped[int | None] = mapped_column(
+        ForeignKey("brands.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    manufacturer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("manufacturers.id", ondelete="SET NULL"), index=True, nullable=True
+    )
     uom_id: Mapped[int | None] = mapped_column(
         ForeignKey("uoms.id", ondelete="SET NULL"), nullable=True
     )
@@ -100,6 +108,8 @@ class Product(Base, TimestampMixin, AuditMixin):
     sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
     category: Mapped[Category | None] = relationship(lazy="selectin")
+    brand: Mapped[Brand | None] = relationship(lazy="selectin")
+    manufacturer: Mapped[Manufacturer | None] = relationship(lazy="selectin")
     uom: Mapped[Uom | None] = relationship(lazy="selectin")
     # For a group product: the attribute values it is offered in.
     attribute_values: Mapped[list[AttributeValue]] = relationship(

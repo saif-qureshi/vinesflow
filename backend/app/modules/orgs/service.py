@@ -73,14 +73,22 @@ class OrgService:
         self.db.add(
             Membership(user_id=owner.id, org_id=org.id, role_id=owner_role.id, is_owner=True)
         )
+        self.ensure_defaults(org)
+        return org
+
+    def ensure_defaults(self, org: Organization) -> None:
+        """Top up the per-org master data every org is expected to have.
+
+        Idempotent, so it also backfills orgs created before a given default
+        existed — see the `orgs backfill-defaults` CLI command.
+        """
         UomService(self.db).seed_defaults(org.id)
         LocationService(self.db).seed_default(org.id)
         InventoryService(self.db).seed_reasons(org.id)
         DocumentService(self.db).seed_tax_rates(org.id)
         SettingsService(self.db).seed_numbering(org.id)
-        AccountingSetupService(self.db).ensure_setup(org.id, fiscal_year_start_month)
+        AccountingSetupService(self.db).ensure_setup(org.id, org.fiscal_year_start_month)
         self.db.flush()
-        return org
 
     # --- Organizations ----------------------------------------------------
 

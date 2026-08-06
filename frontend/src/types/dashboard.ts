@@ -4,6 +4,7 @@ export interface DashboardKpis {
   receivables: string;
   overdue: string;
   active_customers: number;
+  cash_on_hand: string;
 }
 
 export interface RevenuePoint {
@@ -30,9 +31,17 @@ export interface RecentInvoice {
   status: "paid" | "pending" | "overdue";
 }
 
+export interface CashFlowPoint {
+  month: string;
+  inflow: string;
+  outflow: string;
+  net: string;
+}
+
 export interface DashboardSummary {
   kpis: DashboardKpis;
   revenue_series: RevenuePoint[];
+  cash_flow: CashFlowPoint[];
   aging: AgingBucket[];
   invoice_status: StatusCount[];
   recent_invoices: RecentInvoice[];

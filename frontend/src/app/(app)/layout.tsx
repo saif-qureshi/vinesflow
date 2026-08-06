@@ -34,6 +34,7 @@ import {
   Settings,
   ShoppingBag,
   ShoppingCart,
+  UserRound,
   Users,
   Warehouse,
 } from "lucide-react";
@@ -101,8 +102,10 @@ const NAV: NavEntry[] = [
     label: "Accountant",
     children: [
       { key: "/accountant/chart-of-accounts", label: "Chart of Accounts", permission: "accounting:read" },
+      { key: "/accountant/banks", label: "Banks", permission: "accounting:read" },
       { key: "/accountant/opening-balances", label: "Opening Balances", permission: "accounting:read" },
       { key: "/accountant/journals", label: "Manual Journals", permission: "accounting:read" },
+      { key: "/accountant/commissions", label: "Commissions", permission: "payments:read" },
       { key: "/accountant/periods", label: "Fiscal Periods", permission: "accounting:read" },
     ],
   },
@@ -157,14 +160,14 @@ function Shell({ children }: { children: React.ReactNode }) {
 
   const userMenu: MenuProps["items"] = [
     { key: "email", label: user?.email, disabled: true },
-    { key: "account", icon: <Settings size={15} />, label: "Account settings" },
+    { key: "account", icon: <UserRound size={15} />, label: "Profile" },
     { type: "divider" },
     { key: "logout", icon: <LogOut size={15} />, label: "Sign out", danger: true },
   ];
 
   const onUserMenu: MenuProps["onClick"] = ({ key }) => {
     if (key === "logout") onLogout();
-    if (key === "account") router.push("/settings/account");
+    if (key === "account") router.push("/account");
   };
 
   // Hide what the member cannot open, the way the settings nav already does.

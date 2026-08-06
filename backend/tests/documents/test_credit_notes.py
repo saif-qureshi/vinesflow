@@ -347,3 +347,21 @@ def test_a_deactivated_tax_rate_cannot_be_used_on_new_documents(db):
                 ],
             ),
         )
+
+
+def test_tax_rate_can_be_renamed_and_deactivated_but_not_repriced_in_use(db):
+    from app.core.exceptions import ConflictError
+    from app.modules.documents.schemas import TaxRateUpdate
+
+    org_id, loc_id, party_id, pid, tax_id = _setup(db)
+    svc = DocumentService(db)
+
+    renamed = svc.update_tax_rate(org_id, tax_id, TaxRateUpdate(name="Zero rated"))
+    assert renamed.name == "Zero rated"
+
+    _invoice(svc, org_id, party_id, pid, tax_id, qty=1, warehouse_id=loc_id)
+    with pytest.raises(ConflictError):
+        svc.update_tax_rate(org_id, tax_id, TaxRateUpdate(rate=Decimal("5")))
+
+    deactivated = svc.update_tax_rate(org_id, tax_id, TaxRateUpdate(is_active=False))
+    assert deactivated.is_active is False

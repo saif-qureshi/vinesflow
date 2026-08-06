@@ -21,6 +21,7 @@ from app.modules.documents.schemas import (
     SellableItemRead,
     TaxRateCreate,
     TaxRateRead,
+    TaxRateUpdate,
 )
 from app.modules.documents.service import DocumentService
 from app.modules.orgs.models import Membership
@@ -45,6 +46,16 @@ def create_tax_rate(
     svc: DocumentService = Svc,
 ):
     return svc.create_tax_rate(membership.org_id, payload)
+
+
+@router.patch("/tax-rates/{rate_id}", response_model=TaxRateRead)
+def update_tax_rate(
+    rate_id: int,
+    payload: TaxRateUpdate,
+    membership: Membership = Depends(require_permission("orgs:update")),
+    svc: DocumentService = Svc,
+):
+    return svc.update_tax_rate(membership.org_id, rate_id, payload)
 
 
 @router.get("/sellable-items", response_model=list[SellableItemRead])

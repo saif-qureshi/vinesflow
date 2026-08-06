@@ -26,12 +26,14 @@ db_app = typer.Typer(no_args_is_help=True, help="Database tasks")
 fbr_app = typer.Typer(no_args_is_help=True, help="FBR digital invoicing")
 accounting_app = typer.Typer(no_args_is_help=True, help="Accounting / Books")
 super_admin_app = typer.Typer(no_args_is_help=True, help="Manage super administrators")
+banks_app = typer.Typer(no_args_is_help=True, help="Manage the shared bank catalogue")
 app.add_typer(users_app, name="users")
 app.add_typer(orgs_app, name="orgs")
 app.add_typer(roles_app, name="roles")
 app.add_typer(db_app, name="db")
 app.add_typer(fbr_app, name="fbr")
 app.add_typer(accounting_app, name="accounting")
+app.add_typer(banks_app, name="banks")
 app.add_typer(super_admin_app, name="super-admin")
 
 
@@ -211,6 +213,23 @@ def orgs_list():
         for o in db.scalars(select(Organization).order_by(Organization.id)).all():
             members = db.scalar(select(func.count()).select_from(Membership).where(Membership.org_id == o.id))
             typer.echo(f"  {o.id:>3}  {o.name:28} slug={o.slug:20} members={members}")
+    finally:
+        db.close()
+
+
+@orgs_app.command("backfill-defaults")
+def orgs_backfill_defaults():
+    """Give every org the master data it should have (tax rates, units,
+    locations, reasons, numbering, chart of accounts). Safe to re-run."""
+    db = SessionLocal()
+    try:
+        svc = OrgService(db)
+        orgs = db.scalars(select(Organization).order_by(Organization.id)).all()
+        for org in orgs:
+            svc.ensure_defaults(org)
+            typer.echo(f"  {org.id:>3}  {org.name}")
+        db.commit()
+        typer.secho(f"✓ {len(orgs)} organizations topped up", fg=typer.colors.GREEN)
     finally:
         db.close()
 
@@ -442,3 +461,14 @@ def db_prune_sessions():
 
 if __name__ == "__main__":
     app()
+
+
+@banks_app.command("sync-logos")
+def banks_sync_logos():
+    """Upload the bundled bank artwork into object storage. Run on deploy."""
+    from app.modules.banks.catalog import sync_logos
+
+    uploaded, skipped = sync_logos()
+    typer.secho(f"✓ {uploaded} logos uploaded", fg=typer.colors.GREEN)
+    if skipped:
+        typer.secho(f"• {skipped} banks have no artwork yet", fg=typer.colors.YELLOW)

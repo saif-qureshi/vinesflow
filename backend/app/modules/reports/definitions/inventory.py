@@ -3,9 +3,11 @@ from __future__ import annotations
 from datetime import timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 
+from app.modules.brands.models import Brand
 from app.modules.inventory.models import StockLevel, StockMovement
+from app.modules.manufacturers.models import Manufacturer
 from app.modules.products.models import Product
 from app.modules.reports.contract import Column, Filter, ReportDef, ReportResult, Section
 from app.modules.reports.registry import register
@@ -32,36 +34,76 @@ def _movement_value(qty_delta, unit_cost, value_delta) -> Decimal | None:
 # --- Inventory Summary ---------------------------------------------------
 
 
+def _int_or_none(value) -> int | None:
+    return int(value) if value not in (None, "") else None
+
+
+_SUMMARY_COLUMNS = [
+    Column("item", "Item"),
+    Column("sku", "SKU"),
+    Column("brand", "Brand"),
+    Column("manufacturer", "Manufacturer"),
+    Column("quantity", "Stock on Hand", "number", "right"),
+    Column("value", "Asset Value", "money", "right"),
+]
+
+
 def _inventory_summary(db, org_id, params):
-    rows = db.execute(
+    location_id = _int_or_none(params.get("location_id"))
+    brand_id = _int_or_none(params.get("brand_id"))
+    manufacturer_id = _int_or_none(params.get("manufacturer_id"))
+
+    levels = StockLevel.product_id == Product.id
+    if location_id is not None:
+        levels = and_(levels, StockLevel.location_id == location_id)
+
+    stmt = (
         select(
             Product.name,
             Product.sku,
+            Brand.name,
+            Manufacturer.name,
             Product.purchase_price,
             func.coalesce(func.sum(StockLevel.quantity), 0),
         )
-        .join(StockLevel, StockLevel.product_id == Product.id, isouter=True)
-        .where(Product.org_id == org_id, Product.track_inventory.is_(True))
-        .group_by(Product.id)
+        .join(StockLevel, levels, isouter=True)
+        .join(Brand, Brand.id == Product.brand_id, isouter=True)
+        .join(Manufacturer, Manufacturer.id == Product.manufacturer_id, isouter=True)
+        .where(
+            Product.org_id == org_id,
+            Product.track_inventory.is_(True),
+            Product.type != "variable",
+        )
+        .group_by(Product.id, Brand.name, Manufacturer.name)
         .order_by(Product.name)
-    ).all()
+    )
+    if brand_id is not None:
+        stmt = stmt.where(Product.brand_id == brand_id)
+    if manufacturer_id is not None:
+        stmt = stmt.where(Product.manufacturer_id == manufacturer_id)
+
     section_rows = []
-    total_value = _ZERO
-    for name, sku, cost, qty in rows:
+    total_value = total_qty = _ZERO
+    for name, sku, brand, maker, cost, qty in db.execute(stmt).all():
         qty = qty or _ZERO
         value = qty * (cost or _ZERO)
         total_value += value
-        section_rows.append({"item": name, "sku": sku or "", "quantity": qty, "value": value})
+        total_qty += qty
+        section_rows.append(
+            {
+                "item": name,
+                "sku": sku or "",
+                "brand": brand or "",
+                "manufacturer": maker or "",
+                "quantity": qty,
+                "value": value,
+            }
+        )
     return ReportResult(
         title="Inventory Summary",
-        columns=[
-            Column("item", "Item"),
-            Column("sku", "SKU"),
-            Column("quantity", "Stock on Hand", "number", "right"),
-            Column("value", "Asset Value", "money", "right"),
-        ],
+        columns=_SUMMARY_COLUMNS,
         sections=[Section(rows=section_rows)],
-        grand_total={"item": "Total", "value": total_value},
+        grand_total={"item": "Total", "quantity": total_qty, "value": total_value},
     )
 
 
@@ -138,11 +180,11 @@ register(
         name="Inventory Summary",
         category="Inventory",
         description="Current stock on hand and asset value per item.",
-        columns=[
-            Column("item", "Item"),
-            Column("sku", "SKU"),
-            Column("quantity", "Stock on Hand", "number", "right"),
-            Column("value", "Asset Value", "money", "right"),
+        columns=_SUMMARY_COLUMNS,
+        filters=[
+            Filter("location_id", "select", "Branch", source="locations"),
+            Filter("brand_id", "select", "Brand", source="brands"),
+            Filter("manufacturer_id", "select", "Manufacturer", source="manufacturers"),
         ],
         run=_inventory_summary,
     )

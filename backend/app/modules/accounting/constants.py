@@ -177,6 +177,13 @@ DEFAULT_ACCOUNTS: list[dict] = [
         "normal": _N.DEBIT,
         "parent": "5000",
     },
+    {
+        "code": "5400",
+        "name": "Sales Commission",
+        "type": _A.EXPENSE,
+        "normal": _N.DEBIT,
+        "parent": "5000",
+    },
 ]
 
 # Role -> account code, seeded per org into the "accounting" settings group.
@@ -198,6 +205,7 @@ ACCOUNT_MAPPING: dict[str, str] = {
     "cogs": "5100",
     "operating_expenses": "5200",
     "inventory_adjustment": "5300",
+    "sales_commission": "5400",
 }
 
 ACCOUNTING_SETTINGS_GROUP = "accounting"

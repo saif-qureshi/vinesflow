@@ -203,3 +203,50 @@ def test_sales_reports_net_off_credit_notes(db):
     by_item = svc.run(org_id, "sales_by_item", {})
     assert by_item.grand_total["amount"] == Decimal("0")
     assert by_item.grand_total["quantity"] == Decimal("0")
+
+
+def test_inventory_summary_filters_and_totals_units(db):
+    from app.modules.brands.models import Brand
+    from app.modules.manufacturers.models import Manufacturer
+    from app.modules.products.models import Product
+
+    org_id = _setup(db)
+    brand = Brand(org_id=org_id, name="Dove")
+    maker = Manufacturer(org_id=org_id, name="Unilever")
+    db.add_all([brand, maker])
+    db.flush()
+    product = db.scalar(select(Product).where(Product.org_id == org_id))
+    product.brand_id = brand.id
+    product.manufacturer_id = maker.id
+    db.flush()
+
+    svc = ReportService(db)
+    summary = svc.run(org_id, "inventory_summary", {})
+    assert summary.grand_total["quantity"] == Decimal("18")  # 20 opening less 2 invoiced
+    assert summary.sections[0].rows[0]["brand"] == "Dove"
+    assert summary.sections[0].rows[0]["manufacturer"] == "Unilever"
+
+    # Filtering to another brand empties it.
+    other = Brand(org_id=org_id, name="Lux")
+    db.add(other)
+    db.flush()
+    filtered = svc.run(org_id, "inventory_summary", {"brand_id": str(other.id)})
+    assert filtered.sections[0].rows == []
+    assert filtered.grand_total["quantity"] == Decimal("0")
+
+
+def test_inventory_summary_branch_filter_uses_stock_location(db):
+    from app.modules.locations.models import Location
+
+    org_id = _setup(db)
+    svc = ReportService(db)
+    warehouse = db.scalar(select(Location).where(Location.org_id == org_id))
+
+    here = svc.run(org_id, "inventory_summary", {"location_id": str(warehouse.id)})
+    assert here.grand_total["quantity"] == Decimal("18")
+
+    elsewhere = Location(org_id=org_id, name="Store B")
+    db.add(elsewhere)
+    db.flush()
+    away = svc.run(org_id, "inventory_summary", {"location_id": str(elsewhere.id)})
+    assert away.grand_total["quantity"] == Decimal("0")

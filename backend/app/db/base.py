@@ -10,7 +10,10 @@ from app.modules.accounting.models import (
 from app.modules.activities.models import Activity
 from app.modules.attributes.models import Attribute, AttributeValue
 from app.modules.auth.models import RefreshSession
+from app.modules.banks.models import BankAccount
+from app.modules.brands.models import Brand
 from app.modules.categories.models import Category
+from app.modules.commissions.models import CommissionPayout
 from app.modules.documents.models import (
     Bill,
     CreditNote,
@@ -37,6 +40,7 @@ from app.modules.inventory.models import (
     StockMovementSerial,
 )
 from app.modules.locations.models import Location
+from app.modules.manufacturers.models import Manufacturer
 from app.modules.media.models import MediaAsset
 from app.modules.orgs.models import Membership, Organization
 from app.modules.parties.models import Party
@@ -47,6 +51,7 @@ from app.modules.products.models import (
     variant_values,
 )
 from app.modules.rbac.models import Permission, Role, role_permissions
+from app.modules.salespeople.models import Salesperson
 from app.modules.settings.models import Setting
 from app.modules.uoms.models import Uom
 from app.modules.users.models import User

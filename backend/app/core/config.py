@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     S3_REGION: str | None = None
     S3_ENDPOINT_URL: str | None = None
     S3_PUBLIC_URL: str | None = None
+    AWS_ACCESS_KEY_ID: str | None = None
+    AWS_SECRET_ACCESS_KEY: str | None = None
     # Object-key prefix, e.g. "local/" so dev uploads are isolated from prod ("").
     MEDIA_KEY_PREFIX: str = ""
 
