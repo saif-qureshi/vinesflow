@@ -288,6 +288,6 @@ class ProductService:
     def delete(self, org_id: int, product_id: int) -> None:
         product = self.get(org_id, product_id)
         self.activity.record(org_id, "deleted", "product", product.name, entity_id=product_id)
-        self.media.delete_for(PRODUCT_MEDIA_TYPE, product_id)
+        self.media.delete_for(org_id, PRODUCT_MEDIA_TYPE, product_id)
         self.db.delete(product)
         self.db.commit()

@@ -36,6 +36,7 @@ class SuperAdminOrganizationDetail(SuperAdminOrganizationRead):
     strn: str | None = None
     cnic: str | None = None
     address: Address | None = None
+    logo_key: str | None = None
     logo_url: str | None = None
     fbr_enabled: bool
     fbr_environment: str
@@ -85,7 +86,7 @@ class SuperAdminOrganizationUpdate(BaseModel):
     strn: str | None = Field(default=None, max_length=20)
     cnic: str | None = Field(default=None, max_length=20)
     address: Address | None = None
-    logo_url: str | None = Field(default=None, max_length=1024)
+    logo_key: str | None = Field(default=None, max_length=512)
     fbr_enabled: bool | None = None
     fbr_environment: str | None = Field(default=None, pattern="^(sandbox|production)$")
     fbr_province: str | None = Field(default=None, max_length=50)

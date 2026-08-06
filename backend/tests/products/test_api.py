@@ -9,11 +9,11 @@ def setup(client, register, org_id_of, h):
     category_id = client.post("/api/v1/categories", headers=hdr, json={"name": "Electronics"}).json()["data"]["id"]
     uoms = client.get("/api/v1/uoms", headers=hdr).json()["data"]
     uom_id = next(u["id"] for u in uoms if u["symbol"] == "pc")
-    return {"hdr": hdr, "category_id": category_id, "uom_id": uom_id}
+    return {"hdr": hdr, "org_id": org, "category_id": category_id, "uom_id": uom_id}
 
 
 def test_create_product_with_refs_media_and_prices(client, setup):
-    hdr = setup["hdr"]
+    hdr, org_id = setup["hdr"], setup["org_id"]
     res = client.post(
         "/api/v1/products",
         headers=hdr,
@@ -29,7 +29,10 @@ def test_create_product_with_refs_media_and_prices(client, setup):
             "purchase_price": 750,
             "track_inventory": True,
             "reorder_point": 5,
-            "media": [{"url": "https://cdn/img1.png"}, {"url": "https://cdn/img2.png"}],
+            "media": [
+                {"storage_key": f"org-{org_id}/img1.png"},
+                {"storage_key": f"org-{org_id}/img2.png"},
+            ],
         },
     )
     assert res.status_code == 201
@@ -39,7 +42,11 @@ def test_create_product_with_refs_media_and_prices(client, setup):
     assert data["uom"]["symbol"] == "pc"
     assert data["sale_price"] == 999.99
     assert data["track_inventory"] is True
-    assert [m["url"] for m in data["media"]] == ["https://cdn/img1.png", "https://cdn/img2.png"]
+    assert [m["storage_key"] for m in data["media"]] == [
+        f"org-{org_id}/img1.png",
+        f"org-{org_id}/img2.png",
+    ]
+    assert all(m["url"].endswith(m["storage_key"]) for m in data["media"])
 
 
 def test_duplicate_sku_conflicts(client, setup):
@@ -62,21 +69,39 @@ def test_goods_require_unit(client, setup):
 
 
 def test_update_replaces_media(client, setup):
+    org_id = setup["org_id"]
     hdr = setup["hdr"]
     pid = client.post(
         "/api/v1/products",
         headers=hdr,
-        json={"name": "Widget", "uom_id": setup["uom_id"], "media": [{"url": "https://cdn/old.png"}]},
+        json={
+            "name": "Widget",
+            "uom_id": setup["uom_id"],
+            "media": [{"storage_key": f"org-{org_id}/old.png"}],
+        },
     ).json()["data"]["id"]
 
     upd = client.patch(
         f"/api/v1/products/{pid}",
         headers=hdr,
-        json={"sale_price": 42, "media": [{"url": "https://cdn/new.png"}]},
+        json={"sale_price": 42, "media": [{"storage_key": f"org-{org_id}/new.png"}]},
     )
     data = upd.json()["data"]
     assert data["sale_price"] == 42
-    assert [m["url"] for m in data["media"]] == ["https://cdn/new.png"]
+    assert [m["storage_key"] for m in data["media"]] == [f"org-{org_id}/new.png"]
+
+
+def test_product_media_rejects_a_key_outside_the_org(client, setup):
+    res = client.post(
+        "/api/v1/products",
+        headers=setup["hdr"],
+        json={
+            "name": "Traversal",
+            "uom_id": setup["uom_id"],
+            "media": [{"storage_key": "/etc/passwd"}],
+        },
+    )
+    assert res.status_code == 400
 
 
 def test_list_and_delete(client, setup):

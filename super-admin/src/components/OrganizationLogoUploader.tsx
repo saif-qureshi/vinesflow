@@ -6,20 +6,27 @@ import type { UploadFile, UploadProps } from "antd";
 import { ImagePlus } from "lucide-react";
 
 import { api, apiErrorMessage } from "@/lib/api";
+import type { UploadedFile } from "@/types";
 
 interface OrganizationLogoUploaderProps {
   organizationId: number;
-  value?: string[];
-  onChange?: (urls: string[]) => void;
+  value?: UploadedFile[];
+  onChange?: (files: UploadedFile[]) => void;
 }
 
-function toFileList(urls: string[]): UploadFile[] {
-  return urls.map((url, index) => ({
-    uid: `existing-${index}-${url}`,
-    name: url.split("/").pop() || `logo-${index + 1}`,
+function toFileList(files: UploadedFile[]): UploadFile[] {
+  return files.map((file, index) => ({
+    uid: `existing-${index}-${file.storage_key}`,
+    name: file.storage_key.split("/").pop() || `logo-${index + 1}`,
     status: "done",
-    url,
+    url: file.url,
+    response: file,
   }));
+}
+
+function toUploaded(file: UploadFile): UploadedFile | null {
+  const uploaded = file.response as UploadedFile | undefined;
+  return uploaded?.storage_key ? { storage_key: uploaded.storage_key, url: uploaded.url } : null;
 }
 
 export function OrganizationLogoUploader({
@@ -29,7 +36,7 @@ export function OrganizationLogoUploader({
 }: OrganizationLogoUploaderProps) {
   const { message } = App.useApp();
   const [fileList, setFileList] = useState<UploadFile[]>(() => toFileList(value));
-  const valueKey = value.join("|");
+  const valueKey = value.map((file) => file.storage_key).join("|");
   const [syncedKey, setSyncedKey] = useState(valueKey);
 
   if (syncedKey !== valueKey) {
@@ -69,11 +76,11 @@ export function OrganizationLogoUploader({
 
   const handleChange: UploadProps["onChange"] = ({ fileList: next }) => {
     setFileList(next);
-    const urls = next
+    const uploaded = next
       .filter((file) => file.status === "done")
-      .map((file) => file.url ?? (file.response as { url?: string } | undefined)?.url)
-      .filter((url): url is string => Boolean(url));
-    onChange?.(urls);
+      .map(toUploaded)
+      .filter((file): file is UploadedFile => Boolean(file));
+    onChange?.(uploaded);
   };
 
   return (
@@ -86,7 +93,7 @@ export function OrganizationLogoUploader({
       customRequest={customRequest}
       onChange={handleChange}
       onPreview={(file) => {
-        const url = file.url ?? (file.response as { url?: string } | undefined)?.url;
+        const url = toUploaded(file)?.url ?? file.url;
         if (url) window.open(url, "_blank", "noopener,noreferrer");
       }}
     >

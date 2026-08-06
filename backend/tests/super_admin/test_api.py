@@ -156,7 +156,7 @@ def test_admin_onboarding_uses_customer_org_setup(client: TestClient, db: Sessio
             "ntn": "1234567",
             "strn": "1234567890123",
             "cnic": "3520212345678",
-            "logo_url": "https://example.com/acme.png",
+            "logo_key": f"org-{organization['id']}/acme.png",
             "address": {
                 "line1": "1 Commerce Street",
                 "city": "Karachi",
@@ -174,7 +174,8 @@ def test_admin_onboarding_uses_customer_org_setup(client: TestClient, db: Sessio
     assert updated.json()["data"]["country"] == "US"
     assert updated.json()["data"]["ntn"] == "1234567"
     assert updated.json()["data"]["address"]["city"] == "Karachi"
-    assert updated.json()["data"]["logo_url"] == "https://example.com/acme.png"
+    assert updated.json()["data"]["logo_key"] == f"org-{organization['id']}/acme.png"
+    assert updated.json()["data"]["logo_url"].endswith(f"org-{organization['id']}/acme.png")
 
     customer_login = client.post(
         "/api/v1/auth/login",

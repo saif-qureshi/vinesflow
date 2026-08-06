@@ -8,7 +8,7 @@ from pathlib import Path
 
 from num2words import num2words
 
-from app.core.config import settings
+from app.core.storage import get_storage
 from app.modules.documents.enums import DocumentType
 from app.modules.documents.models import Document
 from app.modules.documents.print.print_document import (
@@ -96,18 +96,13 @@ def amount_in_words(total: Decimal, currency: str) -> str:
 
 
 def _logo_data_url(org: Organization) -> str | None:
-    if not org.logo_url or settings.STORAGE_BACKEND != "local":
+    if not org.logo_key:
         return None
-    marker = "/media/files/"
-    if marker not in org.logo_url:
+    data = get_storage().get_bytes(org.logo_key)
+    if not data:
         return None
-    key = org.logo_url.split(marker, 1)[1]
-    root = Path(settings.MEDIA_LOCAL_DIR).resolve()
-    path = (root / key).resolve()
-    if not path.is_relative_to(root) or not path.is_file():
-        return None
-    mime = mimetypes.guess_type(path.name)[0] or "image/png"
-    return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode()}"
+    mime = mimetypes.guess_type(org.logo_key)[0] or "image/png"
+    return f"data:{mime};base64,{base64.b64encode(data).decode()}"
 
 
 def _company(org: Organization) -> PrintCompany:

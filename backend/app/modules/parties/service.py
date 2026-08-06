@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import BadRequestError, NotFoundError
 from app.core.pagination import paginate_cursor
+from app.core.storage import belongs_to_org
 from app.modules.activities.service import ActivityService
 from app.modules.parties.models import Party
 from app.modules.parties.schemas import PartyCreate, PartyListQuery, PartyUpdate
@@ -24,6 +25,14 @@ class PartyService:
     def _require_role(self, is_customer: bool, is_vendor: bool) -> None:
         if not is_customer and not is_vendor:
             raise BadRequestError("A party must be a customer, a vendor, or both")
+
+    @staticmethod
+    def _avatar_key(org_id: int, key: str | None) -> str | None:
+        if not key:
+            return None
+        if not belongs_to_org(key, org_id):
+            raise BadRequestError("Invalid avatar reference")
+        return key
 
     def list(self, org_id: int, query: PartyListQuery) -> tuple[list[Party], str | None, bool]:
         stmt = select(Party).where(Party.org_id == org_id)
@@ -59,6 +68,7 @@ class PartyService:
     def create(self, org_id: int, payload: PartyCreate) -> Party:
         self._require_role(payload.is_customer, payload.is_vendor)
         data = payload.model_dump(exclude=_ADDRESS_FIELDS)
+        data["avatar_key"] = self._avatar_key(org_id, data.get("avatar_key"))
         party = Party(
             org_id=org_id,
             billing_address=payload.billing_address.model_dump() if payload.billing_address else None,
@@ -76,7 +86,7 @@ class PartyService:
         party = self.get(org_id, party_id)
         fields = payload.model_fields_set
         for key, value in payload.model_dump(exclude=_ADDRESS_FIELDS, exclude_unset=True).items():
-            setattr(party, key, value)
+            setattr(party, key, self._avatar_key(org_id, value) if key == "avatar_key" else value)
         self._require_role(party.is_customer, party.is_vendor)
         if "billing_address" in fields:
             party.billing_address = (

@@ -4,6 +4,7 @@ from sqlalchemy import ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.storage import get_storage
 from app.db.base_class import AuditMixin, Base, TimestampMixin
 
 CUSTOMER = "customer"
@@ -29,7 +30,7 @@ class Party(Base, TimestampMixin, AuditMixin):
     is_vendor: Mapped[bool] = mapped_column(nullable=False, default=False)
     type: Mapped[str] = mapped_column(String(20), nullable=False, default="business")
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    avatar_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    avatar_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     company_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     salutation: Mapped[str | None] = mapped_column(String(20), nullable=True)
     first_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
@@ -46,3 +47,7 @@ class Party(Base, TimestampMixin, AuditMixin):
     shipping_address: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(nullable=False, default=True)
+
+    @property
+    def avatar_url(self) -> str | None:
+        return get_storage().url_for(self.avatar_key) if self.avatar_key else None

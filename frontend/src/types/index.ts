@@ -55,7 +55,7 @@ export type {
   ExpenseStatus,
   ExpenseSummary,
 } from "./expense";
-export type { Media, MediaInput } from "./media";
+export type { Media, MediaInput, UploadedFile } from "./media";
 export type {
   Bin,
   BinInput,

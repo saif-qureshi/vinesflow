@@ -35,11 +35,14 @@ def test_create_product_persists_media(db):
         ProductCreate(
             name="Item",
             uom_id=_uom(db, org_id),
-            media=[{"url": "https://cdn/a.png"}, {"url": "https://cdn/b.png"}],
+            media=[
+                {"storage_key": f"org-{org_id}/a.png"},
+                {"storage_key": f"org-{org_id}/b.png"},
+            ],
         ),
     )
-    media = MediaService(db).list_for(PRODUCT_MEDIA_TYPE, product.id)
-    assert [m.url for m in media] == ["https://cdn/a.png", "https://cdn/b.png"]
+    media = MediaService(db).list_for(org_id, PRODUCT_MEDIA_TYPE, product.id)
+    assert [m.storage_key for m in media] == [f"org-{org_id}/a.png", f"org-{org_id}/b.png"]
 
 
 def test_goods_require_uom(db):
@@ -121,7 +124,12 @@ def test_delete_removes_media(db):
     org_id = _org(db)
     svc = ProductService(db)
     product = svc.create(
-        org_id, ProductCreate(name="A", uom_id=_uom(db, org_id), media=[{"url": "https://cdn/a.png"}])
+        org_id,
+        ProductCreate(
+            name="A",
+            uom_id=_uom(db, org_id),
+            media=[{"storage_key": f"org-{org_id}/a.png"}],
+        ),
     )
     pid = product.id
     svc.delete(org_id, pid)

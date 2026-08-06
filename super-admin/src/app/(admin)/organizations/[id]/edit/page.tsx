@@ -36,7 +36,7 @@ export default function EditOrganizationPage() {
         ntn: clean(values.ntn),
         strn: clean(values.strn),
         cnic: clean(values.cnic),
-        logo_url: clean(values.logo_url),
+        logo_key: values.logo?.[0]?.storage_key ?? "",
         fbr_enabled: values.fbr_enabled,
         fbr_environment: values.fbr_environment,
         fbr_province: clean(values.fbr_province),
@@ -73,7 +73,10 @@ export default function EditOrganizationPage() {
         ntn: organization.ntn ?? undefined,
         strn: organization.strn ?? undefined,
         cnic: organization.cnic ?? undefined,
-        logo_url: organization.logo_url ?? undefined,
+        logo:
+          organization.logo_key && organization.logo_url
+            ? [{ storage_key: organization.logo_key, url: organization.logo_url }]
+            : [],
         fbr_enabled: organization.fbr_enabled,
         fbr_environment: organization.fbr_environment,
         fbr_province: organization.fbr_province ?? undefined,

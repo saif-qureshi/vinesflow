@@ -6,10 +6,11 @@ import type { UploadFile, UploadProps } from "antd";
 import { UploadCloud } from "lucide-react";
 
 import { api, apiErrorMessage } from "@/lib/api";
+import type { UploadedFile } from "@/types";
 
 interface UploaderProps {
-  value?: string[];
-  onChange?: (urls: string[]) => void;
+  value?: UploadedFile[];
+  onChange?: (files: UploadedFile[]) => void;
   maxCount?: number;
   accept?: string;
   maxSizeMB?: number;
@@ -17,13 +18,19 @@ interface UploaderProps {
   drag?: boolean;
 }
 
-function toFileList(urls: string[]): UploadFile[] {
-  return urls.map((url, i) => ({
-    uid: `existing-${i}-${url}`,
-    name: url.split("/").pop() || `file-${i + 1}`,
+function toFileList(files: UploadedFile[]): UploadFile[] {
+  return files.map((file, i) => ({
+    uid: `existing-${i}-${file.storage_key}`,
+    name: file.storage_key.split("/").pop() || `file-${i + 1}`,
     status: "done",
-    url,
+    url: file.url,
+    response: file,
   }));
+}
+
+function toUploaded(file: UploadFile): UploadedFile | null {
+  const uploaded = file.response as UploadedFile | undefined;
+  return uploaded?.storage_key ? { storage_key: uploaded.storage_key, url: uploaded.url } : null;
 }
 
 export function Uploader({
@@ -38,7 +45,7 @@ export function Uploader({
   const { message } = App.useApp();
   const [fileList, setFileList] = useState<UploadFile[]>(() => toFileList(value));
 
-  const valueKey = value.join("|");
+  const valueKey = value.map((f) => f.storage_key).join("|");
   const [syncedKey, setSyncedKey] = useState(valueKey);
   if (syncedKey !== valueKey) {
     setSyncedKey(valueKey);
@@ -75,15 +82,15 @@ export function Uploader({
 
   const handleChange: UploadProps["onChange"] = ({ fileList: next }) => {
     setFileList(next);
-    const urls = next
+    const uploaded = next
       .filter((f) => f.status === "done")
-      .map((f) => f.url ?? (f.response as { url?: string } | undefined)?.url)
-      .filter((u): u is string => !!u);
-    onChange?.(urls);
+      .map(toUploaded)
+      .filter((f): f is UploadedFile => !!f);
+    onChange?.(uploaded);
   };
 
   const onPreview = (file: UploadFile) => {
-    const url = file.url ?? (file.response as { url?: string } | undefined)?.url;
+    const url = toUploaded(file)?.url ?? file.url;
     if (url) window.open(url, "_blank");
   };
 

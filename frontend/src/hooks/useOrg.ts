@@ -18,7 +18,7 @@ export function useUpdateOrg() {
       cnic?: string;
       address?: Address | null;
       fiscal_year_start_month?: number;
-      logo_url?: string;
+      logo_key?: string;
       theme?: "light" | "dark";
       accent_color?: string;
       keep_branding?: boolean;
@@ -35,7 +35,7 @@ export function useUpdateOrg() {
 export function useUpdateProfile() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { full_name?: string; password?: string; avatar_url?: string }) =>
+    mutationFn: (vars: { full_name?: string; password?: string; avatar_key?: string }) =>
       api.patch("/users/me", vars),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["me"] }),
   });

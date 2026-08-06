@@ -5,17 +5,19 @@ def test_get_my_profile(client, register, h):
     assert res.json()["data"]["email"] == "owner@test.io"
 
 
-def test_update_profile_name_and_avatar(client, register, h):
+def test_update_profile_name_and_avatar(client, register, org_id_of, h):
     token = register()
+    key = f"org-{org_id_of(token)}/x.png"
     res = client.patch(
         "/api/v1/users/me",
         headers=h(token),
-        json={"full_name": "Renamed", "avatar_url": "https://cdn/x.png"},
+        json={"full_name": "Renamed", "avatar_key": key},
     )
     assert res.status_code == 200
     data = res.json()["data"]
     assert data["full_name"] == "Renamed"
-    assert data["avatar_url"] == "https://cdn/x.png"
+    assert data["avatar_key"] == key
+    assert data["avatar_url"].endswith(key)
 
 
 def test_update_password_then_relogin(client, register, h):
