@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
@@ -19,7 +19,7 @@ from app.modules.users.models import User
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class AuthService:
@@ -88,7 +88,7 @@ class AuthService:
     def is_expired(session: RefreshSession) -> bool:
         expires = session.expires_at
         if expires.tzinfo is None:
-            expires = expires.replace(tzinfo=timezone.utc)
+            expires = expires.replace(tzinfo=UTC)
         return expires < _now()
 
     # --- Orchestration ----------------------------------------------------

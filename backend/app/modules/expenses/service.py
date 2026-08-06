@@ -20,7 +20,8 @@ from app.modules.expenses.schemas import (
     ExpenseListQuery,
     ExpenseUpdate,
 )
-from app.modules.expenses.totals import quantize as _q, totals as _compute_totals
+from app.modules.expenses.totals import quantize as _q
+from app.modules.expenses.totals import totals as _compute_totals
 from app.modules.parties.models import Party
 
 _ZERO = Decimal("0")

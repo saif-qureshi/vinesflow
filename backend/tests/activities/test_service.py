@@ -96,10 +96,9 @@ def test_org_update_recorded_branding_skipped(db):
 
 
 def test_role_create_recorded(db):
+    from app.modules.orgs.models import Membership
     from app.modules.rbac.schemas import RoleCreate
     from app.modules.rbac.service import RbacService
-
-    from app.modules.orgs.models import Membership
 
     org_id, uid = _org(db)
     db.info["actor_id"] = uid

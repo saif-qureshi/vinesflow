@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import base64
 import binascii
-from typing import Generic, TypeVar
+from typing import TypeVar
 
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import InstrumentedAttribute, Session
@@ -43,7 +43,7 @@ class ListQuery(CursorParams):
     search: str | None = None
 
 
-class CursorPage(BaseModel, Generic[T]):
+class CursorPage[T](BaseModel):
     items: list[T]
     next_cursor: str | None = None
     has_more: bool = False

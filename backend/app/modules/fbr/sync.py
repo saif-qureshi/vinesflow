@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -26,7 +26,7 @@ class FbrReferenceSyncService:
         self.client = client
 
     def sync_all(self, log=print) -> dict[str, int]:
-        synced_at = datetime.now(timezone.utc)
+        synced_at = datetime.now(UTC)
         counts: dict[str, int] = {}
 
         doc_types = self.client.get(REFERENCE_ENDPOINTS["doc_types"])
@@ -162,7 +162,7 @@ class FbrReferenceSyncService:
         return None
 
     def sync_sro_items(self, log=print) -> int:
-        synced_at = datetime.now(timezone.utc)
+        synced_at = datetime.now(UTC)
         date_str = datetime.now().strftime("%Y-%m-%d")
         done = {
             pc
@@ -179,7 +179,7 @@ class FbrReferenceSyncService:
         ]
         rows = []
         for code in pending:
-            items = self._fetch_retry(lambda: self.client.sro_items(code, date_str))
+            items = self._fetch_retry(lambda code=code: self.client.sro_items(code, date_str))
             if items is None:
                 continue
             seen: set[str] = set()
@@ -205,7 +205,7 @@ class FbrReferenceSyncService:
     def sync_hs_uom(self, log=print, limit: int | None = None, workers: int = 6) -> int:
         from concurrent.futures import ThreadPoolExecutor
 
-        synced_at = datetime.now(timezone.utc)
+        synced_at = datetime.now(UTC)
         done = {
             pc
             for (pc,) in self.db.query(FbrReferenceData.parent_code)

@@ -8,9 +8,9 @@ from app.api.deps import require_permission
 from app.core.container import Provide
 from app.core.pagination import CursorPage
 from app.core.responses import EnvelopeRoute
-from app.modules.orgs.models import Membership
 from app.modules.activities.schemas import ActivityListQuery, ActivityRead
 from app.modules.activities.service import ActivityService
+from app.modules.orgs.models import Membership
 
 router = APIRouter(prefix="/activities", tags=["activities"], route_class=EnvelopeRoute)
 Svc = Depends(Provide(ActivityService))

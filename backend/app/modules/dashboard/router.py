@@ -7,9 +7,9 @@ from fastapi import APIRouter, Depends
 from app.api.deps import require_permission
 from app.core.container import Provide
 from app.core.responses import EnvelopeRoute
-from app.modules.orgs.models import Membership
 from app.modules.dashboard.schemas import DashboardSummary
 from app.modules.dashboard.service import DashboardService
+from app.modules.orgs.models import Membership
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"], route_class=EnvelopeRoute)
 
