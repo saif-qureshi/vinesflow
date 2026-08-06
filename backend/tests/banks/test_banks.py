@@ -130,4 +130,4 @@ def test_every_catalog_bank_points_at_a_logo_asset(db):
     options = [BankOption(**bank) for bank in PAKISTANI_BANKS]
     assert len(options) == len({o.code for o in options})  # codes are unique
     for option in options:
-        assert option.logo == f"/bank-logos/{option.code.lower()}.svg"
+        assert option.logo == f"/bank-logos/{option.code.lower()}.png"
