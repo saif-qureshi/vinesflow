@@ -4,7 +4,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.crypto import encrypt_secret
-from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
+from app.core.exceptions import (
+    BadRequestError,
+    ConflictError,
+    ForbiddenError,
+    NotFoundError,
+)
 from app.core.storage import belongs_to_org
 from app.core.utils import slugify
 from app.modules.accounting.setup import AccountingSetupService
@@ -198,8 +203,9 @@ class OrgService:
             raise NotFoundError("Member not found")
         return member
 
-    def add_member(self, *, org_id: int, payload: MemberAdd) -> Membership:
+    def add_member(self, *, org_id: int, actor: Membership, payload: MemberAdd) -> Membership:
         role = self._get_org_role(org_id, payload.role_id)
+        self.rbac.ensure_can_assign(actor, role)
         user = self.db.scalar(select(User).where(User.email == payload.email.lower()))
         if user is None:
             raise NotFoundError("No registered user with that email. They must sign up first.")
@@ -218,12 +224,15 @@ class OrgService:
         return member
 
     def update_member_role(
-        self, *, org_id: int, membership_id: int, payload: MemberUpdate
+        self, *, org_id: int, actor: Membership, membership_id: int, payload: MemberUpdate
     ) -> Membership:
         member = self._get_member(org_id, membership_id)
         if member.is_owner:
             raise ConflictError("Cannot change the owner's role")
+        if member.id == actor.id:
+            raise ForbiddenError("You cannot change your own role")
         role = self._get_org_role(org_id, payload.role_id)
+        self.rbac.ensure_can_assign(actor, role)
         member.role_id = role.id
         self.activity.record(
             org_id, "updated", "member", member.user.email,

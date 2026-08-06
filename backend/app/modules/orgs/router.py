@@ -69,7 +69,7 @@ def add_member(
     membership: Membership = Depends(require_permission("users:create")),
     orgs: OrgService = OrgSvc,
 ) -> Membership:
-    return orgs.add_member(org_id=membership.org_id, payload=payload)
+    return orgs.add_member(org_id=membership.org_id, actor=membership, payload=payload)
 
 
 @router.patch("/current/members/{membership_id}", response_model=MemberRead)
@@ -80,7 +80,7 @@ def update_member_role(
     orgs: OrgService = OrgSvc,
 ) -> Membership:
     return orgs.update_member_role(
-        org_id=membership.org_id, membership_id=membership_id, payload=payload
+        org_id=membership.org_id, actor=membership, membership_id=membership_id, payload=payload
     )
 
 

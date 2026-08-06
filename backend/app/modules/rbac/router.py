@@ -34,7 +34,7 @@ def create_role(
     membership: Membership = Depends(require_permission("roles:create")),
     rbac: RbacService = RbacSvc,
 ) -> Role:
-    return rbac.create_role(org_id=membership.org_id, payload=payload)
+    return rbac.create_role(org_id=membership.org_id, actor=membership, payload=payload)
 
 
 @router.get("/roles/{role_id}", response_model=RoleRead)
@@ -53,7 +53,9 @@ def update_role(
     membership: Membership = Depends(require_permission("roles:update")),
     rbac: RbacService = RbacSvc,
 ) -> Role:
-    return rbac.update_role(org_id=membership.org_id, role_id=role_id, payload=payload)
+    return rbac.update_role(
+        org_id=membership.org_id, actor=membership, role_id=role_id, payload=payload
+    )
 
 
 @router.delete("/roles/{role_id}", status_code=status.HTTP_204_NO_CONTENT)
