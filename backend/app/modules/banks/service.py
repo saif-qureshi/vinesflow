@@ -6,7 +6,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
-from app.core.storage import belongs_to_org
 from app.modules.accounting.constants import ACCOUNTING_SETTINGS_GROUP
 from app.modules.accounting.enums import AccountType, NormalBalance
 from app.modules.accounting.models import Account, LedgerEntry
@@ -44,14 +43,6 @@ class BankAccountService:
             if candidate not in taken:
                 return candidate
         raise ConflictError("No account code is available under Bank")
-
-    @staticmethod
-    def _logo_key(org_id: int, key: str | None) -> str | None:
-        if not key:
-            return None
-        if not belongs_to_org(key, org_id):
-            raise BadRequestError("Invalid logo reference")
-        return key
 
     def _balances(self, org_id: int) -> dict[int, Decimal]:
         rows = self.db.execute(
@@ -117,9 +108,7 @@ class BankAccountService:
         self.db.add(account)
         self.db.flush()
 
-        data = payload.model_dump()
-        data["logo_key"] = self._logo_key(org_id, data.get("logo_key"))
-        bank = BankAccount(org_id=org_id, account_id=account.id, **data)
+        bank = BankAccount(org_id=org_id, account_id=account.id, **payload.model_dump())
         self.db.add(bank)
         self.db.flush()
         self.activity.record(
@@ -135,7 +124,7 @@ class BankAccountService:
         if "account_number" in fields and payload.account_number:
             self._ensure_unique_number(org_id, payload.account_number, exclude_id=bank_id)
         for field, value in payload.model_dump(exclude_unset=True).items():
-            setattr(bank, field, self._logo_key(org_id, value) if field == "logo_key" else value)
+            setattr(bank, field, value)
         if {"bank_name", "account_title"} & fields:
             bank.account.name = f"{bank.bank_name} — {bank.account_title}"
         self.activity.record(

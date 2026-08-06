@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, status
 from app.api.deps import require_permission
 from app.core.container import Provide
 from app.core.responses import EnvelopeRoute
-from app.modules.banks.catalog import PAKISTANI_BANKS
+from app.modules.banks.catalog import PAKISTANI_BANKS, logo_key
 from app.modules.banks.schemas import (
     BankAccountCreate,
     BankAccountRead,
@@ -23,7 +23,13 @@ Svc = Depends(Provide(BankAccountService))
 def bank_catalog(
     membership: Membership = Depends(require_permission("accounting:read")),
 ) -> list[dict]:
-    return PAKISTANI_BANKS
+    from app.core.storage import get_storage
+
+    storage = get_storage()
+    return [
+        {**bank, "logo_url": storage.url_for(logo_key(bank["logo"]))}
+        for bank in PAKISTANI_BANKS
+    ]
 
 
 @router.get("/accounts", response_model=list[BankAccountRead])

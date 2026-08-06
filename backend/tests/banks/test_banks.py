@@ -1,3 +1,4 @@
+import pathlib
 from decimal import Decimal
 
 import pytest
@@ -26,9 +27,8 @@ def _payload(**overrides) -> BankAccountCreate:
         bank_code="MEZN",
         account_title="Acme Trading",
         account_number="0102030405",
-        iban="PK36MEZN0000001234567890",
+        iban="PK36SCBL0000001123456702",
         branch="Gulberg",
-        colour="#00694E",
     )
     data.update(overrides)
     return BankAccountCreate(**data)
@@ -52,7 +52,7 @@ def test_each_account_gets_a_distinct_code(db):
     org_id = _org(db)
     svc = BankAccountService(db)
     first = svc.create(org_id, _payload())
-    second = svc.create(org_id, _payload(account_number="0999", account_title="Payroll"))
+    second = svc.create(org_id, _payload(account_number="0999888777", account_title="Payroll"))
 
     codes = {db.get(Account, first.account_id).code, db.get(Account, second.account_id).code}
     assert codes == {"1121", "1122"}
@@ -123,11 +123,71 @@ def test_the_catalog_lists_pakistani_banks(db):
     assert all(b["colour"].startswith("#") for b in PAKISTANI_BANKS)
 
 
-def test_every_catalog_bank_points_at_a_logo_asset(db):
-    from app.modules.banks.catalog import PAKISTANI_BANKS
+def test_every_catalog_bank_ships_its_artwork(db):
+
+    from app.modules.banks.catalog import LOGO_DIR, PAKISTANI_BANKS, logo_key
+
+    codes = {bank["code"] for bank in PAKISTANI_BANKS}
+    assert len(codes) == len(PAKISTANI_BANKS)  # codes are unique
+
+    import app.modules.banks.catalog as catalog_module
+
+    source = pathlib.Path(catalog_module.__file__).parent / LOGO_DIR
+    for bank in PAKISTANI_BANKS:
+        assert bank["logo"] == f"{bank['code'].lower()}.png"
+        assert logo_key(bank["logo"]) == f"catalog/banks/{bank['logo']}"
+    # Only U Microfinance is still without artwork.
+    missing = [b["code"] for b in PAKISTANI_BANKS if not (source / b["logo"]).is_file()]
+    assert missing == ["UMBL"]
+
+
+def test_the_catalog_is_served_with_resolvable_urls(db):
+    from app.core.storage import get_storage
+    from app.modules.banks.catalog import PAKISTANI_BANKS, logo_key
     from app.modules.banks.schemas import BankOption
 
-    options = [BankOption(**bank) for bank in PAKISTANI_BANKS]
-    assert len(options) == len({o.code for o in options})  # codes are unique
-    for option in options:
-        assert option.logo == f"/bank-logos/{option.code.lower()}.png"
+    storage = get_storage()
+    options = [
+        BankOption(**bank, logo_url=storage.url_for(logo_key(bank["logo"])))
+        for bank in PAKISTANI_BANKS
+    ]
+    # Absolute, so any origin — and the PDF renderer — can use it.
+    assert all(o.logo_url.startswith(("http://", "https://")) for o in options)
+    assert options[0].logo_url.endswith("/catalog/banks/hbl.png")
+
+
+@pytest.mark.parametrize(
+    "number",
+    ["445889652215236322das23132123123sad32as1d32as", "123", "abcdef", ""],
+)
+def test_junk_account_numbers_are_refused(db, number):
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError):
+        _payload(account_number=number)
+
+
+def test_account_numbers_are_normalised(db):
+    assert _payload(account_number="0102 0304 05").account_number == "0102030405"
+    assert _payload(account_number="0102-0304-05").account_number == "0102-0304-05"
+
+
+@pytest.mark.parametrize(
+    "iban",
+    [
+        "1as23d123as1d23as1d32as1d2as",  # not an IBAN at all
+        "PK99SCBL0000001123456702",  # right shape, wrong check digits
+        "PK36SCBL",  # too short
+    ],
+)
+def test_bad_ibans_are_refused(db, iban):
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError):
+        _payload(iban=iban)
+
+
+def test_valid_ibans_are_normalised_and_optional(db):
+    assert _payload(iban="pk36 scbl 0000 0011 2345 6702").iban == "PK36SCBL0000001123456702"
+    assert _payload(iban="").iban is None
+    assert _payload(iban=None).iban is None

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ColorPicker, Switch } from "antd";
+import { Switch } from "antd";
 import { Plus } from "lucide-react";
 import type { ColumnsType } from "antd/es/table";
 
@@ -17,7 +17,6 @@ import {
   Select,
   Tag,
 } from "@/components/ui";
-import { Uploader } from "@/components/ui/Uploader";
 import { errorState } from "@/components/ui/QueryFallback";
 import { BankBadge } from "@/components/banks/BankBadge";
 import {
@@ -30,7 +29,8 @@ import {
 import { useCurrency } from "@/hooks/useCurrency";
 import { useCan } from "@/hooks/useSession";
 import { apiErrorMessage } from "@/lib/api";
-import type { BankAccount, UploadedFile } from "@/types";
+import { validateIban } from "@/lib/iban";
+import type { BankAccount } from "@/types";
 
 interface FormValues {
   bank_name: string;
@@ -38,7 +38,6 @@ interface FormValues {
   account_number: string;
   iban?: string;
   branch?: string;
-  colour?: string | { toHexString: () => string };
   is_active?: boolean;
 }
 
@@ -53,15 +52,15 @@ export default function BanksPage() {
   const del = useDeleteBankAccount();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<BankAccount | null>(null);
-  const [logo, setLogo] = useState<UploadedFile[]>([]);
   const [form] = Form.useForm<FormValues>();
 
   const canEdit = can("accounting:update");
+  const bankOf = (row: BankAccount) =>
+    catalog.data?.find((bank) => bank.code === row.bank_code);
   const dash = <span className="text-gray-400">—</span>;
 
   const openCreate = () => {
     setEditing(null);
-    setLogo([]);
     form.resetFields();
     form.setFieldsValue({ is_active: true });
     setOpen(true);
@@ -69,39 +68,20 @@ export default function BanksPage() {
 
   const openEdit = (row: BankAccount) => {
     setEditing(row);
-    setLogo(
-      row.logo_key && row.logo_url ? [{ storage_key: row.logo_key, url: row.logo_url }] : [],
-    );
     form.setFieldsValue({
       bank_name: row.bank_name,
       account_title: row.account_title,
       account_number: row.account_number,
       iban: row.iban ?? undefined,
       branch: row.branch ?? undefined,
-      colour: row.colour ?? undefined,
       is_active: row.is_active,
     });
     setOpen(true);
   };
 
-  /** Picking a bank from the catalogue pre-fills its brand colour. */
-  const onPickBank = (name: string) => {
-    const known = catalog.data?.find((bank) => bank.name === name);
-    if (known) form.setFieldsValue({ colour: known.colour });
-  };
-
   const submit = async (values: FormValues) => {
-    const colour =
-      typeof values.colour === "object" && values.colour !== null
-        ? values.colour.toHexString()
-        : values.colour;
     const known = catalog.data?.find((bank) => bank.name === values.bank_name);
-    const payload = {
-      ...values,
-      colour: colour || null,
-      bank_code: known?.code ?? null,
-      logo_key: logo[0]?.storage_key ?? null,
-    };
+    const payload = { ...values, bank_code: known?.code ?? null };
     try {
       if (editing) await update.mutateAsync({ id: editing.id, payload });
       else await create.mutateAsync(payload);
@@ -127,12 +107,7 @@ export default function BanksPage() {
       key: "bank",
       render: (_, row) => (
         <div className="flex items-center gap-3">
-          <BankBadge
-            name={row.bank_name}
-            colour={row.colour}
-            logoUrl={row.logo_url}
-            catalogLogo={catalog.data?.find((b) => b.code === row.bank_code)?.logo}
-          />
+          <BankBadge name={row.bank_name} colour={bankOf(row)?.colour} logoUrl={bankOf(row)?.logo_url} />
           <div>
             <div className="font-medium">{row.bank_name}</div>
             <div className="text-xs text-gray-500">{row.account_title}</div>
@@ -221,41 +196,60 @@ export default function BanksPage() {
             showSearch
             allowClear={false}
             placeholder="Select or type a bank"
-            optionFilterProp="label"
-            onChange={onPickBank}
+            filterOption={(input, option) =>
+              String(option?.title ?? "").toLowerCase().includes(input.toLowerCase())
+            }
             options={(catalog.data ?? []).map((bank) => ({
               value: bank.name,
-              label: bank.name,
+              title: bank.name,
+              label: (
+                <div className="flex items-center gap-2">
+                  <BankBadge
+                    name={bank.name}
+                    colour={bank.colour}
+                    logoUrl={bank.logo_url}
+                    size={22}
+                  />
+                  <span>{bank.name}</span>
+                </div>
+              ),
             }))}
           />
         </Form.Item>
-        <Form.Item name="account_title" label="Account title" rules={[{ required: true }]}>
+        <Form.Item
+          name="account_title"
+          label="Account title"
+          rules={[
+            { required: true, message: "Enter the name the account is held in" },
+            { min: 2, message: "That looks too short" },
+          ]}
+        >
           <Input placeholder="The name the account is held in" />
         </Form.Item>
-        <Form.Item name="account_number" label="Account number" rules={[{ required: true }]}>
-          <Input placeholder="e.g. 0102030405" />
+        <Form.Item
+          name="account_number"
+          label="Account number"
+          normalize={(value?: string) => value?.replace(/\s/g, "")}
+          rules={[
+            { required: true, message: "Enter the account number" },
+            {
+              pattern: /^[0-9][0-9-]{5,29}$/,
+              message: "Digits only, 6-30 of them, optionally grouped with dashes",
+            },
+          ]}
+        >
+          <Input placeholder="e.g. 0102030405" inputMode="numeric" />
         </Form.Item>
-        <Form.Item name="iban" label="IBAN">
-          <Input placeholder="PK00XXXX0000000000000000" />
+        <Form.Item
+          name="iban"
+          label="IBAN"
+          normalize={(value?: string) => value?.replace(/\s/g, "").toUpperCase()}
+          rules={[{ validator: (_, value) => validateIban(value) }]}
+        >
+          <Input placeholder="PK36SCBL0000001123456702" />
         </Form.Item>
         <Form.Item name="branch" label="Branch">
           <Input placeholder="Optional" />
-        </Form.Item>
-        <Form.Item name="colour" label="Brand colour">
-          <ColorPicker showText />
-        </Form.Item>
-        <Form.Item
-          label="Logo"
-          extra="Only needed to override the logo shipped for this bank."
-        >
-          <Uploader
-            value={logo}
-            onChange={setLogo}
-            maxCount={1}
-            accept="image/*"
-            maxSizeMB={2}
-            drag={false}
-          />
         </Form.Item>
         {editing && (
           <Form.Item name="is_active" label="Active" valuePropName="checked">

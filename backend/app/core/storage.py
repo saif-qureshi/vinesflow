@@ -17,6 +17,8 @@ from app.core.config import settings
 
 _MEDIA_CACHE_CONTROL = "public, max-age=31536000, immutable"
 _KEY_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+# Objects shared by every org rather than owned by one, e.g. bank logos.
+CATALOG_ROOT = "catalog"
 
 
 @dataclass
@@ -55,13 +57,20 @@ def is_safe_key(key: str) -> bool:
             return False
         key = key[len(prefix) :]
     segments = key.split("/")
-    if len(segments) < 2 or not segments[0].startswith("org-"):
+    root = segments[0]
+    if len(segments) < 2 or not (root == CATALOG_ROOT or root.startswith("org-")):
         return False
     return all(_KEY_SEGMENT.fullmatch(segment) for segment in segments)
 
 
 def belongs_to_org(key: str, org_id: int) -> bool:
+    """Deliberately excludes catalog keys: a client may reference its own
+    objects only, never the shared ones."""
     return is_safe_key(key) and key.startswith(org_key_prefix(org_id))
+
+
+def catalog_key(*parts: str) -> str:
+    return f"{settings.MEDIA_KEY_PREFIX}{CATALOG_ROOT}/" + "/".join(parts)
 
 
 class Storage(Protocol):
@@ -130,7 +139,11 @@ class S3Storage:
         import boto3  # imported lazily so dev doesn't need it
 
         self.client = boto3.client(
-            "s3", region_name=settings.S3_REGION, endpoint_url=settings.S3_ENDPOINT_URL
+            "s3",
+            region_name=settings.S3_REGION,
+            endpoint_url=settings.S3_ENDPOINT_URL,
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID or None,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY or None,
         )
         self.bucket = settings.S3_BUCKET
 

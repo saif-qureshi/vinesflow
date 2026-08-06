@@ -29,6 +29,17 @@ def _enable_self_service_for_existing_tests(monkeypatch):
     monkeypatch.setattr(settings, "SELF_SERVICE_ORG_CREATION_ENABLED", True)
 
 
+@pytest.fixture(autouse=True)
+def _keep_storage_local(monkeypatch, tmp_path):
+    """Whatever a developer's .env points at, tests write to a temp directory —
+    never to a real bucket — and see unprefixed keys."""
+    monkeypatch.setattr(settings, "STORAGE_BACKEND", "local")
+    monkeypatch.setattr(settings, "MEDIA_LOCAL_DIR", str(tmp_path / "media"))
+    monkeypatch.setattr(settings, "MEDIA_KEY_PREFIX", "")
+    monkeypatch.setattr(settings, "AWS_ACCESS_KEY_ID", None)
+    monkeypatch.setattr(settings, "AWS_SECRET_ACCESS_KEY", None)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _create_test_database() -> Iterator[None]:
     admin = create_engine(f"{_BASE_URL}/postgres", isolation_level="AUTOCOMMIT")

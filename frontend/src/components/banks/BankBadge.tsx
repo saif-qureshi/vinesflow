@@ -2,24 +2,21 @@
 
 import { useState } from "react";
 
-/** Shows, in order of preference: the logo this org uploaded, the shared logo
- *  shipped for that bank, or its initials on the brand colour. Falls through
- *  on load failure, so a bank with no artwork yet still renders. */
+/** The bank's artwork, or its initials on the brand colour when it has none —
+ *  including when the image fails to load. */
 export function BankBadge({
   name,
   colour,
   logoUrl,
-  catalogLogo,
   size = 40,
 }: {
   name: string;
   colour?: string | null;
   logoUrl?: string | null;
-  catalogLogo?: string | null;
   size?: number;
 }) {
-  const [failed, setFailed] = useState<string | null>(null);
-  const src = [logoUrl, catalogLogo].find((candidate) => candidate && candidate !== failed);
+  const [failed, setFailed] = useState(false);
+  const src = logoUrl && !failed ? logoUrl : null;
 
   const initials = name
     .split(/\s+/)
@@ -36,7 +33,7 @@ export function BankBadge({
         alt={name}
         width={size}
         height={size}
-        onError={() => setFailed(src)}
+        onError={() => setFailed(true)}
         className="shrink-0 rounded-lg border border-gray-100 bg-white object-contain p-1"
         style={{ width: size, height: size }}
       />
