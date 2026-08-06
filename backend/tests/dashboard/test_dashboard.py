@@ -64,3 +64,29 @@ def test_dashboard_summary_empty_org(db):
     assert s.kpis.revenue_delta_pct is None
     assert len(s.revenue_series) == 6
     assert s.recent_invoices == []
+
+
+def test_revenue_excludes_tax_and_nets_off_credit_notes(db):
+    from app.modules.documents.models import CreditNote
+
+    org, cust = _setup(db)
+    today = date(2026, 7, 25)
+    invoice = Invoice(
+        org_id=org.id, party_id=cust.id, status="sent", number="INV-0001",
+        issue_date=today, due_date=today, total=Decimal("1180"), amount_paid=Decimal(0),
+        payment_status="unpaid", subtotal=Decimal("1000"), discount_total=Decimal(0),
+        tax_total=Decimal("180"), shipping=Decimal(0), adjustment=Decimal(0),
+    )
+    note = CreditNote(
+        org_id=org.id, party_id=cust.id, status="sent", number="CN-0001",
+        issue_date=today, total=Decimal("236"), subtotal=Decimal("200"),
+        discount_total=Decimal(0), tax_total=Decimal("36"),
+        shipping=Decimal(0), adjustment=Decimal(0),
+    )
+    db.add_all([invoice, note])
+    db.flush()
+
+    s = DashboardService(db).summary(org.id, today)
+    # 1000 sold less 200 returned; the 216 of sales tax is not revenue.
+    assert s.kpis.revenue == Decimal("800")
+    assert s.revenue_series[-1].revenue == Decimal("800")

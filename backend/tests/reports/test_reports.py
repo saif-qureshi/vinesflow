@@ -180,3 +180,26 @@ def test_statements_opt_out_of_column_filters(db):
     meta = ReportService(db).metadata("profit_and_loss", org_id)
     assert meta["supports_filters"] is False
     assert ReportService(db).metadata("sales_by_item", org_id)["supports_filters"] is True
+
+
+def test_sales_reports_net_off_credit_notes(db):
+    from app.modules.documents.models import Document
+
+    org_id = _setup(db)
+    docs = DocumentService(db)
+    invoice = db.scalar(
+        select(Document).where(
+            Document.org_id == org_id, Document.type == DocumentType.INVOICE
+        )
+    )
+    # Sold 2 at 100; the whole lot comes back.
+    note = docs.convert(org_id, invoice.id, DocumentType.INVOICE, DocumentType.CREDIT_NOTE)
+    docs.finalize(org_id, note.id)
+
+    svc = ReportService(db)
+    by_customer = svc.run(org_id, "sales_by_customer", {})
+    assert by_customer.grand_total["amount"] == Decimal("0")
+
+    by_item = svc.run(org_id, "sales_by_item", {})
+    assert by_item.grand_total["amount"] == Decimal("0")
+    assert by_item.grand_total["quantity"] == Decimal("0")

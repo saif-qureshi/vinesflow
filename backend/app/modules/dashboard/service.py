@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.dashboard.schemas import (
@@ -31,6 +31,21 @@ class DashboardService:
         self.db = db
 
     @staticmethod
+    def _sales(org_id: int):
+        """Invoices and the credit notes that reduce them."""
+        return and_(
+            Document.org_id == org_id,
+            Document.type.in_([DocumentType.INVOICE, DocumentType.CREDIT_NOTE]),
+            Document.status == DocumentStatus.SENT,
+        )
+
+    @staticmethod
+    def _net_revenue():
+        """Revenue as the ledger sees it: excluding tax, net of returns."""
+        sign = case((Document.type == DocumentType.CREDIT_NOTE, -1), else_=1)
+        return sign * (Document.total - Document.tax_total - Document.further_tax_total)
+
+    @staticmethod
     def _outstanding():
         return Document.total - Document.amount_paid - Document.amount_credited
 
@@ -48,12 +63,16 @@ class DashboardService:
 
         this_start = _month_start(today)
         last_start = _month_start(this_start - timedelta(days=1))
+        sales = self._sales(org_id)
+        revenue = self._net_revenue()
         rev_this = self.db.scalar(
-            select(func.coalesce(func.sum(Document.total), 0)).where(inv, Document.issue_date >= this_start)
+            select(func.coalesce(func.sum(revenue), 0)).where(
+                sales, Document.issue_date >= this_start
+            )
         ) or _ZERO
         rev_last = self.db.scalar(
-            select(func.coalesce(func.sum(Document.total), 0)).where(
-                inv, Document.issue_date >= last_start, Document.issue_date < this_start
+            select(func.coalesce(func.sum(revenue), 0)).where(
+                sales, Document.issue_date >= last_start, Document.issue_date < this_start
             )
         ) or _ZERO
         delta = round(float((rev_this - rev_last) / rev_last * 100), 1) if rev_last else None
@@ -87,7 +106,8 @@ class DashboardService:
         )
 
     def _revenue_series(self, org_id: int, today: date, months: int = 6) -> list[RevenuePoint]:
-        inv = self._invoices(org_id)
+        sales = self._sales(org_id)
+        revenue = self._net_revenue()
         starts: list[date] = []
         cursor = _month_start(today)
         for _ in range(months):
@@ -97,8 +117,8 @@ class DashboardService:
         for start in reversed(starts):
             nxt = _month_start(start + timedelta(days=32))
             total = self.db.scalar(
-                select(func.coalesce(func.sum(Document.total), 0)).where(
-                    inv, Document.issue_date >= start, Document.issue_date < nxt
+                select(func.coalesce(func.sum(revenue), 0)).where(
+                    sales, Document.issue_date >= start, Document.issue_date < nxt
                 )
             ) or _ZERO
             points.append(RevenuePoint(month=_MONTHS[start.month - 1], revenue=total))
