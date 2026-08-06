@@ -120,6 +120,33 @@ def test_invalid_category_ref_raises_not_found(db):
         ProductService(db).create(org_id, ProductCreate(name="A", category_id=4242))
 
 
+def test_delete_is_blocked_once_stock_history_exists(db):
+    from decimal import Decimal
+
+    from app.modules.inventory.models import StockMovement
+    from app.modules.inventory.schemas import StockAdjustInput
+    from app.modules.inventory.service import InventoryService
+    from app.modules.locations.models import Location
+
+    org_id = _org(db)
+    svc = ProductService(db)
+    product = svc.create(
+        org_id,
+        ProductCreate(name="Tracked", uom_id=_uom(db, org_id), track_inventory=True),
+    )
+    location_id = db.scalar(select(Location.id).where(Location.org_id == org_id))
+    InventoryService(db).adjust(
+        org_id,
+        StockAdjustInput(product_id=product.id, location_id=location_id, qty_delta=Decimal(5)),
+    )
+
+    with pytest.raises(ConflictError):
+        svc.delete(org_id, product.id)
+    assert db.scalar(
+        select(StockMovement.id).where(StockMovement.product_id == product.id).limit(1)
+    )
+
+
 def test_delete_removes_media(db):
     org_id = _org(db)
     svc = ProductService(db)

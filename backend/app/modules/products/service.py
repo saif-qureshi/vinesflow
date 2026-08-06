@@ -286,7 +286,21 @@ class ProductService:
         return product
 
     def delete(self, org_id: int, product_id: int) -> None:
+        from app.modules.documents.models import DocumentLine
+        from app.modules.inventory.models import StockMovement
+
         product = self.get(org_id, product_id)
+        product_ids = [product.id, *(variant.id for variant in product.variants)]
+        if self.db.scalar(
+            select(StockMovement.id)
+            .where(StockMovement.org_id == org_id, StockMovement.product_id.in_(product_ids))
+            .limit(1)
+        ):
+            raise ConflictError("Item has stock history; deactivate it instead")
+        if self.db.scalar(
+            select(DocumentLine.id).where(DocumentLine.product_id.in_(product_ids)).limit(1)
+        ):
+            raise ConflictError("Item is used on documents; deactivate it instead")
         self.activity.record(org_id, "deleted", "product", product.name, entity_id=product_id)
         self.media.delete_for(org_id, PRODUCT_MEDIA_TYPE, product_id)
         self.db.delete(product)

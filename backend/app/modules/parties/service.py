@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import BadRequestError, NotFoundError
+from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.core.pagination import paginate_cursor
 from app.core.storage import belongs_to_org
 from app.modules.activities.service import ActivityService
@@ -102,7 +102,24 @@ class PartyService:
         return party
 
     def delete(self, org_id: int, party_id: int) -> None:
+        from app.modules.accounting.models import LedgerEntry
+        from app.modules.documents.models import Document
+        from app.modules.expenses.models import Expense
+        from app.modules.payments.models import Payment
+
         party = self.get(org_id, party_id)
+        references = [
+            (Document, Document.party_id),
+            (Payment, Payment.party_id),
+            (LedgerEntry, LedgerEntry.party_id),
+            (Expense, Expense.vendor_id),
+            (Expense, Expense.customer_id),
+        ]
+        for model, column in references:
+            if self.db.scalar(
+                select(model.id).where(model.org_id == org_id, column == party_id).limit(1)
+            ):
+                raise ConflictError("Party has transaction history; deactivate it instead")
         self.activity.record(org_id, "deleted", _entity_type(party), party.name, entity_id=party_id)
         self.db.delete(party)
         self.db.commit()
