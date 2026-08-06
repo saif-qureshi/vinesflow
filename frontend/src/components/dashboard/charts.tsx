@@ -19,7 +19,7 @@ import {
 import { useCurrency } from "@/hooks/useCurrency";
 import { useAppTheme } from "@/hooks/useSession";
 
-const STATUS_COLOR: Record<string, string> = { Paid: "#16a34a", Pending: "#f59e0b", Overdue: "#dc2626" };
+const STATUS_COLOR: Record<string, string> = { Settled: "#16a34a", Pending: "#f59e0b", Overdue: "#dc2626" };
 const AXIS = { tickLine: false, axisLine: false, tickMargin: 8, fontSize: 12, stroke: "#94a3b8" } as const;
 
 export function RevenueChart({ data }: { data: { month: string; revenue: number }[] }) {

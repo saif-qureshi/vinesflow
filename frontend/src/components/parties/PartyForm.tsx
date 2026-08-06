@@ -10,7 +10,7 @@ import { Uploader } from "@/components/ui/Uploader";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useCreateParty, useUpdateParty } from "@/hooks/useParties";
 import { apiErrorMessage } from "@/lib/api";
-import type { Address, Party, PartyInput, PartyRole } from "@/types";
+import type { Address, Party, PartyInput, PartyRole, UploadedFile } from "@/types";
 import { CURRENCIES, PAYMENT_TERMS, SALUTATIONS } from "./constants";
 
 interface FormValues {
@@ -49,7 +49,11 @@ export function PartyForm({ party }: { party?: Party }) {
   const create = useCreateParty();
   const update = useUpdateParty();
   const [form] = Form.useForm<FormValues>();
-  const [avatar, setAvatar] = useState<string[]>(() => (party?.avatar_url ? [party.avatar_url] : []));
+  const [avatar, setAvatar] = useState<UploadedFile[]>(() =>
+    party?.avatar_key && party.avatar_url
+      ? [{ storage_key: party.avatar_key, url: party.avatar_url }]
+      : [],
+  );
 
   const isEdit = !!party;
   const type = Form.useWatch("type", form);
@@ -91,7 +95,7 @@ export function PartyForm({ party }: { party?: Party }) {
     const payload: PartyInput = {
       type: values.type,
       name: values.name,
-      avatar_url: avatar[0] || null,
+      avatar_key: avatar[0]?.storage_key ?? null,
       company_name: values.company_name || null,
       salutation: values.salutation || null,
       first_name: values.first_name || null,

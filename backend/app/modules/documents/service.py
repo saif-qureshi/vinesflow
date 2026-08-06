@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, noload
 
 from app.core import ledger as _ledger
 from app.core.exceptions import AppError, BadRequestError, ConflictError, NotFoundError
@@ -41,6 +41,7 @@ from app.modules.documents.schemas import (
     TaxRateCreate,
 )
 from app.modules.fbr.models import FbrSubmissionAttempt
+from app.modules.inventory.models import StockMovement
 from app.modules.inventory.service import InventoryService
 from app.modules.inventory.tracking_service import TrackingService
 from app.modules.locations.models import Location
@@ -253,17 +254,27 @@ class DocumentService:
             return product.parent.media[0].url
         return None
 
-    def apply_settlement(self, doc: Document, delta: Decimal) -> None:
-        paid = doc.amount_paid + delta
-        if paid < _ZERO:
-            paid = _ZERO
-        doc.amount_paid = paid
-        if paid <= _ZERO:
+    @staticmethod
+    def _recompute_settlement(doc: Document) -> None:
+        settled = doc.amount_paid + doc.amount_credited
+        if settled <= _ZERO:
             doc.payment_status = DocumentPaymentStatus.UNPAID
-        elif paid >= doc.total:
+        elif settled < doc.total:
+            doc.payment_status = DocumentPaymentStatus.PARTIAL
+        elif doc.amount_paid >= doc.total:
             doc.payment_status = DocumentPaymentStatus.PAID
         else:
-            doc.payment_status = DocumentPaymentStatus.PARTIAL
+            doc.payment_status = DocumentPaymentStatus.CREDITED
+
+    def apply_settlement(self, doc: Document, delta: Decimal) -> None:
+        """Record money received against the document."""
+        doc.amount_paid = max(doc.amount_paid + delta, _ZERO)
+        self._recompute_settlement(doc)
+
+    def apply_credit_settlement(self, doc: Document, delta: Decimal) -> None:
+        """Record value written back by a credit note. This is not cash."""
+        doc.amount_credited = max(doc.amount_credited + delta, _ZERO)
+        self._recompute_settlement(doc)
 
     def _tax_map(self, org_id: int, lines: list[DocumentLineInput]) -> dict[int, TaxRate]:
         ids = {line.tax_rate_id for line in lines if line.tax_rate_id is not None}
@@ -272,11 +283,15 @@ class DocumentService:
         rates = {
             r.id: r
             for r in self.db.scalars(
-                select(TaxRate).where(TaxRate.org_id == org_id, TaxRate.id.in_(ids))
+                select(TaxRate).where(
+                    TaxRate.org_id == org_id,
+                    TaxRate.id.in_(ids),
+                    TaxRate.is_active.is_(True),
+                )
             )
         }
         if len(rates) != len(ids):
-            raise NotFoundError("One or more tax rates were not found")
+            raise NotFoundError("One or more tax rates were not found or are no longer active")
         return rates
 
     def _validate_products(self, org_id: int, lines: list[DocumentLineInput]) -> None:
@@ -616,6 +631,9 @@ class DocumentService:
         if query.search:
             like = f"%{query.search.strip()}%"
             stmt = stmt.where(or_(Document.number.ilike(like), Document.reference.ilike(like)))
+        # DocumentListItem has no lines; without this the selectin loaders pull
+        # every line, allocation and serial for the page.
+        stmt = stmt.options(noload(Document.lines), noload(Document.credit_notes))
         return paginate_cursor(self.db, stmt, Document.id, query)
 
     def update(
@@ -647,13 +665,11 @@ class DocumentService:
             doc.shipping_address = party.shipping_address
         if "warehouse_id" in fields and payload.warehouse_id is not None:
             self._validate_warehouse(org_id, payload.warehouse_id)
-        for field in (
-            "issue_date",
-            "reference",
-            "warehouse_id",
-            "notes",
-            "terms",
-        ):
+        if "issue_date" in fields:
+            if payload.issue_date is None:
+                raise BadRequestError("An issue date is required")
+            doc.issue_date = payload.issue_date
+        for field in ("reference", "warehouse_id", "notes", "terms"):
             if field in fields:
                 setattr(doc, field, getattr(payload, field))
         if doc_type in FINANCIAL_TYPES and "due_date" in fields:
@@ -776,13 +792,18 @@ class DocumentService:
         customer no longer owes for goods they returned."""
         if doc.type != DocumentType.CREDIT_NOTE or doc.source_document_id is None:
             return
-        source = self.db.get(Document, doc.source_document_id)
-        if source is None or source.org_id != org_id or source.status != DocumentStatus.SENT:
+        # Locked because a payment being submitted settles the same invoice; an
+        # unlocked read here lets both commit against a stale balance.
+        source = self.db.scalar(
+            select(Document)
+            .where(Document.id == doc.source_document_id, Document.org_id == org_id)
+            .with_for_update()
+        )
+        if source is None or source.status != DocumentStatus.SENT:
             return
-        outstanding = source.total - source.amount_paid
-        if doc.total > outstanding:
+        if doc.total > source.balance_due:
             raise BadRequestError(f"Credit exceeds the balance due on {source.number}")
-        self.apply_settlement(source, doc.total)
+        self.apply_credit_settlement(source, doc.total)
         doc.settled_amount = doc.total
 
     def _reverse_credit(self, doc: Document) -> None:
@@ -790,7 +811,7 @@ class DocumentService:
             return
         source = self.db.get(Document, doc.source_document_id)
         if source is not None:
-            self.apply_settlement(source, -doc.settled_amount)
+            self.apply_credit_settlement(source, -doc.settled_amount)
         doc.settled_amount = _ZERO
 
     def _guard_fbr_credit_note(self, org_id: int, source: Document) -> None:
@@ -1047,36 +1068,6 @@ class DocumentService:
         self._validate_tracking(org_id, doc, moves_stock=moves_stock)
         if moves_stock and doc.stock_direction < 0:
             self._preflight_outbound_stock(org_id, doc)
-        if doc.type in (DocumentType.INVOICE, DocumentType.CREDIT_NOTE):
-            from app.modules.fbr.service import FbrService
-
-            try:
-                result = FbrService(self.db).submit_invoice(org_id, doc)
-            except AppError as exc:
-                failed_org_id = doc.org_id
-                failed_document_id = doc.id
-                self.db.rollback()
-                self.db.add(
-                    FbrSubmissionAttempt(
-                        org_id=failed_org_id,
-                        document_id=failed_document_id,
-                        status="failed",
-                        error=exc.message,
-                    )
-                )
-                self.db.commit()
-                raise
-            if result:
-                doc.fbr_invoice_number = result["invoice_number"]
-                doc.fbr_response = result["response"]
-                doc.fbr_submitted_at = datetime.now(UTC)
-                self.db.add(
-                    FbrSubmissionAttempt(
-                        org_id=doc.org_id,
-                        document_id=doc.id,
-                        status="submitted",
-                    )
-                )
         self._apply_credit(org_id, doc)
         if moves_stock:
             self._post_stock(org_id, doc, reverse=False)
@@ -1086,9 +1077,61 @@ class DocumentService:
         if source is not None and source.type in CLOSED_ON_CONVERT:
             source.status = DocumentStatus.CLOSED
         self.activity.record(org_id, "finalized", doc.type, doc.number, entity_id=doc.id)
-        self.db.commit()
+        # Filed last: everything that can still fail has already succeeded, so a
+        # rollback can no longer discard an invoice the authority has accepted.
+        filed = self._file_with_fbr(org_id, doc) if doc.type in FBR_TYPES else False
+        self._commit_filed(doc, filed=filed)
         self.db.refresh(doc)
         return doc
+
+    def _file_with_fbr(self, org_id: int, doc: Document) -> bool:
+        from app.modules.fbr.service import FbrService
+
+        try:
+            result = FbrService(self.db).submit_invoice(org_id, doc)
+        except AppError as exc:
+            failed_org_id = doc.org_id
+            failed_document_id = doc.id
+            self.db.rollback()
+            self.db.add(
+                FbrSubmissionAttempt(
+                    org_id=failed_org_id,
+                    document_id=failed_document_id,
+                    status="failed",
+                    error=exc.message,
+                )
+            )
+            self.db.commit()
+            raise
+        if not result:
+            return False
+        doc.fbr_invoice_number = result["invoice_number"]
+        doc.fbr_response = result["response"]
+        doc.fbr_submitted_at = datetime.now(UTC)
+        self.db.add(
+            FbrSubmissionAttempt(org_id=doc.org_id, document_id=doc.id, status="submitted")
+        )
+        return True
+
+    def _commit_filed(self, doc: Document, *, filed: bool) -> None:
+        org_id, doc_id, number = doc.org_id, doc.id, doc.fbr_invoice_number
+        try:
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            if filed:
+                # The authority holds this invoice even though we could not store
+                # it. Leave a durable trace so the mismatch is discoverable.
+                self.db.add(
+                    FbrSubmissionAttempt(
+                        org_id=org_id,
+                        document_id=doc_id,
+                        status="submitted",
+                        error=f"Filed with FBR as {number} but the local commit failed",
+                    )
+                )
+                self.db.commit()
+            raise
 
     def void(self, org_id: int, doc_id: int, expected_type: DocumentType | None = None) -> Document:
         doc = self._get_for_update(org_id, doc_id)
@@ -1171,6 +1214,18 @@ class DocumentService:
                     f"Not enough stock for {products[product_id].name} at the selected warehouse"
                 )
 
+    def _posted_unit_costs(
+        self, org_id: int, doc: Document
+    ) -> dict[tuple[int, int | None, int | None], Decimal | None]:
+        movements = self.db.scalars(
+            select(StockMovement).where(
+                StockMovement.org_id == org_id,
+                StockMovement.reference_type == doc.type,
+                StockMovement.reference_id == doc.id,
+            )
+        )
+        return {(m.product_id, m.bin_id, m.lot_id): m.unit_cost for m in movements}
+
     def _post_stock(self, org_id: int, doc: Document, reverse: bool) -> None:
         if doc.stock_direction == 0 or doc.warehouse_id is None:
             return
@@ -1190,13 +1245,17 @@ class DocumentService:
             )
         }
         direction = -doc.stock_direction if reverse else doc.stock_direction
+        # A reversal must undo the value it originally posted, not today's price,
+        # or the movement values for the pair fail to net to zero.
+        original_costs = self._posted_unit_costs(org_id, doc) if reverse else {}
         for line in trackable:
             product = products.get(line.product_id)
             if product is None or not product.track_inventory:
                 continue
-            unit_cost = line.unit_price if doc.stock_direction > 0 else product.purchase_price
+            unit_cost = line.unit_price if doc.priced_at_cost else product.purchase_price
             if product.tracking_mode == "lot":
                 for allocation in line.lot_allocations:
+                    key = (line.product_id, line.bin_id, allocation.lot_id)
                     self.inventory.post_document_movement(
                         org_id=org_id,
                         product_id=line.product_id,
@@ -1205,11 +1264,12 @@ class DocumentService:
                         type_=doc.movement_type,
                         reference_type=doc.type,
                         reference_id=doc.id,
-                        unit_cost=unit_cost,
+                        unit_cost=original_costs.get(key, unit_cost),
                         bin_id=line.bin_id,
                         lot_id=allocation.lot_id,
                     )
             else:
+                key = (line.product_id, line.bin_id, None)
                 movement = self.inventory.post_document_movement(
                     org_id=org_id,
                     product_id=line.product_id,
@@ -1218,7 +1278,7 @@ class DocumentService:
                     type_=doc.movement_type,
                     reference_type=doc.type,
                     reference_id=doc.id,
-                    unit_cost=unit_cost,
+                    unit_cost=original_costs.get(key, unit_cost),
                     bin_id=line.bin_id,
                 )
                 if product.tracking_mode == "serial":

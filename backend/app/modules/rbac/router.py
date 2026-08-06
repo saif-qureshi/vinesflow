@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, status
 
-from app.api.deps import CurrentMembership, require_permission
+from app.api.deps import require_permission
 from app.core.container import Provide
 from app.core.responses import EnvelopeRoute
 from app.modules.orgs.models import Membership
@@ -16,7 +16,10 @@ RbacSvc = Depends(Provide(RbacService))
 
 
 @router.get("/permissions", response_model=list[PermissionRead])
-def list_permissions(membership: CurrentMembership, rbac: RbacService = RbacSvc) -> list[Permission]:
+def list_permissions(
+    membership: Membership = Depends(require_permission("roles:read")),
+    rbac: RbacService = RbacSvc,
+) -> list[Permission]:
     return rbac.list_permissions()
 
 
@@ -34,7 +37,7 @@ def create_role(
     membership: Membership = Depends(require_permission("roles:create")),
     rbac: RbacService = RbacSvc,
 ) -> Role:
-    return rbac.create_role(org_id=membership.org_id, payload=payload)
+    return rbac.create_role(org_id=membership.org_id, actor=membership, payload=payload)
 
 
 @router.get("/roles/{role_id}", response_model=RoleRead)
@@ -53,7 +56,9 @@ def update_role(
     membership: Membership = Depends(require_permission("roles:update")),
     rbac: RbacService = RbacSvc,
 ) -> Role:
-    return rbac.update_role(org_id=membership.org_id, role_id=role_id, payload=payload)
+    return rbac.update_role(
+        org_id=membership.org_id, actor=membership, role_id=role_id, payload=payload
+    )
 
 
 @router.delete("/roles/{role_id}", status_code=status.HTTP_204_NO_CONTENT)

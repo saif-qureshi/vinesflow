@@ -1,7 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Descriptions, Spin, Table } from "antd";
+
+import { errorState, loadingState, notFoundState } from "@/components/ui/QueryFallback";
+import { Descriptions, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ArrowLeft, Ban, CheckCircle2, Trash2 } from "lucide-react";
 
@@ -25,18 +27,14 @@ export function PaymentView({ config, id }: { config: PaymentKindConfig; id: num
   const { message } = App.useApp();
   const { money } = useCurrency();
   const can = useCan();
-  const { data: pay, isLoading } = usePayment(config.apiPath, id);
+  const { data: pay, isLoading, error } = usePayment(config.apiPath, id);
   const submit = useSubmitPayment(config.apiPath);
   const cancel = useCancelPayment(config.apiPath);
   const del = useDeletePayment(config.apiPath);
 
-  if (isLoading || !pay) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <Spin size="large" />
-      </div>
-    );
-  }
+  if (error) return errorState(error);
+  if (isLoading) return loadingState();
+  if (!pay) return notFoundState();
 
   const dash = <span className="text-gray-400">—</span>;
   const meta = PAYMENT_STATUS_META[pay.status];

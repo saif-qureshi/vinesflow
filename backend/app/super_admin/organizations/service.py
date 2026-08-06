@@ -4,8 +4,9 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.crypto import encrypt_secret
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.core.security import hash_password
+from app.core.storage import belongs_to_org
 from app.modules.auth.service import AuthService
 from app.modules.orgs.models import Membership, Organization
 from app.modules.orgs.service import OrgService
@@ -84,6 +85,7 @@ class SuperAdminOrganizationService:
             strn=org.strn,
             cnic=org.cnic,
             address=org.address,
+            logo_key=org.logo_key,
             logo_url=org.logo_url,
             fbr_enabled=org.fbr_enabled,
             fbr_environment=org.fbr_environment,
@@ -186,9 +188,10 @@ class SuperAdminOrganizationService:
         else:
             address = payload.address.model_dump()
             org.address = address if any(address.values()) else None
-        org.logo_url = (
-            payload.logo_url.strip() if payload.logo_url and payload.logo_url.strip() else None
-        )
+        logo_key = payload.logo_key.strip() if payload.logo_key else ""
+        if logo_key and not belongs_to_org(logo_key, org.id):
+            raise BadRequestError("Invalid logo reference")
+        org.logo_key = logo_key or None
         if payload.fbr_enabled is not None:
             org.fbr_enabled = payload.fbr_enabled
         if payload.fbr_environment is not None:

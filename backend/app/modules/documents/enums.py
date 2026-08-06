@@ -26,6 +26,8 @@ class DocumentPaymentStatus(StrEnum):
     UNPAID = "unpaid"
     PARTIAL = "partial"
     PAID = "paid"
+    # Settled by credit notes rather than by money changing hands.
+    CREDITED = "credited"
 
 
 class DiscountType(StrEnum):

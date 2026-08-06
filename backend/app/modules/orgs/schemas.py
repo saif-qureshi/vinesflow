@@ -36,7 +36,7 @@ class OrgUpdate(BaseModel):
     cnic: str | None = Field(default=None, max_length=20)
     address: Address | None = None
     fiscal_year_start_month: int | None = Field(default=None, ge=1, le=12)
-    logo_url: str | None = Field(default=None, max_length=1024)
+    logo_key: str | None = Field(default=None, max_length=512)
     theme: str | None = Field(default=None, pattern="^(light|dark)$")
     accent_color: str | None = Field(default=None, min_length=4, max_length=9)
     keep_branding: bool | None = None
@@ -61,6 +61,7 @@ class OrgRead(BaseModel):
     cnic: str | None = None
     address: Address | None = None
     fiscal_year_start_month: int
+    logo_key: str | None = None
     logo_url: str | None = None
     theme: str
     accent_color: str

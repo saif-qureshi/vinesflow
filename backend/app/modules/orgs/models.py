@@ -6,6 +6,7 @@ from sqlalchemy import Boolean, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.storage import get_storage
 from app.db.base_class import Base, TimestampMixin
 
 if TYPE_CHECKING:
@@ -35,7 +36,7 @@ class Organization(Base, TimestampMixin):
     fiscal_year_start_month: Mapped[int] = mapped_column(
         default=7, server_default="7", nullable=False
     )
-    logo_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    logo_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # Branding / appearance
     theme: Mapped[str] = mapped_column(String(10), default="light", server_default="light", nullable=False)
     accent_color: Mapped[str] = mapped_column(
@@ -61,6 +62,10 @@ class Organization(Base, TimestampMixin):
     roles: Mapped[list[Role]] = relationship(
         back_populates="organization", cascade="all, delete-orphan"
     )
+
+    @property
+    def logo_url(self) -> str | None:
+        return get_storage().url_for(self.logo_key) if self.logo_key else None
 
     @property
     def fbr_sandbox_configured(self) -> bool:

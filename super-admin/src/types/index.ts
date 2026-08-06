@@ -97,6 +97,7 @@ export interface OrganizationDetail extends Organization {
   strn: string | null;
   cnic: string | null;
   address: OrganizationAddress | null;
+  logo_key: string | null;
   logo_url: string | null;
   fbr_enabled: boolean;
   fbr_environment: "sandbox" | "production";
@@ -133,7 +134,7 @@ export interface OrganizationUpdateInput {
   strn?: string;
   cnic?: string;
   address?: Partial<OrganizationAddress> | null;
-  logo_url?: string;
+  logo_key?: string;
   fbr_enabled?: boolean;
   fbr_environment?: "sandbox" | "production";
   fbr_province?: string;
@@ -166,4 +167,9 @@ export interface FbrSandboxTestResult {
 export interface OrganizationOwnerPasswordResult {
   owner_email: string;
   message: string;
+}
+
+export interface UploadedFile {
+  storage_key: string;
+  url: string;
 }

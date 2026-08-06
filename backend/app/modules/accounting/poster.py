@@ -13,6 +13,7 @@ from app.modules.accounting.models import AccountingVoucher
 from app.modules.accounting.service import JournalLine, PostingService
 from app.modules.documents.enums import DocumentType, PaymentDirection, PaymentMethod
 from app.modules.documents.models import Document
+from app.modules.expenses.totals import net_amounts
 from app.modules.inventory.models import StockMovement
 from app.modules.settings.service import SettingsService
 
@@ -411,10 +412,15 @@ class RealLedgerPoster:
         if self._already_posted(db, expense.org_id, source_type, expense.id):
             return
         org_id = expense.org_id
+        debits = net_amounts(
+            [line.amount for line in expense.lines],
+            expense.tax_amount,
+            is_tax_inclusive=expense.is_tax_inclusive,
+        )
         lines = [
-            JournalLine(account_id=line.account_id, debit=line.amount, party_id=expense.vendor_id)
-            for line in expense.lines
-            if line.amount != _ZERO
+            JournalLine(account_id=line.account_id, debit=amount, party_id=expense.vendor_id)
+            for line, amount in zip(expense.lines, debits, strict=True)
+            if amount != _ZERO
         ]
         if expense.tax_amount != _ZERO:
             lines.append(

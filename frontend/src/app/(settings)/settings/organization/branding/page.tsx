@@ -11,6 +11,7 @@ import { useCan, useSession } from "@/hooks/useSession";
 import { useUpdateOrg } from "@/hooks/useOrg";
 import { apiErrorMessage } from "@/lib/api";
 import { ACCENT_PRESETS } from "@/theme/tokens";
+import type { UploadedFile } from "@/types";
 
 type Patch = Parameters<ReturnType<typeof useUpdateOrg>["mutate"]>[0];
 
@@ -26,14 +27,16 @@ export default function BrandingPage() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [accent, setAccent] = useState("#2563eb");
   const [keepBranding, setKeepBranding] = useState(true);
-  const [logoUrl, setLogoUrl] = useState("");
+  const [logo, setLogo] = useState<UploadedFile[]>([]);
 
   useEffect(() => {
     if (!org) return;
     setTheme(org.theme);
     setAccent(org.accent_color);
     setKeepBranding(org.keep_branding);
-    setLogoUrl(org.logo_url ?? "");
+    setLogo(
+      org.logo_key && org.logo_url ? [{ storage_key: org.logo_key, url: org.logo_url }] : [],
+    );
   }, [org]);
 
   // Auto-save: every change persists immediately and applies once refetched.
@@ -61,11 +64,10 @@ export default function BrandingPage() {
       <div className="mt-2">
         <SettingRow label="Organization Logo" help="Displayed on transaction PDFs and email notifications.">
           <Uploader
-            value={logoUrl ? [logoUrl] : []}
-            onChange={(urls) => {
-              const url = urls[0] ?? "";
-              setLogoUrl(url);
-              patch({ logo_url: url });
+            value={logo}
+            onChange={(files) => {
+              setLogo(files);
+              patch({ logo_key: files[0]?.storage_key ?? "" });
             }}
             maxCount={1}
             accept="image/*"

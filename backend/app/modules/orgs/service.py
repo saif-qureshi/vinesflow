@@ -4,7 +4,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.crypto import encrypt_secret
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import (
+    BadRequestError,
+    ConflictError,
+    ForbiddenError,
+    NotFoundError,
+)
+from app.core.storage import belongs_to_org
 from app.core.utils import slugify
 from app.modules.accounting.setup import AccountingSetupService
 from app.modules.activities.service import ActivityService
@@ -20,7 +26,7 @@ from app.modules.settings.service import SettingsService
 from app.modules.uoms.service import UomService
 from app.modules.users.models import User
 
-_BRANDING_FIELDS = {"theme", "accent_color", "keep_branding", "logo_url"}
+_BRANDING_FIELDS = {"theme", "accent_color", "keep_branding", "logo_key"}
 _FBR_TOKEN_FIELDS = {"fbr_sandbox_token", "fbr_production_token"}
 
 
@@ -103,6 +109,14 @@ class OrgService:
         self.db.refresh(org)
         return org
 
+    @staticmethod
+    def _logo_key(org_id: int, key: str) -> str | None:
+        if not key:
+            return None
+        if not belongs_to_org(key, org_id):
+            raise BadRequestError("Invalid logo reference")
+        return key
+
     def update_org(self, *, membership: Membership, payload: OrgUpdate) -> Organization:
         org = membership.organization
         if payload.name is not None:
@@ -123,8 +137,8 @@ class OrgService:
             org.address = payload.address.model_dump() if payload.address else None
         if payload.fiscal_year_start_month is not None:
             org.fiscal_year_start_month = payload.fiscal_year_start_month
-        if payload.logo_url is not None:
-            org.logo_url = payload.logo_url or None
+        if payload.logo_key is not None:
+            org.logo_key = self._logo_key(org.id, payload.logo_key)
         if payload.theme is not None:
             org.theme = payload.theme
         if payload.accent_color is not None:
@@ -189,8 +203,9 @@ class OrgService:
             raise NotFoundError("Member not found")
         return member
 
-    def add_member(self, *, org_id: int, payload: MemberAdd) -> Membership:
+    def add_member(self, *, org_id: int, actor: Membership, payload: MemberAdd) -> Membership:
         role = self._get_org_role(org_id, payload.role_id)
+        self.rbac.ensure_can_assign(actor, role)
         user = self.db.scalar(select(User).where(User.email == payload.email.lower()))
         if user is None:
             raise NotFoundError("No registered user with that email. They must sign up first.")
@@ -209,12 +224,15 @@ class OrgService:
         return member
 
     def update_member_role(
-        self, *, org_id: int, membership_id: int, payload: MemberUpdate
+        self, *, org_id: int, actor: Membership, membership_id: int, payload: MemberUpdate
     ) -> Membership:
         member = self._get_member(org_id, membership_id)
         if member.is_owner:
             raise ConflictError("Cannot change the owner's role")
+        if member.id == actor.id:
+            raise ForbiddenError("You cannot change your own role")
         role = self._get_org_role(org_id, payload.role_id)
+        self.rbac.ensure_can_assign(actor, role)
         member.role_id = role.id
         self.activity.record(
             org_id, "updated", "member", member.user.email,

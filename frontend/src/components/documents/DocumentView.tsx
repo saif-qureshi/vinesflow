@@ -2,7 +2,9 @@
 
 import { Fragment, type ReactNode, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Descriptions, Spin, Table } from "antd";
+
+import { errorState, loadingState, notFoundState } from "@/components/ui/QueryFallback";
+import { Descriptions, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import {
   AlertTriangle,
@@ -67,7 +69,7 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
   const { money } = useCurrency();
   const can = useCan();
   const { currentMembership } = useSession();
-  const { data: doc, isLoading } = useDocument(config.apiPath, id);
+  const { data: doc, isLoading, error } = useDocument(config.apiPath, id);
   const { data: bins } = useBins(doc?.warehouse_id, false, doc?.warehouse_id != null);
   const finalize = useFinalizeDocument(config.apiPath);
   const voidDoc = useVoidDocument(config.apiPath);
@@ -83,13 +85,9 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
     fbrEnabled && (config.kind === "invoice" || config.kind === "credit_note");
   const supportsBins = config.kind !== "sales_order" && config.kind !== "purchase_order";
 
-  if (isLoading || !doc) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <Spin size="large" />
-      </div>
-    );
-  }
+  if (error) return errorState(error);
+  if (isLoading) return loadingState();
+  if (!doc) return notFoundState();
 
   const dash = <span className="text-gray-400">—</span>;
   const isDraft = doc.status === "draft";
@@ -403,6 +401,11 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
               <span className="tabular-nums">{money(Number(doc.amount_paid))}</span>
             </Descriptions.Item>
           )}
+          {config.tracksPayment && Number(doc.amount_credited) > 0 && (
+            <Descriptions.Item label="Credit notes applied">
+              <span className="tabular-nums">{money(Number(doc.amount_credited))}</span>
+            </Descriptions.Item>
+          )}
           {config.tracksPayment && (
             <Descriptions.Item label="Balance due">
               <span className="tabular-nums font-medium">{money(Number(doc.balance_due))}</span>
@@ -489,6 +492,9 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
             <Row label="Total" value={money(Number(doc.total))} strong />
             {config.tracksPayment && (
               <Row label="Amount paid" value={money(Number(doc.amount_paid))} />
+            )}
+            {config.tracksPayment && Number(doc.amount_credited) > 0 && (
+              <Row label="Credit notes applied" value={money(Number(doc.amount_credited))} />
             )}
             {config.tracksPayment && (
               <Row label="Balance due" value={money(Number(doc.balance_due))} strong />

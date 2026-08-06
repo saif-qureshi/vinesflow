@@ -14,6 +14,7 @@ export interface Organization {
   cnic: string | null;
   address: Address | null;
   fiscal_year_start_month: number;
+  logo_key: string | null;
   logo_url: string | null;
   theme: "light" | "dark";
   accent_color: string;

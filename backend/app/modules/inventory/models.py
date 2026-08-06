@@ -91,14 +91,17 @@ class StockMovement(Base, TimestampMixin, AuditMixin):
     """Immutable stock ledger. Source of truth; corrections are new rows."""
 
     __tablename__ = "stock_movements"
-    __table_args__ = (Index("ix_stock_movements_org_product", "org_id", "product_id"),)
+    __table_args__ = (
+        Index("ix_stock_movements_org_product", "org_id", "product_id"),
+        Index("ix_stock_movements_reference", "org_id", "reference_type", "reference_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     org_id: Mapped[int] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
     product_id: Mapped[int] = mapped_column(
-        ForeignKey("products.id", ondelete="CASCADE"), index=True, nullable=False
+        ForeignKey("products.id", ondelete="RESTRICT"), index=True, nullable=False
     )
     location_id: Mapped[int] = mapped_column(
         ForeignKey("locations.id", ondelete="CASCADE"), nullable=False
@@ -179,7 +182,7 @@ class StockLevel(Base, TimestampMixin):
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
     product_id: Mapped[int] = mapped_column(
-        ForeignKey("products.id", ondelete="CASCADE"), index=True, nullable=False
+        ForeignKey("products.id", ondelete="RESTRICT"), index=True, nullable=False
     )
     location_id: Mapped[int] = mapped_column(
         ForeignKey("locations.id", ondelete="CASCADE"), nullable=False

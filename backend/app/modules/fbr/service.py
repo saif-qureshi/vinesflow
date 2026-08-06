@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -9,13 +9,13 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.crypto import decrypt_secret
 from app.core.exceptions import BadRequestError, NotFoundError, ServiceUnavailableError
+from app.modules.documents.enums import DocumentType
+from app.modules.documents.models import Document
 from app.modules.fbr.client import FbrClient
 from app.modules.fbr.enums import FbrEnvironment, FbrProvince
 from app.modules.fbr.invoice import FbrInvoiceBuilder
 from app.modules.fbr.models import NONE_MARK, FbrReferenceData
 from app.modules.fbr.schemas import FbrOption, FbrReferenceRead
-from app.modules.documents.enums import DocumentType
-from app.modules.documents.models import Document
 from app.modules.orgs.models import Organization
 
 

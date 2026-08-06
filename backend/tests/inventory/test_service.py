@@ -189,3 +189,35 @@ def test_stock_is_tracked_by_bin_and_aggregated_by_warehouse(db):
                 quantity=Decimal(8),
             ),
         )
+
+
+def test_transfer_cannot_drive_the_source_negative(db):
+    org_id, loc_id, pid = _setup(db)
+    svc = InventoryService(db)
+    loc_b = LocationService(db).create(org_id, LocationCreate(name="Store B"))
+    svc.adjust(org_id, StockAdjustInput(product_id=pid, location_id=loc_id, qty_delta=Decimal(10)))
+
+    with pytest.raises(BadRequestError):
+        svc.transfer(
+            org_id,
+            StockTransferInput(
+                product_id=pid,
+                from_location_id=loc_id,
+                to_location_id=loc_b.id,
+                quantity=Decimal(11),
+            ),
+        )
+    assert svc.item_stock(org_id, pid).on_hand == Decimal(10)
+
+
+def test_adjustment_cannot_write_off_more_than_is_held(db):
+    org_id, loc_id, pid = _setup(db)
+    svc = InventoryService(db)
+    svc.adjust(org_id, StockAdjustInput(product_id=pid, location_id=loc_id, qty_delta=Decimal(5)))
+
+    with pytest.raises(BadRequestError):
+        svc.adjust(
+            org_id,
+            StockAdjustInput(product_id=pid, location_id=loc_id, qty_delta=Decimal(-50)),
+        )
+    assert svc.item_stock(org_id, pid).on_hand == Decimal(5)

@@ -1,29 +1,41 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
-import { App, Avatar, Button, Form, Input, Password, PageHeader, Typography } from "@/components/ui";
+import { App, Avatar, Button, Form, Input, Password, PageHeader } from "@/components/ui";
+import { Uploader } from "@/components/ui/Uploader";
 import { useSession } from "@/hooks/useSession";
 import { useUpdateProfile } from "@/hooks/useOrg";
 import { apiErrorMessage } from "@/lib/api";
 import { brand } from "@/theme/tokens";
+import type { UploadedFile } from "@/types";
 
 export default function AccountPage() {
   const { user } = useSession();
   const { message } = App.useApp();
   const updateProfile = useUpdateProfile();
   const [form] = Form.useForm();
-  const avatarUrl = Form.useWatch("avatar_url", form);
+  const avatarKey = user?.avatar_key ?? "";
+  const [avatar, setAvatar] = useState<UploadedFile[]>([]);
+  const [syncedKey, setSyncedKey] = useState<string | null>(null);
+  if (syncedKey !== avatarKey) {
+    setSyncedKey(avatarKey);
+    setAvatar(
+      user?.avatar_key && user.avatar_url
+        ? [{ storage_key: user.avatar_key, url: user.avatar_url }]
+        : [],
+    );
+  }
 
   useEffect(() => {
-    form.setFieldsValue({ full_name: user?.full_name, avatar_url: user?.avatar_url });
+    form.setFieldsValue({ full_name: user?.full_name });
   }, [user, form]);
 
-  const save = async (values: { full_name?: string; password?: string; avatar_url?: string }) => {
+  const save = async (values: { full_name?: string; password?: string }) => {
     try {
       await updateProfile.mutateAsync({
         full_name: values.full_name,
-        avatar_url: values.avatar_url ?? "",
+        avatar_key: avatar[0]?.storage_key ?? "",
         ...(values.password ? { password: values.password } : {}),
       });
       message.success("Profile updated");
@@ -40,12 +52,17 @@ export default function AccountPage() {
       <Form form={form} layout="vertical" onFinish={save} className="max-w-lg">
         <Form.Item label="Avatar">
           <div className="flex items-center gap-4">
-            <Avatar size={64} src={avatarUrl || undefined} style={{ backgroundColor: brand.primary }}>
+            <Avatar size={64} src={avatar[0]?.url || undefined} style={{ backgroundColor: brand.primary }}>
               {(user?.full_name ?? user?.email ?? "?").charAt(0).toUpperCase()}
             </Avatar>
-            <Form.Item name="avatar_url" noStyle>
-              <Input placeholder="https://…/avatar.png" />
-            </Form.Item>
+            <Uploader
+              value={avatar}
+              onChange={setAvatar}
+              maxCount={1}
+              accept="image/*"
+              maxSizeMB={5}
+              drag={false}
+            />
           </div>
         </Form.Item>
         <Form.Item label="Email">

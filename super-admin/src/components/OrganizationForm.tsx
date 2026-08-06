@@ -4,6 +4,7 @@ import { Button, Card, Form, Input, Select, Space, Switch, Typography } from "an
 import { ArrowLeft, Building2, Save, UserRound } from "lucide-react";
 
 import { OrganizationLogoUploader } from "@/components/OrganizationLogoUploader";
+import type { UploadedFile } from "@/types";
 
 export interface OrganizationFormValues {
   name: string;
@@ -13,7 +14,7 @@ export interface OrganizationFormValues {
   ntn?: string;
   strn?: string;
   cnic?: string;
-  logo_url?: string;
+  logo?: UploadedFile[];
   address_attention?: string;
   address_line1?: string;
   address_line2?: string;
@@ -142,12 +143,10 @@ export function OrganizationForm({
                 <>
                   {organizationId && (
                     <Form.Item
-                      name="logo_url"
+                      name="logo"
                       label="Organization logo"
                       className="md:col-span-2"
                       extra="PNG, JPEG, WebP or GIF. Maximum 5MB."
-                      getValueProps={(url?: string) => ({ value: url ? [url] : [] })}
-                      getValueFromEvent={(urls: string[]) => urls[0] ?? ""}
                     >
                       <OrganizationLogoUploader organizationId={organizationId} />
                     </Form.Item>

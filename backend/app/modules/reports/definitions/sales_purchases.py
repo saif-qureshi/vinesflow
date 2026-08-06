@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 
 from app.modules.accounting.models import Account
 from app.modules.documents.enums import DocumentStatus, DocumentType
@@ -17,6 +17,10 @@ from app.modules.reports.registry import register
 _ZERO = Decimal("0")
 
 
+# Credit notes reduce what was sold, so they carry the opposite sign.
+_RETURN_SIGN = case((Document.type == DocumentType.CREDIT_NOTE, -1), else_=1)
+
+
 def _period(params: dict) -> str:
     return f"From {params['start'].isoformat()} to {params['end'].isoformat()}"
 
@@ -28,17 +32,19 @@ def _date_range_filter():
 # --- By item -------------------------------------------------------------
 
 
-def _by_item(db, org_id, params, doc_type, title):
+def _by_item(db, org_id, params, doc_types, title):
+    sign = _RETURN_SIGN
+    net = DocumentLine.line_total - DocumentLine.tax_amount - DocumentLine.further_tax
     rows = db.execute(
         select(
             DocumentLine.product_id,
-            func.sum(DocumentLine.quantity),
-            func.sum(DocumentLine.line_total - DocumentLine.tax_amount - DocumentLine.further_tax),
+            func.sum(sign * DocumentLine.quantity),
+            func.sum(sign * net),
         )
         .join(Document, Document.id == DocumentLine.document_id)
         .where(
             Document.org_id == org_id,
-            Document.type == doc_type,
+            Document.type.in_(doc_types),
             Document.status == DocumentStatus.SENT,
             Document.issue_date >= params["start"],
             Document.issue_date <= params["end"],
@@ -86,29 +92,33 @@ def _by_item(db, org_id, params, doc_type, title):
 
 
 def _sales_by_item(db, org_id, params):
-    return _by_item(db, org_id, params, DocumentType.INVOICE, "Sales by Item")
+    return _by_item(
+        db, org_id, params, [DocumentType.INVOICE, DocumentType.CREDIT_NOTE], "Sales by Item"
+    )
 
 
 def _purchases_by_item(db, org_id, params):
-    return _by_item(db, org_id, params, DocumentType.BILL, "Purchases by Item")
+    return _by_item(db, org_id, params, [DocumentType.BILL], "Purchases by Item")
 
 
 # --- Sales by customer ---------------------------------------------------
 
 
 def _sales_by_customer(db, org_id, params):
+    net = _RETURN_SIGN * (Document.total - Document.tax_total - Document.further_tax_total)
+    invoices = func.count(case((Document.type == DocumentType.INVOICE, Document.id)))
     rows = db.execute(
-        select(Party.name, func.count(Document.id), func.coalesce(func.sum(Document.total), 0))
+        select(Party.name, invoices, func.coalesce(func.sum(net), 0))
         .join(Document, Document.party_id == Party.id)
         .where(
             Document.org_id == org_id,
-            Document.type == DocumentType.INVOICE,
+            Document.type.in_([DocumentType.INVOICE, DocumentType.CREDIT_NOTE]),
             Document.status == DocumentStatus.SENT,
             Document.issue_date >= params["start"],
             Document.issue_date <= params["end"],
         )
         .group_by(Party.id)
-        .order_by(func.coalesce(func.sum(Document.total), 0).desc())
+        .order_by(func.coalesce(func.sum(net), 0).desc())
     ).all()
     section_rows = [
         {"customer": name, "count": count, "amount": amount} for name, count, amount in rows

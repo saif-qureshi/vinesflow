@@ -12,17 +12,14 @@ of a request (CLI, scripts) just instantiate them directly: ``OrgService(db)``.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TypeVar
 
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 
-T = TypeVar("T")
 
-
-def Provide(service_cls: Callable[[Session], T]) -> Callable[..., T]:
+def Provide[T](service_cls: Callable[[Session], T]) -> Callable[..., T]:
     def _resolver(db: Session = Depends(get_db)) -> T:
         return service_cls(db)
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.dashboard.schemas import (
@@ -14,7 +14,7 @@ from app.modules.dashboard.schemas import (
     RevenuePoint,
     StatusCount,
 )
-from app.modules.documents.enums import DocumentPaymentStatus, DocumentStatus, DocumentType
+from app.modules.documents.enums import DocumentStatus, DocumentType
 from app.modules.documents.models import Document
 from app.modules.parties.models import Party
 
@@ -30,6 +30,25 @@ class DashboardService:
     def __init__(self, db: Session) -> None:
         self.db = db
 
+    @staticmethod
+    def _sales(org_id: int):
+        """Invoices and the credit notes that reduce them."""
+        return and_(
+            Document.org_id == org_id,
+            Document.type.in_([DocumentType.INVOICE, DocumentType.CREDIT_NOTE]),
+            Document.status == DocumentStatus.SENT,
+        )
+
+    @staticmethod
+    def _net_revenue():
+        """Revenue as the ledger sees it: excluding tax, net of returns."""
+        sign = case((Document.type == DocumentType.CREDIT_NOTE, -1), else_=1)
+        return sign * (Document.total - Document.tax_total - Document.further_tax_total)
+
+    @staticmethod
+    def _outstanding():
+        return Document.total - Document.amount_paid - Document.amount_credited
+
     def _invoices(self, org_id: int):
         return and_(
             Document.org_id == org_id,
@@ -39,17 +58,21 @@ class DashboardService:
 
     def summary(self, org_id: int, today: date) -> DashboardSummary:
         inv = self._invoices(org_id)
-        outstanding = Document.total - Document.amount_paid
-        unpaid = Document.payment_status != DocumentPaymentStatus.PAID
+        outstanding = self._outstanding()
+        unpaid = outstanding > _ZERO
 
         this_start = _month_start(today)
         last_start = _month_start(this_start - timedelta(days=1))
+        sales = self._sales(org_id)
+        revenue = self._net_revenue()
         rev_this = self.db.scalar(
-            select(func.coalesce(func.sum(Document.total), 0)).where(inv, Document.issue_date >= this_start)
+            select(func.coalesce(func.sum(revenue), 0)).where(
+                sales, Document.issue_date >= this_start
+            )
         ) or _ZERO
         rev_last = self.db.scalar(
-            select(func.coalesce(func.sum(Document.total), 0)).where(
-                inv, Document.issue_date >= last_start, Document.issue_date < this_start
+            select(func.coalesce(func.sum(revenue), 0)).where(
+                sales, Document.issue_date >= last_start, Document.issue_date < this_start
             )
         ) or _ZERO
         delta = round(float((rev_this - rev_last) / rev_last * 100), 1) if rev_last else None
@@ -83,7 +106,8 @@ class DashboardService:
         )
 
     def _revenue_series(self, org_id: int, today: date, months: int = 6) -> list[RevenuePoint]:
-        inv = self._invoices(org_id)
+        sales = self._sales(org_id)
+        revenue = self._net_revenue()
         starts: list[date] = []
         cursor = _month_start(today)
         for _ in range(months):
@@ -93,18 +117,18 @@ class DashboardService:
         for start in reversed(starts):
             nxt = _month_start(start + timedelta(days=32))
             total = self.db.scalar(
-                select(func.coalesce(func.sum(Document.total), 0)).where(
-                    inv, Document.issue_date >= start, Document.issue_date < nxt
+                select(func.coalesce(func.sum(revenue), 0)).where(
+                    sales, Document.issue_date >= start, Document.issue_date < nxt
                 )
             ) or _ZERO
             points.append(RevenuePoint(month=_MONTHS[start.month - 1], revenue=total))
         return points
 
     def _aging(self, org_id: int, today: date) -> list[AgingBucket]:
-        outstanding = Document.total - Document.amount_paid
+        outstanding = self._outstanding()
         rows = self.db.execute(
             select(Document.due_date, outstanding).where(
-                self._invoices(org_id), Document.payment_status != DocumentPaymentStatus.PAID
+                self._invoices(org_id), outstanding > _ZERO
             )
         ).all()
         buckets: dict[str, Decimal] = {"Current": _ZERO, "1-30": _ZERO, "31-60": _ZERO, "61-90": _ZERO, "90+": _ZERO}
@@ -125,16 +149,16 @@ class DashboardService:
 
     def _status_counts(self, org_id: int, today: date) -> list[StatusCount]:
         inv = self._invoices(org_id)
-        unpaid = Document.payment_status != DocumentPaymentStatus.PAID
+        unpaid = self._outstanding() > _ZERO
 
         def count(*where) -> int:
             return self.db.scalar(select(func.count(Document.id)).where(inv, *where)) or 0
 
-        paid = count(Document.payment_status == DocumentPaymentStatus.PAID)
+        settled = count(self._outstanding() <= _ZERO)
         overdue = count(unpaid, Document.due_date.is_not(None), Document.due_date < today)
         pending = count(unpaid, or_(Document.due_date.is_(None), Document.due_date >= today))
         return [
-            StatusCount(status="Paid", invoices=paid),
+            StatusCount(status="Settled", invoices=settled),
             StatusCount(status="Pending", invoices=pending),
             StatusCount(status="Overdue", invoices=overdue),
         ]
@@ -148,7 +172,7 @@ class DashboardService:
         ).all()
         out: list[RecentInvoice] = []
         for d in rows:
-            if d.payment_status == DocumentPaymentStatus.PAID:
+            if d.balance_due <= _ZERO:
                 status = "paid"
             elif d.due_date and d.due_date < today:
                 status = "overdue"

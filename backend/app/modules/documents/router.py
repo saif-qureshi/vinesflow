@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
 
-from app.api.deps import CurrentMembership, require_permission
+from app.api.deps import require_permission
 from app.core.container import Provide
 from app.core.pagination import CursorPage
 from app.core.responses import EnvelopeRoute
@@ -30,7 +31,10 @@ PrintSvc = Depends(Provide(DocumentPrintService))
 
 
 @router.get("/tax-rates", response_model=list[TaxRateRead])
-def list_tax_rates(membership: CurrentMembership, svc: DocumentService = Svc):
+def list_tax_rates(
+    membership: Membership = Depends(require_permission("products:read")),
+    svc: DocumentService = Svc,
+):
     return svc.list_tax_rates(membership.org_id)
 
 
@@ -45,20 +49,20 @@ def create_tax_rate(
 
 @router.get("/sellable-items", response_model=list[SellableItemRead])
 def sellable_items(
-    membership: CurrentMembership,
     search: str | None = None,
     warehouse_id: int | None = None,
     limit: int = Query(default=50, ge=1, le=100),
+    membership: Membership = Depends(require_permission("products:read")),
     svc: DocumentService = Svc,
 ):
     return svc.sellable_items(membership.org_id, search, limit, warehouse_id)
 
 
-@router.get("/stock-on-hand", response_model=dict[int, float])
+@router.get("/stock-on-hand", response_model=dict[int, Decimal])
 def stock_on_hand(
-    membership: CurrentMembership,
     product_ids: list[int] = Query(default=[]),
     warehouse_id: int | None = None,
+    membership: Membership = Depends(require_permission("inventory:read")),
     svc: DocumentService = Svc,
 ):
     return svc.stock_on_hand(membership.org_id, product_ids, warehouse_id)

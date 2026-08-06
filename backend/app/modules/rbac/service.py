@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
+from app.core.exceptions import BadRequestError, ConflictError, ForbiddenError, NotFoundError
 from app.core.utils import slugify
 from app.modules.activities.service import ActivityService
 from app.modules.orgs.models import Membership
@@ -54,6 +54,34 @@ class RbacService:
             return []
         return list(self.db.scalars(select(Permission).where(Permission.code.in_(codes))).all())
 
+    @staticmethod
+    def _held_by(actor: Membership) -> set[str] | None:
+        """The actor's permission codes, or None when they hold every one."""
+        if actor.user.is_superuser or actor.is_owner:
+            return None
+        return {p.code for p in actor.role.permissions}
+
+    def _grantable(self, actor: Membership, codes: list[str]) -> list[Permission]:
+        held = self._held_by(actor)
+        if held is not None:
+            beyond = sorted(set(codes) - held)
+            if beyond:
+                raise ForbiddenError(
+                    f"You cannot grant permissions you do not hold: {', '.join(beyond)}"
+                )
+        return self.resolve_permissions(codes)
+
+    def ensure_can_assign(self, actor: Membership, role: Role) -> None:
+        held = self._held_by(actor)
+        if held is None:
+            return
+        beyond = sorted({p.code for p in role.permissions} - held)
+        if beyond:
+            raise ForbiddenError(
+                f"You cannot assign a role granting permissions you do not hold: "
+                f"{', '.join(beyond)}"
+            )
+
     def list_permissions(self) -> list[Permission]:
         return list(
             self.db.scalars(select(Permission).order_by(Permission.module, Permission.action)).all()
@@ -80,14 +108,14 @@ class RbacService:
             i += 1
         return candidate
 
-    def create_role(self, *, org_id: int, payload: RoleCreate) -> Role:
+    def create_role(self, *, org_id: int, actor: Membership, payload: RoleCreate) -> Role:
         role = Role(
             org_id=org_id,
             name=payload.name,
             slug=self._unique_role_slug(org_id, payload.name),
             description=payload.description,
             is_system=False,
-            permissions=self.resolve_permissions(payload.permissions),
+            permissions=self._grantable(actor, payload.permissions),
         )
         self.db.add(role)
         self.db.flush()
@@ -96,16 +124,19 @@ class RbacService:
         self.db.refresh(role)
         return role
 
-    def update_role(self, *, org_id: int, role_id: int, payload: RoleUpdate) -> Role:
+    def update_role(
+        self, *, org_id: int, actor: Membership, role_id: int, payload: RoleUpdate
+    ) -> Role:
         role = self.get_role_in_org(org_id, role_id)
         if role.is_system:
             raise BadRequestError("System roles cannot be modified")
+        self.ensure_can_assign(actor, role)
         if payload.name is not None:
             role.name = payload.name
         if payload.description is not None:
             role.description = payload.description
         if payload.permissions is not None:
-            role.permissions = self.resolve_permissions(payload.permissions)
+            role.permissions = self._grantable(actor, payload.permissions)
         self.activity.record(org_id, "updated", "role", role.name, entity_id=role.id)
         self.db.commit()
         self.db.refresh(role)

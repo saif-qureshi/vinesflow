@@ -6,6 +6,7 @@ config change (STORAGE_BACKEND) — no code change at the call site.
 
 from __future__ import annotations
 
+import re
 import shutil
 import uuid
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ from typing import BinaryIO, Protocol
 from app.core.config import settings
 
 _MEDIA_CACHE_CONTROL = "public, max-age=31536000, immutable"
+_KEY_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 @dataclass
@@ -26,18 +28,40 @@ class StoredFile:
     size: int
 
 
-def _object_key(org_id: int, filename: str) -> str:
-    ext = Path(filename).suffix.lower()
+_EXTENSIONS = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+    "application/pdf": ".pdf",
+}
+
+
+def _object_key(org_id: int, content_type: str | None) -> str:
+    ext = _EXTENSIONS.get((content_type or "").lower(), "")
     return f"{settings.MEDIA_KEY_PREFIX}org-{org_id}/{uuid.uuid4().hex}{ext}"
 
 
-def _key_from_url(url: str) -> str | None:
-    # Keys are "<prefix>org-<id>/…"; recover them base-independently.
-    marker = f"{settings.MEDIA_KEY_PREFIX}org-"
-    idx = url.find(marker)
-    if idx == -1 and settings.MEDIA_KEY_PREFIX:
-        idx = url.find("org-")
-    return url[idx:] if idx != -1 else None
+def org_key_prefix(org_id: int) -> str:
+    return f"{settings.MEDIA_KEY_PREFIX}org-{org_id}/"
+
+
+def is_safe_key(key: str) -> bool:
+    if not key or key.startswith("/") or "\\" in key:
+        return False
+    prefix = settings.MEDIA_KEY_PREFIX
+    if prefix:
+        if not key.startswith(prefix):
+            return False
+        key = key[len(prefix) :]
+    segments = key.split("/")
+    if len(segments) < 2 or not segments[0].startswith("org-"):
+        return False
+    return all(_KEY_SEGMENT.fullmatch(segment) for segment in segments)
+
+
+def belongs_to_org(key: str, org_id: int) -> bool:
+    return is_safe_key(key) and key.startswith(org_key_prefix(org_id))
 
 
 class Storage(Protocol):
@@ -46,7 +70,7 @@ class Storage(Protocol):
     ) -> StoredFile: ...
     def delete(self, key: str) -> None: ...
 
-    def key_from_url(self, url: str) -> str | None: ...
+    def url_for(self, key: str) -> str: ...
 
     def get_bytes(self, key: str) -> bytes | None: ...
     def put_bytes(self, key: str, data: bytes, *, content_type: str) -> None: ...
@@ -61,26 +85,42 @@ class LocalStorage:
     def save_stream(
         self, *, org_id: int, filename: str, content_type: str | None, fileobj: BinaryIO, size: int
     ) -> StoredFile:
-        key = _object_key(org_id, filename)
+        key = _object_key(org_id, content_type)
         path = self.root / key
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("wb") as dest:
             shutil.copyfileobj(fileobj, dest)
-        url = f"{settings.MEDIA_PUBLIC_URL.rstrip('/')}/media/files/{key}"
-        return StoredFile(url=url, key=key, filename=filename, content_type=content_type, size=size)
+        return StoredFile(
+            url=self.url_for(key),
+            key=key,
+            filename=filename,
+            content_type=content_type,
+            size=size,
+        )
+
+    def url_for(self, key: str) -> str:
+        return f"{settings.MEDIA_PUBLIC_URL.rstrip('/')}/media/files/{key}"
+
+    def _path_for(self, key: str) -> Path | None:
+        if not is_safe_key(key):
+            return None
+        root = self.root.resolve()
+        path = (root / key).resolve()
+        return path if path.is_relative_to(root) else None
 
     def delete(self, key: str) -> None:
-        (self.root / key).unlink(missing_ok=True)
-
-    def key_from_url(self, url: str) -> str | None:
-        return _key_from_url(url)
+        path = self._path_for(key)
+        if path is not None:
+            path.unlink(missing_ok=True)
 
     def get_bytes(self, key: str) -> bytes | None:
-        path = self.root / key
-        return path.read_bytes() if path.exists() else None
+        path = self._path_for(key)
+        return path.read_bytes() if path is not None and path.exists() else None
 
     def put_bytes(self, key: str, data: bytes, *, content_type: str) -> None:
-        path = self.root / key
+        path = self._path_for(key)
+        if path is None:
+            return
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
 
@@ -97,7 +137,7 @@ class S3Storage:
     def save_stream(
         self, *, org_id: int, filename: str, content_type: str | None, fileobj: BinaryIO, size: int
     ) -> StoredFile:
-        key = _object_key(org_id, filename)
+        key = _object_key(org_id, content_type)
         self.client.upload_fileobj(
             fileobj,
             self.bucket,
@@ -107,22 +147,29 @@ class S3Storage:
                 "CacheControl": _MEDIA_CACHE_CONTROL,
             },
         )
-        base = settings.S3_PUBLIC_URL or f"https://{self.bucket}.s3.{settings.S3_REGION}.amazonaws.com"
         return StoredFile(
-            url=f"{base.rstrip('/')}/{key}",
+            url=self.url_for(key),
             key=key,
             filename=filename,
             content_type=content_type,
             size=size,
         )
 
+    def url_for(self, key: str) -> str:
+        base = (
+            settings.S3_PUBLIC_URL
+            or f"https://{self.bucket}.s3.{settings.S3_REGION}.amazonaws.com"
+        )
+        return f"{base.rstrip('/')}/{key}"
+
     def delete(self, key: str) -> None:
+        if not is_safe_key(key):
+            return
         self.client.delete_object(Bucket=self.bucket, Key=key)
 
-    def key_from_url(self, url: str) -> str | None:
-        return _key_from_url(url)
-
     def get_bytes(self, key: str) -> bytes | None:
+        if not is_safe_key(key):
+            return None
         try:
             response = self.client.get_object(Bucket=self.bucket, Key=key)
         except self.client.exceptions.NoSuchKey:
@@ -130,6 +177,8 @@ class S3Storage:
         return response["Body"].read()
 
     def put_bytes(self, key: str, data: bytes, *, content_type: str) -> None:
+        if not is_safe_key(key):
+            return
         self.client.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type)
 
 

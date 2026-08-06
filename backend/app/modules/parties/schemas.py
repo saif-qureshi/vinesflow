@@ -35,7 +35,7 @@ class PartyBase(BaseModel):
     is_customer: bool = False
     is_vendor: bool = False
     name: str = Field(min_length=1, max_length=255)
-    avatar_url: str | None = Field(default=None, max_length=1024)
+    avatar_key: str | None = Field(default=None, max_length=512)
     company_name: str | None = Field(default=None, max_length=255)
     salutation: str | None = Field(default=None, max_length=20)
     first_name: str | None = Field(default=None, max_length=120)
@@ -63,7 +63,7 @@ class PartyUpdate(BaseModel):
     is_customer: bool | None = None
     is_vendor: bool | None = None
     name: str | None = Field(default=None, min_length=1, max_length=255)
-    avatar_url: str | None = Field(default=None, max_length=1024)
+    avatar_key: str | None = Field(default=None, max_length=512)
     company_name: str | None = Field(default=None, max_length=255)
     salutation: str | None = Field(default=None, max_length=20)
     first_name: str | None = Field(default=None, max_length=120)
@@ -90,6 +90,7 @@ class PartyRead(BaseModel):
     is_vendor: bool
     type: str
     name: str
+    avatar_key: str | None = None
     avatar_url: str | None = None
     company_name: str | None = None
     salutation: str | None = None

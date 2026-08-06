@@ -1,7 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Descriptions, Spin } from "antd";
+
+import { errorState, loadingState, notFoundState } from "@/components/ui/QueryFallback";
+import { Descriptions} from "antd";
 import { Pencil, Trash2, X } from "lucide-react";
 
 import { App, Avatar, Button, Card, Popconfirm, Tag, Typography } from "@/components/ui";
@@ -44,15 +46,11 @@ export function PartyView({ id }: { id: number }) {
   const { message } = App.useApp();
   const can = useCan();
   const del = useDeleteParty();
-  const { data: p, isLoading } = useParty(id);
+  const { data: p, isLoading, error } = useParty(id);
 
-  if (isLoading || !p) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <Spin size="large" />
-      </div>
-    );
-  }
+  if (error) return errorState(error);
+  if (isLoading) return loadingState();
+  if (!p) return notFoundState();
 
   const remove = async () => {
     try {

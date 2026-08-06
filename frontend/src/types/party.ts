@@ -18,6 +18,7 @@ export interface Party {
   is_vendor: boolean;
   type: PartyType;
   name: string;
+  avatar_key: string | null;
   avatar_url: string | null;
   company_name: string | null;
   salutation: string | null;
@@ -43,7 +44,7 @@ export interface PartyInput {
   is_customer?: boolean;
   is_vendor?: boolean;
   name: string;
-  avatar_url?: string | null;
+  avatar_key?: string | null;
   company_name?: string | null;
   salutation?: string | null;
   first_name?: string | null;

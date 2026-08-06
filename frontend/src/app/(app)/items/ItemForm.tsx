@@ -17,7 +17,7 @@ import { useCreateProduct, useUpdateProduct } from "@/hooks/useProducts";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useSession } from "@/hooks/useSession";
 import { apiErrorMessage } from "@/lib/api";
-import type { Product, ProductInput, VariantAttribute } from "@/types";
+import type { Product, ProductInput, UploadedFile, VariantAttribute } from "@/types";
 import { VariantsBuilder } from "./VariantsBuilder";
 import { cartesian, variantSig, type VariantOverride } from "./variants";
 
@@ -59,7 +59,9 @@ export function ItemForm({ product }: { product?: Product }) {
   const sroSchedule = Form.useWatch("sro_schedule_code", form);
   const hsCode = Form.useWatch("hs_code", form);
 
-  const [media, setMedia] = useState<string[]>(() => product?.media.map((m) => m.url) ?? []);
+  const [media, setMedia] = useState<UploadedFile[]>(
+    () => product?.media.map((m) => ({ storage_key: m.storage_key, url: m.url })) ?? [],
+  );
   const [attributes, setAttributes] = useState<VariantAttribute[]>(
     () => product?.variant_attributes ?? [],
   );
@@ -154,7 +156,7 @@ export function ItemForm({ product }: { product?: Product }) {
     const payload: ProductInput = {
       ...values,
       tracking_mode: values.track_inventory ? values.tracking_mode : "none",
-      media: media.map((url, i) => ({ url, sort_order: i })),
+      media: media.map((m, i) => ({ storage_key: m.storage_key, sort_order: i })),
       variant_attributes: variable ? cleanAttrs : [],
       variants: variable
         ? cartesian(cleanAttrs)

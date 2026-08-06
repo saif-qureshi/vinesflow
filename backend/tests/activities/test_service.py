@@ -96,13 +96,19 @@ def test_org_update_recorded_branding_skipped(db):
 
 
 def test_role_create_recorded(db):
+    from app.modules.orgs.models import Membership
     from app.modules.rbac.schemas import RoleCreate
     from app.modules.rbac.service import RbacService
 
     org_id, uid = _org(db)
     db.info["actor_id"] = uid
+    actor = db.scalar(
+        select(Membership).where(Membership.org_id == org_id, Membership.user_id == uid)
+    )
     RbacService(db).create_role(
-        org_id=org_id, payload=RoleCreate(name="Auditor", description="", permissions=["products:read"])
+        org_id=org_id,
+        actor=actor,
+        payload=RoleCreate(name="Auditor", description="", permissions=["products:read"]),
     )
     acts = list(
         db.scalars(select(Activity).where(Activity.org_id == org_id, Activity.entity_type == "role"))

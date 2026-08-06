@@ -49,3 +49,19 @@ def test_logout_revokes_refresh(client, register):
 
 def test_me_requires_authentication(client):
     assert client.get("/api/v1/auth/me").status_code == 401
+
+
+def test_changing_your_password_revokes_existing_sessions(client, register, h):
+    token = register()
+    refresh = client.cookies.get("vf_refresh")
+    assert refresh
+
+    assert (
+        client.patch(
+            "/api/v1/users/me", headers=h(token), json={"password": "newpass123"}
+        ).status_code
+        == 200
+    )
+
+    # The session that existed before the change must no longer mint tokens.
+    assert client.post("/api/v1/auth/refresh", cookies={"vf_refresh": refresh}).status_code == 401

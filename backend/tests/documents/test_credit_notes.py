@@ -73,9 +73,11 @@ def test_credit_note_returns_stock_and_clears_the_balance(db):
     # goods come back in, even though the source invoice already shipped them
     assert note.stock_posted is True
     assert inv.item_stock(org_id, pid).on_hand == Decimal(20)
-    # and the customer no longer owes for them
-    assert invoice.amount_paid == Decimal("500")
-    assert invoice.payment_status == DocumentPaymentStatus.PAID
+    # and the customer no longer owes for them, without pretending they paid
+    assert invoice.amount_paid == Decimal(0)
+    assert invoice.amount_credited == Decimal("500")
+    assert invoice.balance_due == Decimal(0)
+    assert invoice.payment_status == DocumentPaymentStatus.CREDITED
     assert note.settled_amount == Decimal("500")
 
 
@@ -100,7 +102,8 @@ def test_partial_credit_note_leaves_a_balance(db):
     svc.finalize(org_id, note.id)
 
     assert InventoryService(db).item_stock(org_id, pid).on_hand == Decimal(17)
-    assert invoice.amount_paid == Decimal("200")
+    assert invoice.amount_paid == Decimal(0)
+    assert invoice.amount_credited == Decimal("200")
     assert invoice.payment_status == DocumentPaymentStatus.PARTIAL
     assert invoice.balance_due == Decimal("300")
 
@@ -183,11 +186,12 @@ def test_voiding_a_credit_note_restores_the_debt_and_stock(db):
     invoice = _invoice(svc, org_id, party_id, pid, tax_id, qty=5, warehouse_id=loc_id)
     note = svc.convert(org_id, invoice.id, DocumentType.INVOICE, DocumentType.CREDIT_NOTE)
     svc.finalize(org_id, note.id)
-    assert invoice.payment_status == DocumentPaymentStatus.PAID
+    assert invoice.payment_status == DocumentPaymentStatus.CREDITED
 
     svc.void(org_id, note.id)
     assert inv.item_stock(org_id, pid).on_hand == Decimal(15)
     assert invoice.amount_paid == Decimal(0)
+    assert invoice.amount_credited == Decimal(0)
     assert invoice.payment_status == DocumentPaymentStatus.UNPAID
     assert note.settled_amount == Decimal(0)
 
@@ -212,3 +216,134 @@ def test_standalone_credit_note_still_returns_stock(db):
     svc.finalize(org_id, note.id)
     assert InventoryService(db).item_stock(org_id, pid).on_hand == Decimal(23)
     assert note.settled_amount == Decimal(0)
+
+
+def _value(movements):
+    return sum((m.unit_cost or Decimal(0)) * m.qty_delta for m in movements)
+
+
+def _movements(db, org_id, doc_type, doc_id):
+    from app.modules.inventory.models import StockMovement
+
+    return list(
+        db.scalars(
+            select(StockMovement).where(
+                StockMovement.org_id == org_id,
+                StockMovement.reference_type == doc_type,
+                StockMovement.reference_id == doc_id,
+            )
+        )
+    )
+
+
+def test_credit_note_restocks_at_cost_not_at_the_sale_price(db):
+    org_id, loc_id, party_id, pid, tax_id = _setup(db)
+    svc = DocumentService(db)
+    invoice = _invoice(svc, org_id, party_id, pid, tax_id, qty=5, warehouse_id=loc_id)
+    note = svc.convert(org_id, invoice.id, DocumentType.INVOICE, DocumentType.CREDIT_NOTE)
+    svc.finalize(org_id, note.id)
+
+    out = _movements(db, org_id, DocumentType.INVOICE, invoice.id)
+    back = _movements(db, org_id, DocumentType.CREDIT_NOTE, note.id)
+    # Sold at 100, costed at 60 — the return must come back in at 60.
+    assert [m.unit_cost for m in out] == [Decimal("60.0000")]
+    assert [m.unit_cost for m in back] == [Decimal("60.0000")]
+    # so selling and returning leaves inventory value unchanged
+    assert _value(out) + _value(back) == Decimal(0)
+
+
+def test_voiding_reverses_at_the_original_cost(db):
+    org_id, loc_id, party_id, pid, tax_id = _setup(db)
+    svc = DocumentService(db)
+    invoice = _invoice(svc, org_id, party_id, pid, tax_id, qty=5, warehouse_id=loc_id)
+
+    # The item is repriced after the invoice shipped.
+    product = db.get(Product, pid)
+    product.purchase_price = Decimal("80")
+    db.flush()
+
+    svc.void(org_id, invoice.id)
+
+    movements = _movements(db, org_id, DocumentType.INVOICE, invoice.id)
+    assert {m.unit_cost for m in movements} == {Decimal("60.0000")}
+    assert sum(m.qty_delta for m in movements) == Decimal(0)
+    assert _value(movements) == Decimal(0)
+
+
+def test_a_credit_note_is_not_reported_as_money_received(db):
+    org_id, loc_id, party_id, pid, tax_id = _setup(db)
+    svc = DocumentService(db)
+    invoice = _invoice(svc, org_id, party_id, pid, tax_id, qty=5, warehouse_id=loc_id)
+    note = svc.convert(org_id, invoice.id, DocumentType.INVOICE, DocumentType.CREDIT_NOTE)
+    svc.finalize(org_id, note.id)
+
+    # Nothing was collected, so the invoice must not read as paid.
+    assert invoice.amount_paid == Decimal(0)
+    assert invoice.payment_status != DocumentPaymentStatus.PAID
+    # but it is settled, so it drops out of receivables
+    assert invoice.balance_due == Decimal(0)
+
+
+def test_payment_and_credit_are_tracked_separately(db):
+    from app.modules.documents.enums import PaymentDirection
+    from app.modules.payments.schemas import PaymentAllocationInput, PaymentCreate
+    from app.modules.payments.service import PaymentService
+
+    org_id, loc_id, party_id, pid, tax_id = _setup(db)
+    svc = DocumentService(db)
+    invoice = _invoice(svc, org_id, party_id, pid, tax_id, qty=5, warehouse_id=loc_id)
+
+    pay = PaymentService(db)
+    payment = pay.create(
+        org_id,
+        PaymentDirection.RECEIVED,
+        PaymentCreate(
+            party_id=party_id,
+            amount=Decimal("200"),
+            allocations=[PaymentAllocationInput(document_id=invoice.id, amount=Decimal("200"))],
+        ),
+    )
+    pay.submit(org_id, PaymentDirection.RECEIVED, payment.id)
+
+    note = svc.convert(org_id, invoice.id, DocumentType.INVOICE, DocumentType.CREDIT_NOTE)
+    svc.update(
+        org_id, note.id, DocumentType.CREDIT_NOTE,
+        DocumentUpdate(
+            lines=[
+                DocumentLineInput(
+                    product_id=pid, description="Widget", quantity=Decimal(1),
+                    unit_price=Decimal("100"), tax_rate_id=tax_id,
+                )
+            ]
+        ),
+    )
+    svc.finalize(org_id, note.id)
+
+    assert invoice.amount_paid == Decimal("200")
+    assert invoice.amount_credited == Decimal("100")
+    assert invoice.balance_due == Decimal("200")
+    assert invoice.payment_status == DocumentPaymentStatus.PARTIAL
+
+
+def test_a_deactivated_tax_rate_cannot_be_used_on_new_documents(db):
+    from app.core.exceptions import NotFoundError
+
+    org_id, loc_id, party_id, pid, tax_id = _setup(db)
+    rate = db.get(TaxRate, tax_id)
+    rate.is_active = False
+    db.flush()
+
+    with pytest.raises(NotFoundError):
+        DocumentService(db).create(
+            org_id,
+            DocumentType.INVOICE,
+            DocumentCreate(
+                party_id=party_id,
+                lines=[
+                    DocumentLineInput(
+                        product_id=pid, description="Widget", quantity=Decimal(1),
+                        unit_price=Decimal("100"), tax_rate_id=tax_id,
+                    )
+                ],
+            ),
+        )

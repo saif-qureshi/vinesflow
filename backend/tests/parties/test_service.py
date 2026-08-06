@@ -87,6 +87,35 @@ def test_update_remove_one_role_keeps_record(db):
     assert "Acme" in _list(db, org_id, "vendor")
 
 
+def test_delete_is_blocked_once_the_party_has_history(db):
+    from datetime import date
+    from decimal import Decimal
+
+    from app.core.exceptions import ConflictError
+    from app.modules.documents.enums import DocumentType
+    from app.modules.documents.models import Document
+
+    org_id = _org(db)
+    svc = PartyService(db)
+    party = svc.create(org_id, PartyCreate(name="Acme", is_customer=True))
+    db.add(
+        Document(
+            org_id=org_id,
+            type=DocumentType.INVOICE,
+            number="INV-0001",
+            party_id=party.id,
+            issue_date=date.today(),
+            subtotal=Decimal(0),
+            total=Decimal(0),
+        )
+    )
+    db.flush()
+
+    with pytest.raises(ConflictError):
+        svc.delete(org_id, party.id)
+    assert svc.get(org_id, party.id).id == party.id
+
+
 def test_delete_hard_removes(db):
     org_id = _org(db)
     svc = PartyService(db)

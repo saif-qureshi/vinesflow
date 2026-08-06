@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.core.security import hash_password
 from app.db.session import SessionLocal
 from app.modules.orgs.service import OrgService
@@ -25,6 +26,10 @@ def main() -> None:
         RbacService(db).seed_permissions()
         db.commit()
         print("✓ Permission catalog seeded")
+
+        if settings.ENVIRONMENT == "production":
+            print("• Skipping the demo account in production")
+            return
 
         user = db.scalar(select(User).where(User.email == DEMO_EMAIL))
         if user is None:

@@ -2,7 +2,7 @@ import type { Address } from "./party";
 
 export type DocumentStatus = "draft" | "sent" | "closed" | "void";
 
-export type DocumentPaymentStatus = "unpaid" | "partial" | "paid";
+export type DocumentPaymentStatus = "unpaid" | "partial" | "paid" | "credited";
 
 export type DiscountType = "amount" | "percent";
 
@@ -94,6 +94,7 @@ export interface DocumentRecord {
   adjustment: string;
   total: string;
   amount_paid: string;
+  amount_credited: string;
   balance_due: string;
   source_document_id: number | null;
   created_at: string;
@@ -112,6 +113,7 @@ export interface DocumentSummary {
   currency: string;
   total: string;
   amount_paid: string;
+  amount_credited: string;
   balance_due: string;
   party: DocumentParty | null;
 }

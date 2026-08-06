@@ -9,12 +9,14 @@ import app.db.base  # noqa: F401  (register all mappers)
 from app.core.security import hash_password
 from app.db.session import SessionLocal
 from app.modules.auth.models import RefreshSession
+from app.modules.auth.service import AuthService
 from app.modules.orgs.models import Membership, Organization
 from app.modules.orgs.service import OrgService
 from app.modules.rbac.models import Role
 from app.modules.rbac.service import RbacService
 from app.modules.users.models import User
 from app.super_admin.auth.models import SuperAdmin
+from app.super_admin.auth.service import SuperAdminAuthService
 
 app = typer.Typer(no_args_is_help=True, help="Vineflow backend management CLI")
 users_app = typer.Typer(no_args_is_help=True, help="Manage users")
@@ -101,6 +103,7 @@ def super_admin_set_password(
     try:
         admin = _get_super_admin(db, email)
         admin.hashed_password = hash_password(password)
+        SuperAdminAuthService(db).revoke_all_for_admin(admin.id)
         db.commit()
         typer.secho(f"Password updated for {admin.email}", fg=typer.colors.GREEN)
     finally:
@@ -170,6 +173,7 @@ def users_set_password(
     try:
         user = _get_user(db, email)
         user.hashed_password = hash_password(password)
+        AuthService(db).revoke_all_for_user(user.id)
         db.commit()
         typer.secho(f"Password updated for {user.email}", fg=typer.colors.GREEN)
     finally:
