@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import BadRequestError
 from app.core.security import hash_password
 from app.core.storage import belongs_to_org
+from app.modules.auth.service import AuthService
 from app.modules.users.models import User
 from app.modules.users.schemas import UserUpdate
 
@@ -28,6 +29,7 @@ class UserService:
             user.avatar_key = self._avatar_key(user, payload.avatar_key)
         if payload.password is not None:
             user.hashed_password = hash_password(payload.password)
+            AuthService(self.db).revoke_all_for_user(user.id)
         self.db.commit()
         self.db.refresh(user)
         return user

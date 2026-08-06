@@ -46,10 +46,11 @@ class AuthService:
         self.db.flush()
         return raw
 
-    def get_session_by_raw(self, raw: str) -> RefreshSession | None:
-        return self.db.scalar(
-            select(RefreshSession).where(RefreshSession.token_hash == hash_token(raw))
-        )
+    def get_session_by_raw(self, raw: str, *, lock: bool = False) -> RefreshSession | None:
+        stmt = select(RefreshSession).where(RefreshSession.token_hash == hash_token(raw))
+        if lock:
+            stmt = stmt.with_for_update()
+        return self.db.scalar(stmt)
 
     def rotate_session(self, session: RefreshSession, user_agent: str | None = None) -> str:
         """Revoke the presented session and issue a new one in the same family."""
@@ -129,7 +130,9 @@ class AuthService:
         return user, raw
 
     def rotate_refresh_token(self, *, raw: str, user_agent: str | None) -> tuple[int, str]:
-        session = self.get_session_by_raw(raw)
+        # Locked so two concurrent refreshes of the same token serialise; the
+        # loser then sees revoked_at set and is treated as a replay.
+        session = self.get_session_by_raw(raw, lock=True)
         if session is None:
             raise AuthError("Invalid refresh token")
         if session.revoked_at is not None:

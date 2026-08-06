@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     # Object-key prefix, e.g. "local/" so dev uploads are isolated from prod ("").
     MEDIA_KEY_PREFIX: str = ""
 
+    # Reverse proxies we run in front of the app. Only their X-Forwarded-For
+    # hops are trusted when identifying a client for rate limiting.
+    TRUSTED_PROXY_COUNT: int = 0
+
     CELERY_TASK_ALWAYS_EAGER: bool = True
     SQS_QUEUE_NAME: str = "vineflow-jobs"
     SQS_QUEUE_URL: str | None = None

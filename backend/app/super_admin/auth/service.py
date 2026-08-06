@@ -58,8 +58,11 @@ class SuperAdminAuthService:
         return admin, raw
 
     def rotate(self, *, raw: str, user_agent: str | None) -> tuple[SuperAdmin, str]:
+        # Locked so concurrent refreshes serialise and the loser is seen as a replay.
         session = self.db.scalar(
-            select(SuperAdminSession).where(SuperAdminSession.token_hash == hash_token(raw))
+            select(SuperAdminSession)
+            .where(SuperAdminSession.token_hash == hash_token(raw))
+            .with_for_update()
         )
         if session is None:
             raise AuthError("Invalid refresh token")
@@ -94,6 +97,17 @@ class SuperAdminAuthService:
             return
         self._revoke_family(session.family_id)
         self.db.commit()
+
+    def revoke_all_for_admin(self, admin_id: int) -> None:
+        self.db.execute(
+            update(SuperAdminSession)
+            .where(
+                SuperAdminSession.admin_id == admin_id,
+                SuperAdminSession.revoked_at.is_(None),
+            )
+            .values(revoked_at=_now())
+        )
+        self.db.flush()
 
     def _revoke_family(self, family_id: str) -> None:
         self.db.execute(
