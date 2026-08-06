@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Button, Divider, Drawer, Grid, Input, Layout, Menu, Typography, type MenuProps } from "antd";
-import { Boxes, Building2, ChevronLeft, Handshake, Menu as MenuIcon, Search, ShieldCheck, SlidersHorizontal, UserRound } from "lucide-react";
+import { Boxes, Building2, ChevronLeft, Handshake, Menu as MenuIcon, Receipt, Search, ShieldCheck, SlidersHorizontal } from "lucide-react";
 
 import { AppFooter } from "@/components/AppFooter";
 import { Logo } from "@/components/Logo";
@@ -36,7 +36,6 @@ const SECTIONS: { heading: string; groups: Group[] }[] = [
         children: [
           { key: "/settings/organization/profile", label: "Profile" },
           { key: "/settings/organization/branding", label: "Branding" },
-          { key: "/settings/organization/fbr", label: "FBR e-Invoicing" },
           { key: "/settings/organization/subscription", label: "Subscription" },
         ],
       },
@@ -47,6 +46,15 @@ const SECTIONS: { heading: string; groups: Group[] }[] = [
         children: [
           { key: "/settings/users", label: "Users", permission: "users:read" },
           { key: "/settings/roles", label: "Roles", permission: "roles:read" },
+        ],
+      },
+      {
+        key: "tax-compliance",
+        label: "Tax & Compliance",
+        icon: <Receipt size={16} />,
+        children: [
+          { key: "/settings/tax-rates", label: "Tax Rates", permission: "products:read" },
+          { key: "/settings/fbr", label: "FBR e-Invoicing" },
         ],
       },
       {
@@ -71,7 +79,6 @@ const SECTIONS: { heading: string; groups: Group[] }[] = [
           { key: "/settings/master-data/brands", label: "Brands", permission: "products:read" },
           { key: "/settings/master-data/manufacturers", label: "Manufacturers", permission: "products:read" },
           { key: "/settings/master-data/units", label: "Units", permission: "products:read" },
-          { key: "/settings/master-data/tax-rates", label: "Tax Rates", permission: "products:read" },
         ],
       },
     ],
@@ -86,17 +93,6 @@ const SECTIONS: { heading: string; groups: Group[] }[] = [
         children: [
           { key: "/settings/sales/salespeople", label: "Salespeople", permission: "invoices:read" },
         ],
-      },
-    ],
-  },
-  {
-    heading: "My Account",
-    groups: [
-      {
-        key: "account",
-        label: "Account",
-        icon: <UserRound size={16} />,
-        children: [{ key: "/settings/account", label: "Profile" }],
       },
     ],
   },

@@ -134,21 +134,34 @@ export default function DashboardPage() {
             </Col>
           </Row>
 
-          <Card
-            title="Cash flow"
-            extra={
-              <Typography.Text type="secondary" className="text-xs">
-                Money in and out of cash and bank accounts
-              </Typography.Text>
-            }
-            className="border-gray-100"
-          >
-            <CashFlowChart data={cashFlowData} />
-          </Card>
-
-          <Card title="Receivables aging" extra={<Typography.Text type="secondary" className="text-xs">Outstanding by age</Typography.Text>} className="border-gray-100">
-            <AgingChart data={agingData} />
-          </Card>
+          <Row gutter={[16, 16]} className="!mb-2">
+            <Col xs={24} lg={12}>
+              <Card
+                title="Cash flow"
+                extra={
+                  <Typography.Text type="secondary" className="text-xs">
+                    Money in and out
+                  </Typography.Text>
+                }
+                className="h-full border-gray-100"
+              >
+                <CashFlowChart data={cashFlowData} />
+              </Card>
+            </Col>
+            <Col xs={24} lg={12}>
+              <Card
+                title="Receivables aging"
+                extra={
+                  <Typography.Text type="secondary" className="text-xs">
+                    Outstanding by age
+                  </Typography.Text>
+                }
+                className="h-full border-gray-100"
+              >
+                <AgingChart data={agingData} />
+              </Card>
+            </Col>
+          </Row>
 
           <Card title="Recent invoices" extra={<Typography.Text type="secondary" className="text-xs">Latest 5</Typography.Text>} className="border-gray-100">
             <Table size="middle" columns={columns} dataSource={recent} pagination={false} locale={{ emptyText: "No invoices yet" }} />
