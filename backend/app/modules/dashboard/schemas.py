@@ -12,11 +12,19 @@ class DashboardKpis(BaseModel):
     receivables: Decimal
     overdue: Decimal
     active_customers: int
+    cash_on_hand: Decimal = Decimal("0")
 
 
 class RevenuePoint(BaseModel):
     month: str
     revenue: Decimal
+
+
+class CashFlowPoint(BaseModel):
+    month: str
+    inflow: Decimal
+    outflow: Decimal
+    net: Decimal
 
 
 class AgingBucket(BaseModel):
@@ -41,6 +49,7 @@ class RecentInvoice(BaseModel):
 class DashboardSummary(BaseModel):
     kpis: DashboardKpis
     revenue_series: list[RevenuePoint]
+    cash_flow: list[CashFlowPoint]
     aging: list[AgingBucket]
     invoice_status: list[StatusCount]
     recent_invoices: list[RecentInvoice]

@@ -90,3 +90,60 @@ def test_revenue_excludes_tax_and_nets_off_credit_notes(db):
     # 1000 sold less 200 returned; the 216 of sales tax is not revenue.
     assert s.kpis.revenue == Decimal("800")
     assert s.revenue_series[-1].revenue == Decimal("800")
+
+
+def test_cash_flow_reads_cash_and_every_bank_account_under_it(db):
+    from app.modules.accounting.constants import ACCOUNTING_SETTINGS_GROUP
+    from app.modules.accounting.enums import VoucherType
+    from app.modules.accounting.service import JournalLine, PostingService
+    from app.modules.banks.schemas import BankAccountCreate
+    from app.modules.banks.service import BankAccountService
+    from app.modules.settings.service import SettingsService
+
+    org, _ = _setup(db)
+    today = date(2026, 7, 25)
+    cash = int(SettingsService(db).get(org.id, ACCOUNTING_SETTINGS_GROUP, "cash"))
+    bank = BankAccountService(db).create(
+        org.id,
+        BankAccountCreate(
+            bank_name="Meezan Bank", account_title="Acme", account_number="0102030405"
+        ),
+    )
+
+    posting = PostingService(db)
+    # Money in through the new bank account, money out through cash.
+    posting.post_voucher(
+        org.id,
+        voucher_type=VoucherType.JOURNAL,
+        posting_date=today,
+        lines=[
+            JournalLine(account_id=bank.account_id, debit=Decimal("1000")),
+            JournalLine(account_id=cash, credit=Decimal("400")),
+            JournalLine(
+                account_id=int(
+                    SettingsService(db).get(
+                        org.id, ACCOUNTING_SETTINGS_GROUP, "operating_expenses"
+                    )
+                ),
+                debit=Decimal("0"),
+                credit=Decimal("600"),
+            ),
+        ],
+        description="Mixed movement",
+    )
+    db.flush()
+
+    s = DashboardService(db).summary(org.id, today)
+    assert s.kpis.cash_on_hand == Decimal("600")  # 1000 into the bank less 400 out of cash
+    this_month = s.cash_flow[-1]
+    assert this_month.inflow == Decimal("1000")
+    assert this_month.outflow == Decimal("400")
+    assert this_month.net == Decimal("600")
+
+
+def test_cash_flow_is_empty_when_nothing_has_moved(db):
+    org, _ = _setup(db)
+    s = DashboardService(db).summary(org.id, date(2026, 7, 25))
+    assert s.kpis.cash_on_hand == Decimal("0")
+    assert len(s.cash_flow) == 6
+    assert all(p.inflow == Decimal("0") and p.outflow == Decimal("0") for p in s.cash_flow)

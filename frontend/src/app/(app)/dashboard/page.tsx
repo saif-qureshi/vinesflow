@@ -1,13 +1,13 @@
 "use client";
 
 import { Spin, Table } from "antd";
-import { ArrowDownRight, ArrowUpRight, Banknote, TriangleAlert, Users, Wallet } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Banknote, Landmark, TriangleAlert, Wallet } from "lucide-react";
 
 import { useAppTheme, useSession } from "@/hooks/useSession";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useDashboard } from "@/hooks/useDashboard";
 import { Card, Col, PageHeader, Row, Tag, Typography } from "@/components/ui";
-import { AgingChart, RevenueChart, StatusChart } from "@/components/dashboard/charts";
+import { AgingChart, CashFlowChart, RevenueChart, StatusChart } from "@/components/dashboard/charts";
 import { formatDate } from "@/lib/format";
 import type { RecentInvoice } from "@/types/dashboard";
 
@@ -66,12 +66,17 @@ export default function DashboardPage() {
       good: (deltaPct ?? 0) >= 0,
       icon: <Banknote size={20} />,
     },
+    { title: "Cash on hand", value: compact(Number(kpis?.cash_on_hand ?? 0)), icon: <Landmark size={20} /> },
     { title: "Receivables", value: compact(Number(kpis?.receivables ?? 0)), icon: <Wallet size={20} /> },
     { title: "Overdue", value: compact(Number(kpis?.overdue ?? 0)), icon: <TriangleAlert size={20} /> },
-    { title: "Active customers", value: String(kpis?.active_customers ?? 0), icon: <Users size={20} /> },
   ];
 
   const revenueData = (data?.revenue_series ?? []).map((p) => ({ month: p.month, revenue: Number(p.revenue) }));
+  const cashFlowData = (data?.cash_flow ?? []).map((p) => ({
+    month: p.month,
+    inflow: Number(p.inflow),
+    outflow: Number(p.outflow),
+  }));
   const agingData = (data?.aging ?? []).map((a) => ({ bucket: a.bucket, amount: Number(a.amount) }));
   const statusData = data?.invoice_status ?? [];
   const recent = (data?.recent_invoices ?? []).map((r) => ({
@@ -128,6 +133,18 @@ export default function DashboardPage() {
               </Card>
             </Col>
           </Row>
+
+          <Card
+            title="Cash flow"
+            extra={
+              <Typography.Text type="secondary" className="text-xs">
+                Money in and out of cash and bank accounts
+              </Typography.Text>
+            }
+            className="border-gray-100"
+          >
+            <CashFlowChart data={cashFlowData} />
+          </Card>
 
           <Card title="Receivables aging" extra={<Typography.Text type="secondary" className="text-xs">Outstanding by age</Typography.Text>} className="border-gray-100">
             <AgingChart data={agingData} />

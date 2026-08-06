@@ -60,6 +60,27 @@ export function AgingChart({ data }: { data: { bucket: string; amount: number }[
   );
 }
 
+export function CashFlowChart({
+  data,
+}: {
+  data: { month: string; inflow: number; outflow: number }[];
+}) {
+  const { money, compact } = useCurrency();
+  return (
+    <ResponsiveContainer width="100%" height={240}>
+      <BarChart data={data} margin={{ left: 4, right: 8, top: 8 }}>
+        <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#f1f5f9" />
+        <XAxis dataKey="month" {...AXIS} />
+        <YAxis {...AXIS} width={52} tickFormatter={(v: number) => compact(v)} />
+        <Tooltip formatter={(v) => money(Number(v))} cursor={{ fill: "#f8fafc" }} />
+        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+        <Bar dataKey="inflow" name="Money in" fill="#16a34a" radius={[4, 4, 0, 0]} maxBarSize={28} />
+        <Bar dataKey="outflow" name="Money out" fill="#dc2626" radius={[4, 4, 0, 0]} maxBarSize={28} />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
 export function StatusChart({ data }: { data: { status: string; invoices: number }[] }) {
   return (
     <ResponsiveContainer width="100%" height={240}>
