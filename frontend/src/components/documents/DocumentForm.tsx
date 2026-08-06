@@ -31,7 +31,8 @@ import {
   useTaxRates,
   useUpdateDocument,
 } from "@/hooks/useDocuments";
-import { useParties } from "@/hooks/useParties";
+import { PartySelect } from "@/components/parties/PartySelect";
+import { useParty } from "@/hooks/useParties";
 import { useSession } from "@/hooks/useSession";
 import { useWarehouses } from "@/hooks/useWarehouses";
 import { apiErrorMessage } from "@/lib/api";
@@ -134,18 +135,14 @@ export function DocumentForm({
   const { data: bins } = useBins(warehouseId, true, usesBins && warehouseId != null);
   const [itemSearch, setItemSearch] = useState("");
   const { data: sellable } = useSellableItems(itemSearch, warehouseId);
-  const parties = useParties(config.partyRole);
   const { currentMembership } = useSession();
   const org = currentMembership?.organization;
   const showFbr = !!org?.fbr_enabled && config.kind === "invoice";
   const showFbrReason = !!org?.fbr_enabled && config.kind === "credit_note";
   const isSandbox = org?.fbr_environment === "sandbox";
-  const partyList = useMemo(
-    () => parties.data?.pages.flatMap((p) => p.items) ?? [],
-    [parties.data],
-  );
   const selectedPartyId = Form.useWatch("party_id", form);
-  const buyerRegistered = !!partyList.find((p) => p.id === selectedPartyId)?.strn;
+  const selectedParty = useParty(selectedPartyId ?? null).data ?? null;
+  const buyerRegistered = !!selectedParty?.strn;
 
   const [lines, setLines] = useState<LineRow[]>(() =>
     document?.lines.length
@@ -219,10 +216,6 @@ export function DocumentForm({
     form.setFieldValue("number", nextNumber.data.number);
   }, [nextNumber.data, isEdit, form]);
 
-  const partyOptions = partyList.map((c) => ({
-    value: c.id,
-    label: c.name,
-  }));
   const taxOptions = (taxRates ?? []).map((t) => ({
     value: t.id,
     label: `${t.name} (${Number(t.rate)}%)`,
@@ -685,8 +678,7 @@ export function DocumentForm({
       onFinish={submit}
       onValuesChange={(changed) => {
         if (showFbr && "party_id" in changed && !form.getFieldValue("fbr_sale_destination")) {
-          const party = partyList.find((p) => p.id === changed.party_id);
-          const province = party?.billing_address?.state;
+          const province = selectedParty?.billing_address?.state;
           if (province) form.setFieldValue("fbr_sale_destination", province);
         }
       }}
@@ -724,12 +716,12 @@ export function DocumentForm({
             label={config.labels.party}
             rules={[{ required: true, message: `${config.labels.party} is required` }]}
           >
-            <Select
-              options={partyOptions}
+            <PartySelect
+              role={config.partyRole}
               placeholder={`Select ${config.labels.party.toLowerCase()}`}
-              showSearch
-              optionFilterProp="label"
-              loading={parties.isLoading}
+              selected={
+                document?.party ? { id: document.party.id, name: document.party.name } : null
+              }
             />
           </Form.Item>
           <Form.Item

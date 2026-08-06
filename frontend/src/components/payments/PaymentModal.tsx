@@ -8,7 +8,7 @@ import dayjs from "dayjs";
 import { App, Button, Input, Select, TextArea } from "@/components/ui";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useCreatePayment, useOutstandingDocuments, useSubmitPayment } from "@/hooks/usePayments";
-import { useParties } from "@/hooks/useParties";
+import { PartySelect } from "@/components/parties/PartySelect";
 import { apiErrorMessage } from "@/lib/api";
 import type { PaymentKindConfig } from "@/lib/paymentKinds";
 import { formatDate } from "@/lib/format";
@@ -37,7 +37,6 @@ export function PaymentModal({
   const { currency, money } = useCurrency();
   const create = useCreatePayment(config.apiPath);
   const submit = useSubmitPayment(config.apiPath);
-  const parties = useParties(config.partyRole);
 
   const [partyId, setPartyId] = useState<number | undefined>(document?.party_id ?? undefined);
   const [date, setDate] = useState(dayjs());
@@ -55,11 +54,6 @@ export function PaymentModal({
   const allocated = Object.values(applied).reduce((sum, v) => sum + (v || 0), 0);
   const unapplied = amount - allocated;
   const saving = create.isPending || submit.isPending;
-
-  const partyOptions = (parties.data?.pages.flatMap((p) => p.items) ?? []).map((c) => ({
-    value: c.id,
-    label: c.name,
-  }));
 
   const onSelectParty = (v: number) => {
     setPartyId(v);
@@ -174,15 +168,13 @@ export function PaymentModal({
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div>
           <div className="mb-1 text-sm font-medium">{config.labels.party}</div>
-          <Select
+          <PartySelect
+            role={config.partyRole}
             value={partyId}
             onChange={onSelectParty}
-            options={partyOptions}
             placeholder={`Select ${config.labels.party.toLowerCase()}`}
-            showSearch
-            optionFilterProp="label"
+            selected={document?.party ? { id: document.party.id, name: document.party.name } : null}
             disabled={!!document}
-            className="w-full"
           />
         </div>
         <div>
