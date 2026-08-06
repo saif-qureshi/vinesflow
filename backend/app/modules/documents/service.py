@@ -1054,36 +1054,6 @@ class DocumentService:
         self._validate_tracking(org_id, doc, moves_stock=moves_stock)
         if moves_stock and doc.stock_direction < 0:
             self._preflight_outbound_stock(org_id, doc)
-        if doc.type in (DocumentType.INVOICE, DocumentType.CREDIT_NOTE):
-            from app.modules.fbr.service import FbrService
-
-            try:
-                result = FbrService(self.db).submit_invoice(org_id, doc)
-            except AppError as exc:
-                failed_org_id = doc.org_id
-                failed_document_id = doc.id
-                self.db.rollback()
-                self.db.add(
-                    FbrSubmissionAttempt(
-                        org_id=failed_org_id,
-                        document_id=failed_document_id,
-                        status="failed",
-                        error=exc.message,
-                    )
-                )
-                self.db.commit()
-                raise
-            if result:
-                doc.fbr_invoice_number = result["invoice_number"]
-                doc.fbr_response = result["response"]
-                doc.fbr_submitted_at = datetime.now(UTC)
-                self.db.add(
-                    FbrSubmissionAttempt(
-                        org_id=doc.org_id,
-                        document_id=doc.id,
-                        status="submitted",
-                    )
-                )
         self._apply_credit(org_id, doc)
         if moves_stock:
             self._post_stock(org_id, doc, reverse=False)
@@ -1093,9 +1063,61 @@ class DocumentService:
         if source is not None and source.type in CLOSED_ON_CONVERT:
             source.status = DocumentStatus.CLOSED
         self.activity.record(org_id, "finalized", doc.type, doc.number, entity_id=doc.id)
-        self.db.commit()
+        # Filed last: everything that can still fail has already succeeded, so a
+        # rollback can no longer discard an invoice the authority has accepted.
+        filed = self._file_with_fbr(org_id, doc) if doc.type in FBR_TYPES else False
+        self._commit_filed(doc, filed=filed)
         self.db.refresh(doc)
         return doc
+
+    def _file_with_fbr(self, org_id: int, doc: Document) -> bool:
+        from app.modules.fbr.service import FbrService
+
+        try:
+            result = FbrService(self.db).submit_invoice(org_id, doc)
+        except AppError as exc:
+            failed_org_id = doc.org_id
+            failed_document_id = doc.id
+            self.db.rollback()
+            self.db.add(
+                FbrSubmissionAttempt(
+                    org_id=failed_org_id,
+                    document_id=failed_document_id,
+                    status="failed",
+                    error=exc.message,
+                )
+            )
+            self.db.commit()
+            raise
+        if not result:
+            return False
+        doc.fbr_invoice_number = result["invoice_number"]
+        doc.fbr_response = result["response"]
+        doc.fbr_submitted_at = datetime.now(UTC)
+        self.db.add(
+            FbrSubmissionAttempt(org_id=doc.org_id, document_id=doc.id, status="submitted")
+        )
+        return True
+
+    def _commit_filed(self, doc: Document, *, filed: bool) -> None:
+        org_id, doc_id, number = doc.org_id, doc.id, doc.fbr_invoice_number
+        try:
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            if filed:
+                # The authority holds this invoice even though we could not store
+                # it. Leave a durable trace so the mismatch is discoverable.
+                self.db.add(
+                    FbrSubmissionAttempt(
+                        org_id=org_id,
+                        document_id=doc_id,
+                        status="submitted",
+                        error=f"Filed with FBR as {number} but the local commit failed",
+                    )
+                )
+                self.db.commit()
+            raise
 
     def void(self, org_id: int, doc_id: int, expected_type: DocumentType | None = None) -> Document:
         doc = self._get_for_update(org_id, doc_id)

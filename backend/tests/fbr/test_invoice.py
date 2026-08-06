@@ -465,3 +465,31 @@ def test_credit_note_requires_reason_before_filing(db, monkeypatch):
     with pytest.raises(BadRequestError):
         FbrService(db).submit_invoice(org.id, cn)
     crypto._cipher.cache_clear()
+
+
+def test_a_local_failure_happens_before_anything_is_filed(db, monkeypatch):
+    """Local work must fail before the authority is told about the invoice."""
+    org, party_id, pid = _fbr_org(db, monkeypatch)
+    filed: list[str] = []
+    valid = {"validationResponse": {"statusCode": "00", "status": "Valid"}}
+    monkeypatch.setattr(FbrClient, "validate_invoice", lambda self, p: valid)
+    monkeypatch.setattr(
+        FbrClient,
+        "post_invoice",
+        lambda self, p: (filed.append("posted"), {"invoiceNumber": "7000007DI999", **valid})[1],
+    )
+    svc = DocumentService(db)
+    inv = _make_invoice(db, org, party_id, pid)
+
+    # Stock runs out between drafting and finalizing.
+    def _no_stock(*args, **kwargs):
+        raise BadRequestError("Not enough stock at the selected location")
+
+    monkeypatch.setattr(DocumentService, "_post_stock", _no_stock)
+
+    with pytest.raises(BadRequestError):
+        svc.finalize(org.id, inv.id)
+
+    assert filed == []  # nothing was ever sent to FBR
+    assert db.get(Document, inv.id).status == DocumentStatus.DRAFT
+    crypto._cipher.cache_clear()
