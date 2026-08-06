@@ -20,14 +20,10 @@ from app.modules.expenses.schemas import (
     ExpenseListQuery,
     ExpenseUpdate,
 )
+from app.modules.expenses.totals import quantize as _q, totals as _compute_totals
 from app.modules.parties.models import Party
 
 _ZERO = Decimal("0")
-_CENTS = Decimal("0.01")
-
-
-def _q(value: Decimal) -> Decimal:
-    return Decimal(value).quantize(_CENTS)
 
 
 def _now() -> datetime:
@@ -71,10 +67,16 @@ class ExpenseService:
         return lines
 
     @staticmethod
-    def _totals(lines: list[ExpenseLine], tax_amount: Decimal) -> tuple[Decimal, Decimal, Decimal]:
-        subtotal = sum((line.amount for line in lines), _ZERO)
-        tax = _q(tax_amount)
-        return subtotal, tax, subtotal + tax
+    def _totals(
+        lines: list[ExpenseLine], tax_amount: Decimal, *, is_tax_inclusive: bool
+    ) -> tuple[Decimal, Decimal, Decimal]:
+        amounts = [line.amount for line in lines]
+        subtotal, tax, total = _compute_totals(
+            amounts, tax_amount, is_tax_inclusive=is_tax_inclusive
+        )
+        if subtotal < _ZERO:
+            raise BadRequestError("Tax cannot exceed the expense amount")
+        return subtotal, tax, total
 
     def create(self, org_id: int, payload: ExpenseCreate) -> Expense:
         paid_through = self._get_account(org_id, payload.paid_through_account_id)
@@ -82,7 +84,9 @@ class ExpenseService:
         if payload.customer_id:
             self._get_party(org_id, payload.customer_id)
         lines = self._build_lines(org_id, payload.lines)
-        subtotal, tax, total = self._totals(lines, payload.tax_amount)
+        subtotal, tax, total = self._totals(
+            lines, payload.tax_amount, is_tax_inclusive=payload.is_tax_inclusive
+        )
         expense_date = payload.expense_date or date.today()
         prefix, start, restart = numbering_format(self.db, org_id, "expense", EXPENSE_PREFIX)
         expense = Expense(
@@ -166,7 +170,9 @@ class ExpenseService:
         if payload.lines is not None:
             expense.lines = self._build_lines(org_id, payload.lines)
         tax = payload.tax_amount if payload.tax_amount is not None else expense.tax_amount
-        expense.subtotal, expense.tax_amount, expense.total = self._totals(expense.lines, tax)
+        expense.subtotal, expense.tax_amount, expense.total = self._totals(
+            expense.lines, tax, is_tax_inclusive=expense.is_tax_inclusive
+        )
         self.activity.record(org_id, "updated", "expense", expense.number, entity_id=expense.id)
         self.db.commit()
         self.db.refresh(expense)

@@ -145,3 +145,74 @@ def test_submitted_expense_cannot_be_edited(db):
     svc.submit(org_id, expense.id)
     with pytest.raises(BadRequestError):
         svc.update(org_id, expense.id, ExpenseUpdate(reference_no="X"))
+
+
+def test_tax_inclusive_expense_extracts_the_tax_instead_of_adding_it(db):
+    org_id, vendor_id = _setup(db)
+    svc = ExpenseService(db)
+    # A 1,180 receipt whose price already contains 180 of sales tax.
+    expense = _create(
+        db,
+        org_id,
+        vendor_id,
+        is_tax_inclusive=True,
+        tax_amount=Decimal("180"),
+        lines=[
+            ExpenseLineInput(
+                account_id=_acct(db, org_id, "operating_expenses"), amount=Decimal("1180")
+            )
+        ],
+    )
+    assert expense.total == Decimal("1180")
+    assert expense.subtotal == Decimal("1000")
+    assert expense.tax_amount == Decimal("180")
+
+    svc.submit(org_id, expense.id)
+
+    assert _bal(db, org_id, "operating_expenses") == Decimal("1000")
+    assert _bal(db, org_id, "input_tax") == Decimal("180")
+    assert _bal(db, org_id, "cash") == Decimal("-1180")
+    assert _tb_balances(db, org_id)
+
+
+def test_tax_inclusive_split_across_lines_still_balances(db):
+    org_id, vendor_id = _setup(db)
+    svc = ExpenseService(db)
+    ops = _acct(db, org_id, "operating_expenses")
+    expense = _create(
+        db,
+        org_id,
+        vendor_id,
+        is_tax_inclusive=True,
+        tax_amount=Decimal("30"),
+        lines=[
+            ExpenseLineInput(account_id=ops, amount=Decimal("100")),
+            ExpenseLineInput(account_id=ops, amount=Decimal("33.33")),
+            ExpenseLineInput(account_id=ops, amount=Decimal("66.67")),
+        ],
+    )
+    assert expense.total == Decimal("200")
+    assert expense.subtotal == Decimal("170")
+
+    svc.submit(org_id, expense.id)
+
+    assert _bal(db, org_id, "operating_expenses") == Decimal("170")
+    assert _bal(db, org_id, "cash") == Decimal("-200")
+    assert _tb_balances(db, org_id)
+
+
+def test_tax_cannot_exceed_a_tax_inclusive_amount(db):
+    org_id, vendor_id = _setup(db)
+    with pytest.raises(BadRequestError):
+        _create(
+            db,
+            org_id,
+            vendor_id,
+            is_tax_inclusive=True,
+            tax_amount=Decimal("500"),
+            lines=[
+                ExpenseLineInput(
+                    account_id=_acct(db, org_id, "operating_expenses"), amount=Decimal("100")
+                )
+            ],
+        )
