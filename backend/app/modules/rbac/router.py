@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, status
 
-from app.api.deps import CurrentMembership, require_permission
+from app.api.deps import require_permission
 from app.core.container import Provide
 from app.core.responses import EnvelopeRoute
 from app.modules.orgs.models import Membership
@@ -16,7 +16,10 @@ RbacSvc = Depends(Provide(RbacService))
 
 
 @router.get("/permissions", response_model=list[PermissionRead])
-def list_permissions(membership: CurrentMembership, rbac: RbacService = RbacSvc) -> list[Permission]:
+def list_permissions(
+    membership: Membership = Depends(require_permission("roles:read")),
+    rbac: RbacService = RbacSvc,
+) -> list[Permission]:
     return rbac.list_permissions()
 
 

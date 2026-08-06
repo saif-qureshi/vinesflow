@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import CurrentMembership
+from app.api.deps import CurrentMembership, require_permission
 from app.core.container import Provide
 from app.core.responses import EnvelopeRoute
 from app.modules.fbr.schemas import FbrOption, FbrReferenceRead, FbrSyncSummary
 from app.modules.fbr.service import FbrService
+from app.modules.orgs.models import Membership
 
 router = APIRouter(prefix="/fbr", tags=["fbr"], route_class=EnvelopeRoute)
 Svc = Depends(Provide(FbrService))
@@ -47,8 +48,8 @@ def summary(membership: CurrentMembership, svc: FbrService = Svc):
 @router.post("/invoices/{doc_id}/validate")
 def validate_invoice(
     doc_id: int,
-    membership: CurrentMembership,
     scenario_id: str | None = None,
+    membership: Membership = Depends(require_permission("invoices:read")),
     svc: FbrService = Svc,
 ):
     return svc.validate_document(membership.org_id, doc_id, scenario_id)
