@@ -1,18 +1,26 @@
 "use client";
 
-/** The bank's logo once one is uploaded, otherwise its initials on the brand
- *  colour — so an account is recognisable before any artwork exists. */
+import { useState } from "react";
+
+/** Shows, in order of preference: the logo this org uploaded, the shared logo
+ *  shipped for that bank, or its initials on the brand colour. Falls through
+ *  on load failure, so a bank with no artwork yet still renders. */
 export function BankBadge({
   name,
   colour,
   logoUrl,
+  catalogLogo,
   size = 40,
 }: {
   name: string;
   colour?: string | null;
   logoUrl?: string | null;
+  catalogLogo?: string | null;
   size?: number;
 }) {
+  const [failed, setFailed] = useState<string | null>(null);
+  const src = [logoUrl, catalogLogo].find((candidate) => candidate && candidate !== failed);
+
   const initials = name
     .split(/\s+/)
     .filter((word) => /^[A-Za-z]/.test(word))
@@ -20,14 +28,15 @@ export function BankBadge({
     .map((word) => word[0]!.toUpperCase())
     .join("");
 
-  if (logoUrl) {
+  if (src) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={logoUrl}
+        src={src}
         alt={name}
         width={size}
         height={size}
+        onError={() => setFailed(src)}
         className="shrink-0 rounded-lg border border-gray-100 bg-white object-contain p-1"
         style={{ width: size, height: size }}
       />

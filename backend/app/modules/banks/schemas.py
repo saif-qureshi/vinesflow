@@ -10,6 +10,7 @@ class BankOption(BaseModel):
     code: str
     name: str
     colour: str
+    logo: str
 
 
 class BankAccountCreate(BaseModel):

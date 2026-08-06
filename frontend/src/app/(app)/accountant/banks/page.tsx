@@ -127,7 +127,12 @@ export default function BanksPage() {
       key: "bank",
       render: (_, row) => (
         <div className="flex items-center gap-3">
-          <BankBadge name={row.bank_name} colour={row.colour} logoUrl={row.logo_url} />
+          <BankBadge
+            name={row.bank_name}
+            colour={row.colour}
+            logoUrl={row.logo_url}
+            catalogLogo={catalog.data?.find((b) => b.code === row.bank_code)?.logo}
+          />
           <div>
             <div className="font-medium">{row.bank_name}</div>
             <div className="text-xs text-gray-500">{row.account_title}</div>
@@ -239,7 +244,10 @@ export default function BanksPage() {
         <Form.Item name="colour" label="Brand colour">
           <ColorPicker showText />
         </Form.Item>
-        <Form.Item label="Logo" extra="Shown instead of the initials badge once uploaded.">
+        <Form.Item
+          label="Logo"
+          extra="Only needed to override the logo shipped for this bank."
+        >
           <Uploader
             value={logo}
             onChange={setLogo}

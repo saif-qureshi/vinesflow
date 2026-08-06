@@ -121,3 +121,13 @@ def test_the_catalog_lists_pakistani_banks(db):
     assert "Habib Bank Limited" in names
     assert "Meezan Bank" in names
     assert all(b["colour"].startswith("#") for b in PAKISTANI_BANKS)
+
+
+def test_every_catalog_bank_points_at_a_logo_asset(db):
+    from app.modules.banks.catalog import PAKISTANI_BANKS
+    from app.modules.banks.schemas import BankOption
+
+    options = [BankOption(**bank) for bank in PAKISTANI_BANKS]
+    assert len(options) == len({o.code for o in options})  # codes are unique
+    for option in options:
+        assert option.logo == f"/bank-logos/{option.code.lower()}.svg"

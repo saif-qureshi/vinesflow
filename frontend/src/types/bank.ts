@@ -2,6 +2,7 @@ export interface BankOption {
   code: string;
   name: string;
   colour: string;
+  logo: string;
 }
 
 export interface BankAccount {
