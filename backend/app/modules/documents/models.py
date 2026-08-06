@@ -171,6 +171,9 @@ class Document(Base, TimestampMixin, AuditMixin):
 
     stock_direction: int = 0
     movement_type: str = "document"
+    # True where the line price *is* the cost of the goods (a purchase).
+    # Sales returns come back in at cost, not at what the customer paid.
+    priced_at_cost: bool = False
 
     @property
     def balance_due(self) -> Decimal:
@@ -221,6 +224,7 @@ class GoodsReceipt(Document):
 
     stock_direction = 1
     movement_type = "goods_receipt"
+    priced_at_cost = True
 
 
 class Bill(Document):
@@ -228,6 +232,7 @@ class Bill(Document):
 
     stock_direction = 1
     movement_type = "purchase"
+    priced_at_cost = True
 
 
 class DocumentLine(Base, TimestampMixin):

@@ -41,6 +41,7 @@ from app.modules.documents.schemas import (
     TaxRateCreate,
 )
 from app.modules.fbr.models import FbrSubmissionAttempt
+from app.modules.inventory.models import StockMovement
 from app.modules.inventory.service import InventoryService
 from app.modules.inventory.tracking_service import TrackingService
 from app.modules.locations.models import Location
@@ -1171,6 +1172,18 @@ class DocumentService:
                     f"Not enough stock for {products[product_id].name} at the selected warehouse"
                 )
 
+    def _posted_unit_costs(
+        self, org_id: int, doc: Document
+    ) -> dict[tuple[int, int | None, int | None], Decimal | None]:
+        movements = self.db.scalars(
+            select(StockMovement).where(
+                StockMovement.org_id == org_id,
+                StockMovement.reference_type == doc.type,
+                StockMovement.reference_id == doc.id,
+            )
+        )
+        return {(m.product_id, m.bin_id, m.lot_id): m.unit_cost for m in movements}
+
     def _post_stock(self, org_id: int, doc: Document, reverse: bool) -> None:
         if doc.stock_direction == 0 or doc.warehouse_id is None:
             return
@@ -1190,13 +1203,17 @@ class DocumentService:
             )
         }
         direction = -doc.stock_direction if reverse else doc.stock_direction
+        # A reversal must undo the value it originally posted, not today's price,
+        # or the movement values for the pair fail to net to zero.
+        original_costs = self._posted_unit_costs(org_id, doc) if reverse else {}
         for line in trackable:
             product = products.get(line.product_id)
             if product is None or not product.track_inventory:
                 continue
-            unit_cost = line.unit_price if doc.stock_direction > 0 else product.purchase_price
+            unit_cost = line.unit_price if doc.priced_at_cost else product.purchase_price
             if product.tracking_mode == "lot":
                 for allocation in line.lot_allocations:
+                    key = (line.product_id, line.bin_id, allocation.lot_id)
                     self.inventory.post_document_movement(
                         org_id=org_id,
                         product_id=line.product_id,
@@ -1205,11 +1222,12 @@ class DocumentService:
                         type_=doc.movement_type,
                         reference_type=doc.type,
                         reference_id=doc.id,
-                        unit_cost=unit_cost,
+                        unit_cost=original_costs.get(key, unit_cost),
                         bin_id=line.bin_id,
                         lot_id=allocation.lot_id,
                     )
             else:
+                key = (line.product_id, line.bin_id, None)
                 movement = self.inventory.post_document_movement(
                     org_id=org_id,
                     product_id=line.product_id,
@@ -1218,7 +1236,7 @@ class DocumentService:
                     type_=doc.movement_type,
                     reference_type=doc.type,
                     reference_id=doc.id,
-                    unit_cost=unit_cost,
+                    unit_cost=original_costs.get(key, unit_cost),
                     bin_id=line.bin_id,
                 )
                 if product.tracking_mode == "serial":
