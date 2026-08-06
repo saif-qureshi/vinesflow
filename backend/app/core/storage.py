@@ -28,8 +28,17 @@ class StoredFile:
     size: int
 
 
-def _object_key(org_id: int, filename: str) -> str:
-    ext = Path(filename).suffix.lower()
+_EXTENSIONS = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+    "application/pdf": ".pdf",
+}
+
+
+def _object_key(org_id: int, content_type: str | None) -> str:
+    ext = _EXTENSIONS.get((content_type or "").lower(), "")
     return f"{settings.MEDIA_KEY_PREFIX}org-{org_id}/{uuid.uuid4().hex}{ext}"
 
 
@@ -76,7 +85,7 @@ class LocalStorage:
     def save_stream(
         self, *, org_id: int, filename: str, content_type: str | None, fileobj: BinaryIO, size: int
     ) -> StoredFile:
-        key = _object_key(org_id, filename)
+        key = _object_key(org_id, content_type)
         path = self.root / key
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("wb") as dest:
@@ -128,7 +137,7 @@ class S3Storage:
     def save_stream(
         self, *, org_id: int, filename: str, content_type: str | None, fileobj: BinaryIO, size: int
     ) -> StoredFile:
-        key = _object_key(org_id, filename)
+        key = _object_key(org_id, content_type)
         self.client.upload_fileobj(
             fileobj,
             self.bucket,

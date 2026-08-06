@@ -96,3 +96,18 @@ def test_media_is_scoped_to_its_org(db, monkeypatch):
     db.flush()
 
     assert svc.list_for(other.id, "product", 1) == []
+
+
+def test_upload_extension_comes_from_the_validated_type(client, register, org_id_of, h):
+    """A client-supplied filename must not decide how the file is served."""
+    token = register()
+    org = org_id_of(token)
+    res = client.post(
+        "/api/v1/media/upload",
+        headers=h(token, org),
+        files={"file": ("payload.svg", b"<svg onload=alert(1)>", "image/png")},
+    )
+    assert res.status_code == 200
+    key = res.json()["data"]["storage_key"]
+    assert key.endswith(".png")
+    assert ".svg" not in key

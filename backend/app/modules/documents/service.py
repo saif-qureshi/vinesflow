@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, noload
 
 from app.core import ledger as _ledger
 from app.core.exceptions import AppError, BadRequestError, ConflictError, NotFoundError
@@ -283,11 +283,15 @@ class DocumentService:
         rates = {
             r.id: r
             for r in self.db.scalars(
-                select(TaxRate).where(TaxRate.org_id == org_id, TaxRate.id.in_(ids))
+                select(TaxRate).where(
+                    TaxRate.org_id == org_id,
+                    TaxRate.id.in_(ids),
+                    TaxRate.is_active.is_(True),
+                )
             )
         }
         if len(rates) != len(ids):
-            raise NotFoundError("One or more tax rates were not found")
+            raise NotFoundError("One or more tax rates were not found or are no longer active")
         return rates
 
     def _validate_products(self, org_id: int, lines: list[DocumentLineInput]) -> None:
@@ -627,6 +631,9 @@ class DocumentService:
         if query.search:
             like = f"%{query.search.strip()}%"
             stmt = stmt.where(or_(Document.number.ilike(like), Document.reference.ilike(like)))
+        # DocumentListItem has no lines; without this the selectin loaders pull
+        # every line, allocation and serial for the page.
+        stmt = stmt.options(noload(Document.lines), noload(Document.credit_notes))
         return paginate_cursor(self.db, stmt, Document.id, query)
 
     def update(
@@ -658,13 +665,11 @@ class DocumentService:
             doc.shipping_address = party.shipping_address
         if "warehouse_id" in fields and payload.warehouse_id is not None:
             self._validate_warehouse(org_id, payload.warehouse_id)
-        for field in (
-            "issue_date",
-            "reference",
-            "warehouse_id",
-            "notes",
-            "terms",
-        ):
+        if "issue_date" in fields:
+            if payload.issue_date is None:
+                raise BadRequestError("An issue date is required")
+            doc.issue_date = payload.issue_date
+        for field in ("reference", "warehouse_id", "notes", "terms"):
             if field in fields:
                 setattr(doc, field, getattr(payload, field))
         if doc_type in FINANCIAL_TYPES and "due_date" in fields:

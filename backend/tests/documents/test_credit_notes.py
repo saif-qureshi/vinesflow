@@ -323,3 +323,27 @@ def test_payment_and_credit_are_tracked_separately(db):
     assert invoice.amount_credited == Decimal("100")
     assert invoice.balance_due == Decimal("200")
     assert invoice.payment_status == DocumentPaymentStatus.PARTIAL
+
+
+def test_a_deactivated_tax_rate_cannot_be_used_on_new_documents(db):
+    from app.core.exceptions import NotFoundError
+
+    org_id, loc_id, party_id, pid, tax_id = _setup(db)
+    rate = db.get(TaxRate, tax_id)
+    rate.is_active = False
+    db.flush()
+
+    with pytest.raises(NotFoundError):
+        DocumentService(db).create(
+            org_id,
+            DocumentType.INVOICE,
+            DocumentCreate(
+                party_id=party_id,
+                lines=[
+                    DocumentLineInput(
+                        product_id=pid, description="Widget", quantity=Decimal(1),
+                        unit_price=Decimal("100"), tax_rate_id=tax_id,
+                    )
+                ],
+            ),
+        )

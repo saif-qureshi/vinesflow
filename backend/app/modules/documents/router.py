@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -57,7 +58,7 @@ def sellable_items(
     return svc.sellable_items(membership.org_id, search, limit, warehouse_id)
 
 
-@router.get("/stock-on-hand", response_model=dict[int, float])
+@router.get("/stock-on-hand", response_model=dict[int, Decimal])
 def stock_on_hand(
     product_ids: list[int] = Query(default=[]),
     warehouse_id: int | None = None,
