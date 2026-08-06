@@ -254,17 +254,27 @@ class DocumentService:
             return product.parent.media[0].url
         return None
 
-    def apply_settlement(self, doc: Document, delta: Decimal) -> None:
-        paid = doc.amount_paid + delta
-        if paid < _ZERO:
-            paid = _ZERO
-        doc.amount_paid = paid
-        if paid <= _ZERO:
+    @staticmethod
+    def _recompute_settlement(doc: Document) -> None:
+        settled = doc.amount_paid + doc.amount_credited
+        if settled <= _ZERO:
             doc.payment_status = DocumentPaymentStatus.UNPAID
-        elif paid >= doc.total:
+        elif settled < doc.total:
+            doc.payment_status = DocumentPaymentStatus.PARTIAL
+        elif doc.amount_paid >= doc.total:
             doc.payment_status = DocumentPaymentStatus.PAID
         else:
-            doc.payment_status = DocumentPaymentStatus.PARTIAL
+            doc.payment_status = DocumentPaymentStatus.CREDITED
+
+    def apply_settlement(self, doc: Document, delta: Decimal) -> None:
+        """Record money received against the document."""
+        doc.amount_paid = max(doc.amount_paid + delta, _ZERO)
+        self._recompute_settlement(doc)
+
+    def apply_credit_settlement(self, doc: Document, delta: Decimal) -> None:
+        """Record value written back by a credit note. This is not cash."""
+        doc.amount_credited = max(doc.amount_credited + delta, _ZERO)
+        self._recompute_settlement(doc)
 
     def _tax_map(self, org_id: int, lines: list[DocumentLineInput]) -> dict[int, TaxRate]:
         ids = {line.tax_rate_id for line in lines if line.tax_rate_id is not None}
@@ -786,10 +796,9 @@ class DocumentService:
         )
         if source is None or source.status != DocumentStatus.SENT:
             return
-        outstanding = source.total - source.amount_paid
-        if doc.total > outstanding:
+        if doc.total > source.balance_due:
             raise BadRequestError(f"Credit exceeds the balance due on {source.number}")
-        self.apply_settlement(source, doc.total)
+        self.apply_credit_settlement(source, doc.total)
         doc.settled_amount = doc.total
 
     def _reverse_credit(self, doc: Document) -> None:
@@ -797,7 +806,7 @@ class DocumentService:
             return
         source = self.db.get(Document, doc.source_document_id)
         if source is not None:
-            self.apply_settlement(source, -doc.settled_amount)
+            self.apply_credit_settlement(source, -doc.settled_amount)
         doc.settled_amount = _ZERO
 
     def _guard_fbr_credit_note(self, org_id: int, source: Document) -> None:

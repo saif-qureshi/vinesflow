@@ -171,6 +171,7 @@ class DocumentRead(BaseModel):
     adjustment: Decimal
     total: Decimal
     amount_paid: Decimal
+    amount_credited: Decimal
     balance_due: Decimal
     source_document_id: int | None = None
     created_at: datetime
@@ -200,6 +201,7 @@ class DocumentListItem(BaseModel):
     currency: str
     total: Decimal
     amount_paid: Decimal
+    amount_credited: Decimal
     balance_due: Decimal
     party: PartySummary | None = None
 

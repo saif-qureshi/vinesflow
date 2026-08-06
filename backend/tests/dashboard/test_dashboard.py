@@ -47,7 +47,7 @@ def test_dashboard_summary_aggregates(db):
     assert s.kpis.active_customers == 1
 
     status = {x.status: x.invoices for x in s.invoice_status}
-    assert status == {"Paid": 2, "Pending": 1, "Overdue": 1}
+    assert status == {"Settled": 2, "Pending": 1, "Overdue": 1}
 
     aging = {x.bucket: x.amount for x in s.aging}
     assert aging["Current"] == Decimal("200")      # inv 3, not yet due

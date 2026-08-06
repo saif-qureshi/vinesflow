@@ -82,7 +82,8 @@ class Document(Base, TimestampMixin, AuditMixin):
             name="ck_documents_fbr_reason_type",
         ),
         CheckConstraint(
-            "type IN ('invoice', 'bill') OR (amount_paid = 0 AND payment_status = 'unpaid')",
+            "type IN ('invoice', 'bill') OR "
+            "(amount_paid = 0 AND amount_credited = 0 AND payment_status = 'unpaid')",
             name="ck_documents_payment_fields_type",
         ),
         CheckConstraint(
@@ -138,6 +139,11 @@ class Document(Base, TimestampMixin, AuditMixin):
     adjustment: Mapped[Decimal] = mapped_column(_MONEY, default=0, nullable=False)
     total: Mapped[Decimal] = mapped_column(_MONEY, default=0, nullable=False)
     amount_paid: Mapped[Decimal] = mapped_column(_MONEY, default=0, nullable=False)
+    # Settled by credit notes. Kept apart from amount_paid so "collected" and
+    # "written back" never get confused for one another.
+    amount_credited: Mapped[Decimal] = mapped_column(
+        _MONEY, default=0, server_default="0", nullable=False
+    )
     payment_status: Mapped[str] = mapped_column(
         String(10), default=DocumentPaymentStatus.UNPAID, nullable=False
     )
@@ -177,7 +183,7 @@ class Document(Base, TimestampMixin, AuditMixin):
 
     @property
     def balance_due(self) -> Decimal:
-        return self.total - self.amount_paid
+        return self.total - self.amount_paid - self.amount_credited
 
     @property
     def buyer_registered(self) -> bool:

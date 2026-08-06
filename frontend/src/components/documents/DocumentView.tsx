@@ -403,6 +403,11 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
               <span className="tabular-nums">{money(Number(doc.amount_paid))}</span>
             </Descriptions.Item>
           )}
+          {config.tracksPayment && Number(doc.amount_credited) > 0 && (
+            <Descriptions.Item label="Credit notes applied">
+              <span className="tabular-nums">{money(Number(doc.amount_credited))}</span>
+            </Descriptions.Item>
+          )}
           {config.tracksPayment && (
             <Descriptions.Item label="Balance due">
               <span className="tabular-nums font-medium">{money(Number(doc.balance_due))}</span>
@@ -489,6 +494,9 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
             <Row label="Total" value={money(Number(doc.total))} strong />
             {config.tracksPayment && (
               <Row label="Amount paid" value={money(Number(doc.amount_paid))} />
+            )}
+            {config.tracksPayment && Number(doc.amount_credited) > 0 && (
+              <Row label="Credit notes applied" value={money(Number(doc.amount_credited))} />
             )}
             {config.tracksPayment && (
               <Row label="Balance due" value={money(Number(doc.balance_due))} strong />

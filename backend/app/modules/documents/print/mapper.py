@@ -203,9 +203,12 @@ def document_to_print(doc: Document, org: Organization) -> PrintDocument:
     totals.append(PrintTotalLine(label="Total", value=_money(doc.total), emphasize=True))
     if doc.amount_paid:
         totals.append(PrintTotalLine(label="Amount paid", value=_money(doc.amount_paid)))
+    if doc.amount_credited:
         totals.append(
-            PrintTotalLine(label="Balance due", value=_money(doc.total - doc.amount_paid))
+            PrintTotalLine(label="Credit notes applied", value=_money(doc.amount_credited))
         )
+    if doc.amount_paid or doc.amount_credited:
+        totals.append(PrintTotalLine(label="Balance due", value=_money(doc.balance_due)))
 
     contact = _address_lines(org.address)
     return PrintDocument(

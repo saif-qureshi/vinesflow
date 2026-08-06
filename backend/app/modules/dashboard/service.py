@@ -14,7 +14,7 @@ from app.modules.dashboard.schemas import (
     RevenuePoint,
     StatusCount,
 )
-from app.modules.documents.enums import DocumentPaymentStatus, DocumentStatus, DocumentType
+from app.modules.documents.enums import DocumentStatus, DocumentType
 from app.modules.documents.models import Document
 from app.modules.parties.models import Party
 
@@ -30,6 +30,10 @@ class DashboardService:
     def __init__(self, db: Session) -> None:
         self.db = db
 
+    @staticmethod
+    def _outstanding():
+        return Document.total - Document.amount_paid - Document.amount_credited
+
     def _invoices(self, org_id: int):
         return and_(
             Document.org_id == org_id,
@@ -39,8 +43,8 @@ class DashboardService:
 
     def summary(self, org_id: int, today: date) -> DashboardSummary:
         inv = self._invoices(org_id)
-        outstanding = Document.total - Document.amount_paid
-        unpaid = Document.payment_status != DocumentPaymentStatus.PAID
+        outstanding = self._outstanding()
+        unpaid = outstanding > _ZERO
 
         this_start = _month_start(today)
         last_start = _month_start(this_start - timedelta(days=1))
@@ -101,10 +105,10 @@ class DashboardService:
         return points
 
     def _aging(self, org_id: int, today: date) -> list[AgingBucket]:
-        outstanding = Document.total - Document.amount_paid
+        outstanding = self._outstanding()
         rows = self.db.execute(
             select(Document.due_date, outstanding).where(
-                self._invoices(org_id), Document.payment_status != DocumentPaymentStatus.PAID
+                self._invoices(org_id), outstanding > _ZERO
             )
         ).all()
         buckets: dict[str, Decimal] = {"Current": _ZERO, "1-30": _ZERO, "31-60": _ZERO, "61-90": _ZERO, "90+": _ZERO}
@@ -125,16 +129,16 @@ class DashboardService:
 
     def _status_counts(self, org_id: int, today: date) -> list[StatusCount]:
         inv = self._invoices(org_id)
-        unpaid = Document.payment_status != DocumentPaymentStatus.PAID
+        unpaid = self._outstanding() > _ZERO
 
         def count(*where) -> int:
             return self.db.scalar(select(func.count(Document.id)).where(inv, *where)) or 0
 
-        paid = count(Document.payment_status == DocumentPaymentStatus.PAID)
+        settled = count(self._outstanding() <= _ZERO)
         overdue = count(unpaid, Document.due_date.is_not(None), Document.due_date < today)
         pending = count(unpaid, or_(Document.due_date.is_(None), Document.due_date >= today))
         return [
-            StatusCount(status="Paid", invoices=paid),
+            StatusCount(status="Settled", invoices=settled),
             StatusCount(status="Pending", invoices=pending),
             StatusCount(status="Overdue", invoices=overdue),
         ]
@@ -148,7 +152,7 @@ class DashboardService:
         ).all()
         out: list[RecentInvoice] = []
         for d in rows:
-            if d.payment_status == DocumentPaymentStatus.PAID:
+            if d.balance_due <= _ZERO:
                 status = "paid"
             elif d.due_date and d.due_date < today:
                 status = "overdue"

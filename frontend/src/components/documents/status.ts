@@ -12,6 +12,7 @@ export const PAYMENT_META: Record<DocumentPaymentStatus, { label: string; color?
   unpaid: { label: "Unpaid", color: "gold" },
   partial: { label: "Partially Paid", color: "orange" },
   paid: { label: "Paid", color: "green" },
+  credited: { label: "Credited", color: "purple" },
 };
 
 /** The lifecycle tag, with per-document-type wording (a confirmed sales order
