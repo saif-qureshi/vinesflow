@@ -1,22 +1,19 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { Spin } from "antd";
+
+import { errorState, loadingState, notFoundState } from "@/components/ui/QueryFallback";
 
 import { ItemForm } from "../../ItemForm";
 import { useProduct } from "@/hooks/useProducts";
 
 export default function EditItemPage() {
   const { id } = useParams<{ id: string }>();
-  const { data, isLoading } = useProduct(Number(id));
+  const { data, isLoading, error } = useProduct(Number(id));
 
-  if (isLoading || !data) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <Spin size="large" />
-      </div>
-    );
-  }
+  if (error) return errorState(error);
+  if (isLoading) return loadingState();
+  if (!data) return notFoundState();
 
   return <ItemForm key={data.id} product={data} />;
 }

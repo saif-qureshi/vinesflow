@@ -655,20 +655,29 @@ export function DocumentForm({
           : {}),
       })),
     };
+    let saved;
     try {
-      const saved = isEdit
+      saved = isEdit
         ? await update.mutateAsync({ id: document.id, payload })
         : await create.mutateAsync(payload);
-      if (saveModeRef.current === "finalize") {
-        await finalize.mutateAsync(saved.id);
-        message.success(`${config.labels.singular} finalized`);
-      } else {
-        message.success(`${config.labels.singular} ${isEdit ? "updated" : "created"}`);
-      }
-      router.push(`${config.basePath}/${saved.id}`);
     } catch (err) {
       message.error(apiErrorMessage(err));
+      return;
     }
+    if (saveModeRef.current === "finalize") {
+      try {
+        await finalize.mutateAsync(saved.id);
+        message.success(`${config.labels.singular} finalized`);
+      } catch (err) {
+        // The draft exists now; land on it so a retry cannot create a second.
+        message.error(apiErrorMessage(err));
+        router.push(`${config.basePath}/${saved.id}`);
+        return;
+      }
+    } else {
+      message.success(`${config.labels.singular} ${isEdit ? "updated" : "created"}`);
+    }
+    router.push(`${config.basePath}/${saved.id}`);
   };
 
   return (

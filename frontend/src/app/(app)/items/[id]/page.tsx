@@ -1,8 +1,10 @@
 "use client";
 
+import { errorState, loadingState, notFoundState } from "@/components/ui/QueryFallback";
+
 import { useState, type ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Descriptions, Image, Spin, Tabs } from "antd";
+import { Descriptions, Image, Tabs } from "antd";
 import { ArrowLeft, Pencil, SlidersHorizontal, Trash2 } from "lucide-react";
 
 import { App, Button, Card, Popconfirm, Table, Tag, Typography } from "@/components/ui";
@@ -39,20 +41,16 @@ export default function ViewItemPage() {
   const { money } = useCurrency();
   const can = useCan();
   const del = useDeleteProduct();
-  const { data: p, isLoading } = useProduct(Number(id));
+  const { data: p, isLoading, error } = useProduct(Number(id));
   const { data: stock } = useItemStock(p?.track_inventory ? Number(id) : null);
   const { data: warehouses } = useWarehouses();
   const { data: bins } = useBins();
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [openingOpen, setOpeningOpen] = useState(false);
 
-  if (isLoading || !p) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <Spin size="large" />
-      </div>
-    );
-  }
+  if (error) return errorState(error);
+  if (isLoading) return loadingState();
+  if (!p) return notFoundState();
 
   const remove = async () => {
     try {

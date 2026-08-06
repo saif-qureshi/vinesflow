@@ -42,24 +42,32 @@ import { AppFooter } from "@/components/AppFooter";
 import { Logo } from "@/components/Logo";
 import { RecentActivity } from "@/components/layout/RecentActivity";
 import { RequireAuth } from "@/components/RequireAuth";
-import { useAppTheme, useLogout, useSession, useSwitchOrg } from "@/hooks/useSession";
+import { useAppTheme, useCan, useLogout, useSession, useSwitchOrg } from "@/hooks/useSession";
 
 const { Header, Sider, Content } = Layout;
 const ICON = 18;
 const WIDTH = 260;
 const COLLAPSED = 72;
 
-const NAV: MenuProps["items"] = [
-  { key: "/dashboard", icon: <LayoutDashboard size={ICON} />, label: "Dashboard" },
-  { key: "/items", icon: <Package size={ICON} />, label: "Items" },
-  { key: "/parties", icon: <Users size={ICON} />, label: "Parties" },
+interface NavEntry {
+  key: string;
+  label: string;
+  icon?: React.ReactNode;
+  permission?: string;
+  children?: NavEntry[];
+}
+
+const NAV: NavEntry[] = [
+  { key: "/dashboard", icon: <LayoutDashboard size={ICON} />, label: "Dashboard", permission: "reports:read" },
+  { key: "/items", icon: <Package size={ICON} />, label: "Items", permission: "products:read" },
+  { key: "/parties", icon: <Users size={ICON} />, label: "Parties", permission: "parties:read" },
   {
     key: "inventory",
     icon: <Warehouse size={ICON} />,
     label: "Inventory",
     children: [
-      { key: "/inventory", label: "Stock" },
-      { key: "/inventory/warehouses", label: "Warehouses" },
+      { key: "/inventory", label: "Stock", permission: "inventory:read" },
+      { key: "/inventory/warehouses", label: "Warehouses", permission: "inventory:read" },
     ],
   },
   {
@@ -67,12 +75,12 @@ const NAV: MenuProps["items"] = [
     icon: <ShoppingCart size={ICON} />,
     label: "Sales",
     children: [
-      { key: "/sales/orders", label: "Sales Orders" },
-      { key: "/sales/challans", label: "Delivery Challans" },
-      { key: "/sales/invoices", label: "Invoices" },
-      { key: "/sales/receipts", label: "Sales Receipts" },
-      { key: "/sales/payments-received", label: "Payments Received" },
-      { key: "/sales/credit-notes", label: "Credit Notes" },
+      { key: "/sales/orders", label: "Sales Orders", permission: "sales_orders:read" },
+      { key: "/sales/challans", label: "Delivery Challans", permission: "delivery_challans:read" },
+      { key: "/sales/invoices", label: "Invoices", permission: "invoices:read" },
+      { key: "/sales/receipts", label: "Sales Receipts", permission: "invoices:read" },
+      { key: "/sales/payments-received", label: "Payments Received", permission: "payments:read" },
+      { key: "/sales/credit-notes", label: "Credit Notes", permission: "credit_notes:read" },
     ],
   },
   {
@@ -80,11 +88,11 @@ const NAV: MenuProps["items"] = [
     icon: <ShoppingBag size={ICON} />,
     label: "Purchases",
     children: [
-      { key: "/purchases/orders", label: "Purchase Orders" },
-      { key: "/purchases/receipts", label: "Goods Receipts" },
-      { key: "/purchases/bills", label: "Bills" },
-      { key: "/purchases/expenses", label: "Expenses" },
-      { key: "/purchases/payments-made", label: "Payments Made" },
+      { key: "/purchases/orders", label: "Purchase Orders", permission: "purchase_orders:read" },
+      { key: "/purchases/receipts", label: "Goods Receipts", permission: "goods_receipts:read" },
+      { key: "/purchases/bills", label: "Bills", permission: "bills:read" },
+      { key: "/purchases/expenses", label: "Expenses", permission: "expenses:read" },
+      { key: "/purchases/payments-made", label: "Payments Made", permission: "payments:read" },
     ],
   },
   {
@@ -92,14 +100,14 @@ const NAV: MenuProps["items"] = [
     icon: <Landmark size={ICON} />,
     label: "Accountant",
     children: [
-      { key: "/accountant/chart-of-accounts", label: "Chart of Accounts" },
-      { key: "/accountant/opening-balances", label: "Opening Balances" },
-      { key: "/accountant/journals", label: "Manual Journals" },
-      { key: "/accountant/periods", label: "Fiscal Periods" },
+      { key: "/accountant/chart-of-accounts", label: "Chart of Accounts", permission: "accounting:read" },
+      { key: "/accountant/opening-balances", label: "Opening Balances", permission: "accounting:read" },
+      { key: "/accountant/journals", label: "Manual Journals", permission: "accounting:read" },
+      { key: "/accountant/periods", label: "Fiscal Periods", permission: "accounting:read" },
     ],
   },
-  { key: "/reports", icon: <BarChart3 size={ICON} />, label: "Reports" },
-  { key: "/documents", icon: <FolderOpen size={ICON} />, label: "Documents" },
+  { key: "/reports", icon: <BarChart3 size={ICON} />, label: "Reports", permission: "reports:read" },
+  { key: "/documents", icon: <FolderOpen size={ICON} />, label: "Documents", permission: "invoices:read" },
 ];
 
 function Brand({ collapsed }: { collapsed?: boolean }) {
@@ -115,6 +123,7 @@ function Brand({ collapsed }: { collapsed?: boolean }) {
 
 function Shell({ children }: { children: React.ReactNode }) {
   const { user, memberships, currentOrgId } = useSession();
+  const can = useCan();
   const { theme, accent } = useAppTheme();
   const switchOrg = useSwitchOrg();
   const logout = useLogout();
@@ -158,11 +167,23 @@ function Shell({ children }: { children: React.ReactNode }) {
     if (key === "account") router.push("/settings/account");
   };
 
+  // Hide what the member cannot open, the way the settings nav already does.
+  const navItems = useMemo<MenuProps["items"]>(() => {
+    const visible = (entry: NavEntry): NavEntry | null => {
+      if (entry.children) {
+        const children = entry.children.map(visible).filter((c): c is NavEntry => !!c);
+        return children.length ? { ...entry, children } : null;
+      }
+      return !entry.permission || can(entry.permission) ? entry : null;
+    };
+    return NAV.map(visible).filter((e): e is NavEntry => !!e) as MenuProps["items"];
+  }, [can]);
+
   const navMenu = (
     <Menu
       theme={theme}
       mode="inline"
-      items={NAV}
+      items={navItems}
       selectedKeys={[pathname.startsWith("/parties") ? "/parties" : pathname]}
       openKeys={openKeys}
       onOpenChange={(keys) => setOpenKeys(keys as string[])}

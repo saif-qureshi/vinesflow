@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Input, Table } from "antd";
 import type { TableProps } from "antd";
 import { Search } from "lucide-react";
@@ -31,12 +31,24 @@ export function DataTable<T extends object>({
   ...props
 }: DataTableProps<T>) {
   const [q, setQ] = useState("");
+  // Callers pass an inline callback, so depending on its identity would
+  // re-run the debounce on every render and never settle.
+  const searchRef = useRef(onSearch);
+  const lastSent = useRef("");
 
   useEffect(() => {
-    if (!onSearch) return;
-    const t = setTimeout(() => onSearch(q.trim()), 300);
-    return () => clearTimeout(t);
-  }, [q, onSearch]);
+    searchRef.current = onSearch;
+  });
+
+  useEffect(() => {
+    const value = q.trim();
+    if (value === lastSent.current) return;
+    const timer = setTimeout(() => {
+      lastSent.current = value;
+      searchRef.current?.(value);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [q]);
 
   const hasToolbar = searchable || toolbar;
 

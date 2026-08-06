@@ -8,6 +8,7 @@ import type { ColumnsType } from "antd/es/table";
 import { Download, Eye, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { App, Button, DataTable, Dropdown, PageHeader, Tag, Typography } from "@/components/ui";
+import { errorState } from "@/components/ui/QueryFallback";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useDeleteDocument, useDocumentList, type DocumentFilters } from "@/hooks/useDocuments";
 import { useCan } from "@/hooks/useSession";
@@ -24,7 +25,7 @@ export function DocumentList({ config }: { config: DocumentKindConfig }) {
   const { money } = useCurrency();
   const { message } = App.useApp();
   const [filters, setFilters] = useState<DocumentFilters>({});
-  const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useDocumentList(
+  const { data, isLoading, error, hasNextPage, fetchNextPage, isFetchingNextPage } = useDocumentList(
     config.apiPath,
     filters,
   );
@@ -199,6 +200,7 @@ export function DocumentList({ config }: { config: DocumentKindConfig }) {
         }
       />
 
+      {error && <div className="mb-4">{errorState(error)}</div>}
       <DataTable<DocumentSummary>
         loading={isLoading}
         columns={columns}

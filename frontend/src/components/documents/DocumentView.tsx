@@ -2,7 +2,9 @@
 
 import { Fragment, type ReactNode, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Descriptions, Spin, Table } from "antd";
+
+import { errorState, loadingState, notFoundState } from "@/components/ui/QueryFallback";
+import { Descriptions, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import {
   AlertTriangle,
@@ -67,7 +69,7 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
   const { money } = useCurrency();
   const can = useCan();
   const { currentMembership } = useSession();
-  const { data: doc, isLoading } = useDocument(config.apiPath, id);
+  const { data: doc, isLoading, error } = useDocument(config.apiPath, id);
   const { data: bins } = useBins(doc?.warehouse_id, false, doc?.warehouse_id != null);
   const finalize = useFinalizeDocument(config.apiPath);
   const voidDoc = useVoidDocument(config.apiPath);
@@ -83,13 +85,9 @@ export function DocumentView({ config, id }: { config: DocumentKindConfig; id: n
     fbrEnabled && (config.kind === "invoice" || config.kind === "credit_note");
   const supportsBins = config.kind !== "sales_order" && config.kind !== "purchase_order";
 
-  if (isLoading || !doc) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <Spin size="large" />
-      </div>
-    );
-  }
+  if (error) return errorState(error);
+  if (isLoading) return loadingState();
+  if (!doc) return notFoundState();
 
   const dash = <span className="text-gray-400">—</span>;
   const isDraft = doc.status === "draft";

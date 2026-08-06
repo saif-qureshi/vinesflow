@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { App, Avatar, Button, Form, Input, Password, PageHeader, Typography } from "@/components/ui";
+import { App, Avatar, Button, Form, Input, Password, PageHeader } from "@/components/ui";
 import { Uploader } from "@/components/ui/Uploader";
 import { useSession } from "@/hooks/useSession";
 import { useUpdateProfile } from "@/hooks/useOrg";
