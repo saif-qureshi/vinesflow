@@ -31,7 +31,7 @@ services:
     restart: "no"
     env_file:
       - backend.env
-    command: ["sh", "-c", "alembic upgrade head && python -m app.cli banks sync-logos"]
+    command: ["alembic", "upgrade", "head"]
     networks:
       - aws
     mem_limit: 256m
