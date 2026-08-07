@@ -14,24 +14,20 @@ resource "aws_iam_role" "app" {
   assume_role_policy = data.aws_iam_policy_document.ec2_assume.json
 }
 
-# Prod serves every tenant: all org-*/ media objects, plus the backups bucket.
-# NOT scoped to specific orgs (orgs are created at runtime) and NOT to local/*.
+# Prod owns the media bucket outright: tenant uploads, the shared catalogue, and
+# anything added later. Orgs and prefixes are created at runtime, so scoping the
+# policy by prefix only breaks deploys.
 data "aws_iam_policy_document" "app" {
   statement {
     sid       = "MediaObjects"
     actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
-    resources = ["${aws_s3_bucket.media.arn}/org-*"]
+    resources = ["${aws_s3_bucket.media.arn}/*"]
   }
 
   statement {
     sid       = "MediaList"
     actions   = ["s3:ListBucket"]
     resources = [aws_s3_bucket.media.arn]
-    condition {
-      test     = "StringLike"
-      variable = "s3:prefix"
-      values   = ["org-*"]
-    }
   }
 
   statement {
