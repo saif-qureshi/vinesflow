@@ -140,6 +140,48 @@ def test_addresses_roundtrip(db):
     assert party.shipping_address is None
 
 
+def test_party_opening_balance_reaches_the_ledger_and_the_aging(db):
+    from datetime import date
+    from decimal import Decimal
+
+    from app.modules.accounting.vouchers import VoucherService
+    from app.modules.reports.service import ReportService
+
+    org_id = _org(db)
+    svc = PartyService(db)
+    customer = svc.create(org_id, PartyCreate(name="Beta Corp", is_customer=True))
+    vouchers = VoucherService(db)
+
+    vouchers.set_party_opening_balance(org_id, customer.id, Decimal("500"), date.today())
+    assert svc.get(org_id, customer.id).opening_balance == Decimal("500")
+    assert svc.get(org_id, customer.id).balance == Decimal("500")
+
+    reports = ReportService(db)
+    aging = reports.run(org_id, "ar_aging_summary", {})
+    assert aging.grand_total["total"] == Decimal("500")
+    ledger = reports.run(org_id, "party_ledger", {"party_id": customer.id})
+    assert ledger.sections[0].subtotal["balance"] == Decimal("500")
+
+    # Correcting it replaces rather than doubles: the old voucher is reversed.
+    vouchers.set_party_opening_balance(org_id, customer.id, Decimal("300"), date.today())
+    assert svc.get(org_id, customer.id).balance == Decimal("300")
+
+
+def test_supplier_opening_balance_is_a_payable(db):
+    from datetime import date
+    from decimal import Decimal
+
+    from app.modules.accounting.vouchers import VoucherService
+
+    org_id = _org(db)
+    svc = PartyService(db)
+    vendor = svc.create(org_id, PartyCreate(name="Supplier Ltd", is_vendor=True))
+    VoucherService(db).set_party_opening_balance(org_id, vendor.id, Decimal("800"), date.today())
+
+    # Negative because we owe them; the party view reads it as "You owe".
+    assert svc.get(org_id, vendor.id).balance == Decimal("-800")
+
+
 def test_balance_reflects_what_the_party_owes(db):
     from decimal import Decimal
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -83,7 +85,50 @@ def _settled_by_document(db, org_id, doc_type, as_of) -> dict[int, Decimal]:
     return settled
 
 
-def _open_documents(db, org_id, doc_type, as_of) -> list[tuple[Document, Decimal]]:
+@dataclass
+class Outstanding:
+    """One thing still owed, whether it came from a document or from the balance
+    the party carried in when the books started."""
+
+    party_id: int | None
+    aged_from: date
+    balance: Decimal
+
+
+def _party_openings(db, org_id, doc_type, as_of) -> list[Outstanding]:
+    from app.modules.accounting.constants import ACCOUNTING_SETTINGS_GROUP
+    from app.modules.accounting.enums import VoucherType
+    from app.modules.accounting.models import LedgerEntry
+    from app.modules.settings.service import SettingsService
+
+    key = "accounts_receivable" if doc_type == DocumentType.INVOICE else "accounts_payable"
+    account_id = SettingsService(db).get(org_id, ACCOUNTING_SETTINGS_GROUP, key)
+    if account_id is None:
+        return []
+    sign = 1 if doc_type == DocumentType.INVOICE else -1
+    rows = db.execute(
+        select(
+            LedgerEntry.party_id,
+            func.min(LedgerEntry.posting_date),
+            func.coalesce(func.sum(LedgerEntry.debit - LedgerEntry.credit), 0),
+        )
+        .where(
+            LedgerEntry.org_id == org_id,
+            LedgerEntry.account_id == int(account_id),
+            LedgerEntry.voucher_type == VoucherType.OPENING,
+            LedgerEntry.party_id.is_not(None),
+            LedgerEntry.posting_date <= as_of,
+        )
+        .group_by(LedgerEntry.party_id)
+    ).all()
+    return [
+        Outstanding(party_id=party_id, aged_from=first, balance=total * sign)
+        for party_id, first, total in rows
+        if total * sign > _ZERO
+    ]
+
+
+def _open_documents(db, org_id, doc_type, as_of) -> list[Outstanding]:
     settled = _settled_by_document(db, org_id, doc_type, as_of)
     docs = db.scalars(
         select(Document).where(
@@ -93,12 +138,18 @@ def _open_documents(db, org_id, doc_type, as_of) -> list[tuple[Document, Decimal
             Document.issue_date <= as_of,
         )
     )
-    open_docs = []
+    open_items = []
     for doc in docs:
         balance = doc.total - settled.get(doc.id, _ZERO)
         if balance > _ZERO:
-            open_docs.append((doc, balance))
-    return open_docs
+            open_items.append(
+                Outstanding(
+                    party_id=doc.party_id,
+                    aged_from=doc.due_date or doc.issue_date,
+                    balance=balance,
+                )
+            )
+    return open_items + _party_openings(db, org_id, doc_type, as_of)
 
 
 # --- Balance summaries ---------------------------------------------------
@@ -107,8 +158,8 @@ def _open_documents(db, org_id, doc_type, as_of) -> list[tuple[Document, Decimal
 def _balance_summary(db, org_id, doc_type, party_label, as_of):
     names = dict(db.execute(select(Party.id, Party.name).where(Party.org_id == org_id)).all())
     balances: dict[int, Decimal] = {}
-    for doc, balance in _open_documents(db, org_id, doc_type, as_of):
-        balances[doc.party_id] = balances.get(doc.party_id, _ZERO) + balance
+    for item in _open_documents(db, org_id, doc_type, as_of):
+        balances[item.party_id] = balances.get(item.party_id, _ZERO) + item.balance
 
     section_rows = sorted(
         ({"party": names.get(pid, "—"), "balance": bal} for pid, bal in balances.items()),
@@ -139,15 +190,18 @@ def _vendor_balance(db, org_id, params):
 def _aging(db, org_id, doc_type, as_of, party_label):
     names = dict(db.execute(select(Party.id, Party.name).where(Party.org_id == org_id)).all())
     acc: dict[int, dict] = {}
-    for doc, balance in _open_documents(db, org_id, doc_type, as_of):
-        ref = doc.due_date or doc.issue_date
-        bucket = _bucket((as_of - ref).days)
+    for item in _open_documents(db, org_id, doc_type, as_of):
+        bucket = _bucket((as_of - item.aged_from).days)
         row = acc.setdefault(
-            doc.party_id,
-            {"party": names.get(doc.party_id, "—"), **{k: _ZERO for k, _ in AGING}, "total": _ZERO},
+            item.party_id,
+            {
+                "party": names.get(item.party_id, "—"),
+                **{k: _ZERO for k, _ in AGING},
+                "total": _ZERO,
+            },
         )
-        row[bucket] += balance
-        row["total"] += balance
+        row[bucket] += item.balance
+        row["total"] += item.balance
 
     rows = sorted(acc.values(), key=lambda r: r["party"])
     totals = {"party": "Total", "total": sum((r["total"] for r in rows), _ZERO)}

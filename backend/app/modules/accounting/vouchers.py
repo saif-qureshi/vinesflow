@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
@@ -11,12 +12,14 @@ from app.modules.accounting.constants import (
     SUBSIDIARY_OPENING_ACCOUNTS,
 )
 from app.modules.accounting.enums import VoucherStatus, VoucherType
-from app.modules.accounting.models import AccountingVoucher, VoucherLine
+from app.modules.accounting.models import AccountingVoucher, LedgerEntry, VoucherLine
 from app.modules.accounting.schemas import JournalVoucherCreate, OpeningBalanceInput
 from app.modules.accounting.service import JournalLine, PostingService
+from app.modules.parties.models import Party
 from app.modules.settings.service import SettingsService
 
 _ZERO = Decimal("0")
+_PARTY_OPENING = "party_opening"
 
 
 class VoucherService:
@@ -169,6 +172,83 @@ class VoucherService:
         self.db.commit()
         self.db.refresh(voucher)
         return voucher
+
+    def party_opening_balance(self, org_id: int, party_id: int) -> Decimal:
+        """Read back from the ledger rather than a stored copy, so the figure on
+        the party can never disagree with the entries behind it."""
+        total = self.db.scalar(
+            select(
+                func.coalesce(func.sum(LedgerEntry.debit - LedgerEntry.credit), 0)
+            ).where(
+                LedgerEntry.org_id == org_id,
+                LedgerEntry.party_id == party_id,
+                LedgerEntry.voucher_type == VoucherType.OPENING,
+            )
+        ) or _ZERO
+        return total
+
+    def set_party_opening_balance(
+        self, org_id: int, party_id: int, amount: Decimal, as_of: date
+    ) -> Decimal:
+        """What the party already owed on the day the books started. Posted with
+        the party on the line, so it reaches their ledger, statement and aging —
+        which a lump figure on the opening balances screen never could."""
+        party = self.db.scalar(
+            select(Party).where(Party.id == party_id, Party.org_id == org_id)
+        )
+        if party is None:
+            raise NotFoundError("Party not found")
+        if amount < _ZERO:
+            raise BadRequestError("An opening balance cannot be negative")
+
+        settings = SettingsService(self.db)
+
+        def account(key: str) -> int:
+            value = settings.get(org_id, ACCOUNTING_SETTINGS_GROUP, key)
+            if value is None:
+                raise BadRequestError(f"The {key.replace('_', ' ')} account is not configured")
+            return int(value)
+
+        existing = self.db.scalar(
+            select(AccountingVoucher).where(
+                AccountingVoucher.org_id == org_id,
+                AccountingVoucher.source_type == _PARTY_OPENING,
+                AccountingVoucher.source_id == party_id,
+                AccountingVoucher.status == VoucherStatus.POSTED,
+                AccountingVoucher.voucher_type != VoucherType.REVERSAL,
+            )
+        )
+        if existing is not None:
+            self.posting.reverse_voucher(existing, posting_date=as_of)
+
+        if amount != _ZERO:
+            equity = account("opening_balance_equity")
+            if party.is_vendor and not party.is_customer:
+                lines = [
+                    JournalLine(account_id=equity, debit=amount),
+                    JournalLine(
+                        account_id=account("accounts_payable"), credit=amount, party_id=party_id
+                    ),
+                ]
+            else:
+                lines = [
+                    JournalLine(
+                        account_id=account("accounts_receivable"), debit=amount, party_id=party_id
+                    ),
+                    JournalLine(account_id=equity, credit=amount),
+                ]
+            self.posting.post_voucher(
+                org_id,
+                voucher_type=VoucherType.OPENING,
+                posting_date=as_of,
+                lines=lines,
+                description=f"Opening balance — {party.name}",
+                source_type=_PARTY_OPENING,
+                source_id=party_id,
+                allow_control_accounts=True,
+            )
+        self.db.commit()
+        return self.party_opening_balance(org_id, party_id)
 
     @staticmethod
     def _journal_lines(payload: JournalVoucherCreate) -> list[JournalLine]:

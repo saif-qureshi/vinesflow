@@ -70,7 +70,20 @@ class PartyService:
 
         if not parties:
             return
+        from app.modules.accounting.enums import VoucherType
+
+        party_ids = [p.id for p in parties]
         balances = dict(
+            self.db.execute(
+                select(
+                    LedgerEntry.party_id,
+                    func.coalesce(func.sum(LedgerEntry.debit - LedgerEntry.credit), 0),
+                )
+                .where(LedgerEntry.org_id == org_id, LedgerEntry.party_id.in_(party_ids))
+                .group_by(LedgerEntry.party_id)
+            ).all()
+        )
+        opening = dict(
             self.db.execute(
                 select(
                     LedgerEntry.party_id,
@@ -78,13 +91,15 @@ class PartyService:
                 )
                 .where(
                     LedgerEntry.org_id == org_id,
-                    LedgerEntry.party_id.in_([p.id for p in parties]),
+                    LedgerEntry.party_id.in_(party_ids),
+                    LedgerEntry.voucher_type == VoucherType.OPENING,
                 )
                 .group_by(LedgerEntry.party_id)
             ).all()
         )
         for party in parties:
             party.balance = balances.get(party.id, _ZERO)
+            party.opening_balance = opening.get(party.id, _ZERO)
 
     def get(self, org_id: int, party_id: int) -> Party:
         party = self.db.scalar(

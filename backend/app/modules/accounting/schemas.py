@@ -41,6 +41,17 @@ class OpeningBalanceInput(BaseModel):
     entries: list[OpeningBalanceEntry] = Field(min_length=1)
 
 
+class PartyOpeningBalanceInput(BaseModel):
+    amount: Decimal = Field(ge=0)
+    as_of: date
+
+
+class PartyOpeningBalanceRead(BaseModel):
+    party_id: int
+    amount: Decimal
+    as_of: date
+
+
 class VoucherLineRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

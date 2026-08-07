@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import { Checkbox, Radio, Tabs } from "antd";
 import { X } from "lucide-react";
 
-import { AddressAutoComplete, App, Button, Card, Form, Input, MaskedInput, MASKS, PhoneField, Select, TextArea, Typography } from "@/components/ui";
+import { AddressAutoComplete, App, Button, Card, Form, Input, InputNumber, MaskedInput, MASKS, PhoneField, Select, TextArea, Typography } from "@/components/ui";
 import { Uploader } from "@/components/ui/Uploader";
 import { useCurrency } from "@/hooks/useCurrency";
-import { useCreateParty, useUpdateParty } from "@/hooks/useParties";
+import { useCreateParty, useSetPartyOpeningBalance, useUpdateParty } from "@/hooks/useParties";
 import { apiErrorMessage } from "@/lib/api";
 import type { Address, Party, PartyInput, PartyRole, UploadedFile } from "@/types";
 import { CURRENCIES, PAYMENT_TERMS, SALUTATIONS } from "./constants";
@@ -29,6 +29,7 @@ interface FormValues {
   strn?: string;
   cnic?: string;
   payment_term_days?: number;
+  opening_balance?: number;
   billing_address?: Address;
   shipping_address?: Address;
   notes?: string;
@@ -48,6 +49,7 @@ export function PartyForm({ party }: { party?: Party }) {
   const { currency } = useCurrency();
   const create = useCreateParty();
   const update = useUpdateParty();
+  const setOpening = useSetPartyOpeningBalance();
   const [form] = Form.useForm<FormValues>();
   const [avatar, setAvatar] = useState<UploadedFile[]>(() =>
     party?.avatar_key && party.avatar_url
@@ -81,6 +83,7 @@ export function PartyForm({ party }: { party?: Party }) {
       strn: party.strn ?? undefined,
       cnic: party.cnic ?? undefined,
       payment_term_days: party.payment_term_days ?? undefined,
+      opening_balance: Number(party.opening_balance ?? 0) || undefined,
       billing_address: party.billing_address ?? undefined,
       shipping_address: party.shipping_address ?? undefined,
       notes: party.notes ?? undefined,
@@ -118,6 +121,14 @@ export function PartyForm({ party }: { party?: Party }) {
     try {
       if (isEdit) await update.mutateAsync({ id: party.id, payload });
       else await create.mutateAsync(payload);
+      // Posted as a journal rather than stored on the party, so it reaches
+      // their ledger and aging the same way an unpaid invoice would.
+      if (isEdit && Number(values.opening_balance ?? 0) !== Number(party.opening_balance ?? 0)) {
+        await setOpening.mutateAsync({
+          partyId: party.id,
+          amount: Number(values.opening_balance ?? 0),
+        });
+      }
       message.success(isEdit ? "Party updated" : "Party created");
       router.push(backHref);
     } catch (err) {
@@ -136,6 +147,23 @@ export function PartyForm({ party }: { party?: Party }) {
           </Form.Item>
           <Form.Item name="payment_term_days" label="Payment terms">
             <Select allowClear placeholder="Select terms" options={PAYMENT_TERMS} />
+          </Form.Item>
+          <Form.Item
+            name="opening_balance"
+            label="Opening balance"
+            extra={
+              isEdit
+                ? "What they already owed when you started using Vineflow"
+                : "Save the party first, then set what they already owed"
+            }
+          >
+            <InputNumber
+              className="!w-full"
+              min={0}
+              controls={false}
+              disabled={!isEdit}
+              placeholder="0"
+            />
           </Form.Item>
           <Form.Item name="ntn" label="NTN">
             <MaskedInput mask={MASKS.ntn} placeholder="1234567-8" />

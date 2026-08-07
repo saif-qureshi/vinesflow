@@ -110,6 +110,7 @@ class PartyRead(BaseModel):
     notes: str | None = None
     is_active: bool
     balance: Decimal = Decimal("0")
+    opening_balance: Decimal = Decimal("0")
     created_at: datetime
 
 

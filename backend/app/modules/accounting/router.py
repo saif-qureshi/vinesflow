@@ -14,6 +14,8 @@ from app.modules.accounting.schemas import (
     FiscalYearRead,
     JournalVoucherCreate,
     OpeningBalanceInput,
+    PartyOpeningBalanceInput,
+    PartyOpeningBalanceRead,
     PeriodRead,
     PeriodStatusUpdate,
     VoucherRead,
@@ -131,6 +133,19 @@ def create_opening_balances(
     svc: VoucherService = Vouchers,
 ):
     return svc.create_opening_balances(membership.org_id, payload)
+
+
+@router.put("/parties/{party_id}/opening-balance", response_model=PartyOpeningBalanceRead)
+def set_party_opening_balance(
+    party_id: int,
+    payload: PartyOpeningBalanceInput,
+    membership: Membership = Depends(require_permission("accounting:create")),
+    svc: VoucherService = Vouchers,
+):
+    balance = svc.set_party_opening_balance(
+        membership.org_id, party_id, payload.amount, payload.as_of
+    )
+    return {"party_id": party_id, "amount": balance, "as_of": payload.as_of}
 
 
 # --- Fiscal years & periods ----------------------------------------------

@@ -37,6 +37,7 @@ export interface Party {
   notes: string | null;
   is_active: boolean;
   balance: string;
+  opening_balance: string;
   created_at: string;
 }
 

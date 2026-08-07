@@ -89,3 +89,21 @@ export function useDeleteParty() {
     onSuccess: invalidate,
   });
 }
+
+export function useSetPartyOpeningBalance() {
+  const invalidate = useInvalidate();
+  const qc = useQueryClient();
+  const orgId = useSessionStore((s) => s.currentOrgId);
+  return useMutation({
+    mutationFn: (vars: { partyId: number; amount: number; asOf?: string }) =>
+      api.put(`/accounting/parties/${vars.partyId}/opening-balance`, {
+        amount: vars.amount,
+        as_of: vars.asOf ?? new Date().toISOString().slice(0, 10),
+      }),
+    onSuccess: (_res, vars) => {
+      invalidate();
+      qc.invalidateQueries({ queryKey: ["party", orgId, vars.partyId] });
+      qc.invalidateQueries({ queryKey: ["reports"] });
+    },
+  });
+}
