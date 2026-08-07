@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, noload
 
@@ -706,8 +707,23 @@ class DocumentService:
         if query.party_id is not None:
             stmt = stmt.where(Document.party_id == query.party_id)
         if query.search:
-            like = f"%{query.search.strip()}%"
-            stmt = stmt.where(or_(Document.number.ilike(like), Document.reference.ilike(like)))
+            term = query.search.strip()
+            like = f"%{term}%"
+            matches = [
+                Document.number.ilike(like),
+                Document.reference.ilike(like),
+                Document.contact_name.ilike(like),
+            ]
+            # 0300-1234567, 03001234567 and +92 300 1234567 are one number. Comparing
+            # the last ten digits ignores punctuation, the trunk 0 and the country code.
+            digits = re.sub(r"\D", "", term)[-10:]
+            if digits:
+                matches.append(
+                    func.regexp_replace(Document.contact_phone, r"[^0-9]", "", "g").like(
+                        f"%{digits}%"
+                    )
+                )
+            stmt = stmt.where(or_(*matches))
         # DocumentListItem has no lines; without this the selectin loaders pull
         # every line, allocation and serial for the page.
         stmt = stmt.options(noload(Document.lines), noload(Document.credit_notes))

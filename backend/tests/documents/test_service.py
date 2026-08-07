@@ -480,6 +480,42 @@ def test_list_and_filter(db):
     assert len(drafts) == 1
 
 
+def test_counter_sale_is_found_by_phone_however_it_was_typed(db):
+    org_id, _loc_id, _party_id, pid = _setup(db, track=False)
+    svc = DocumentService(db)
+    tax = _tax(db, org_id)
+    sale = svc.create(
+        org_id,
+        DocumentType.SALES_RECEIPT,
+        DocumentCreate(
+            contact_name="Bilal",
+            contact_phone="0300-1234567",
+            lines=[
+                DocumentLineInput(
+                    product_id=pid,
+                    description="Widget",
+                    quantity=Decimal("1"),
+                    unit_price=Decimal("100"),
+                    tax_rate_id=tax.id,
+                )
+            ],
+        ),
+    )
+
+    def found(term: str) -> list[int]:
+        rows, _, _ = svc.list_documents(
+            org_id, DocumentType.SALES_RECEIPT, DocumentListQuery(search=term)
+        )
+        return [r.id for r in rows]
+
+    assert found("03001234567") == [sale.id]
+    assert found("0300-1234567") == [sale.id]
+    assert found("+92 300 1234567") == [sale.id]
+    assert found("1234567") == [sale.id]
+    assert found("Bilal") == [sale.id]
+    assert found("0999") == []
+
+
 def test_sellable_items(db):
     org_id, loc_id, party_id, pid = _setup(db, track=False)
     svc = DocumentService(db)
