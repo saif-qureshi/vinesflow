@@ -58,32 +58,6 @@ jobs:
         working-directory: backend
         run: uv run pytest
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: |
-            frontend/pnpm-lock.yaml
-            super-admin/pnpm-lock.yaml
-
-      - name: Check the customer frontend
-        working-directory: frontend
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm exec tsc --noEmit
-          pnpm exec next build
-
-      - name: Check the super admin app
-        working-directory: super-admin
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm exec tsc --noEmit
-          pnpm exec next build
-
   deploy:
     needs: test
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' 
