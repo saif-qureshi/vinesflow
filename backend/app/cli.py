@@ -459,16 +459,16 @@ def db_prune_sessions():
         db.close()
 
 
-if __name__ == "__main__":
-    app()
-
-
 @banks_app.command("sync-logos")
 def banks_sync_logos():
-    """Upload the bundled bank artwork into object storage. Run on deploy."""
+    """Upload the bundled bank artwork into object storage."""
     from app.modules.banks.catalog import sync_logos
 
     uploaded, skipped = sync_logos()
     typer.secho(f"✓ {uploaded} logos uploaded", fg=typer.colors.GREEN)
     if skipped:
         typer.secho(f"• {skipped} banks have no artwork yet", fg=typer.colors.YELLOW)
+
+
+if __name__ == "__main__":
+    app()
