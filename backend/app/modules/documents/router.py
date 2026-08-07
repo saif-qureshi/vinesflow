@@ -178,6 +178,7 @@ def register_document_routes(path: str, doc_type: DocumentType, module: str) -> 
 register_document_routes("sales-orders", DocumentType.SALES_ORDER, "sales_orders")
 register_document_routes("delivery-challans", DocumentType.DELIVERY_CHALLAN, "delivery_challans")
 register_document_routes("invoices", DocumentType.INVOICE, "invoices")
+register_document_routes("sales-receipts", DocumentType.SALES_RECEIPT, "invoices")
 register_document_routes("credit-notes", DocumentType.CREDIT_NOTE, "credit_notes")
 register_document_routes("purchase-orders", DocumentType.PURCHASE_ORDER, "purchase_orders")
 register_document_routes("goods-receipts", DocumentType.GOODS_RECEIPT, "goods_receipts")

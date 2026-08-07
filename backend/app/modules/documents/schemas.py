@@ -150,6 +150,9 @@ class DocumentRead(BaseModel):
     stock_posted: bool = False
     party_id: int | None = None
     party: PartySummary | None = None
+    contact_name: str | None = None
+    contact_phone: str | None = None
+    paid_through_account_id: int | None = None
     buyer_registered: bool = False
     credit_notes: list[RelatedDocument] = []
     warehouse_id: int | None = None

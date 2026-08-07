@@ -4,6 +4,7 @@ export type DocumentKind =
   | "sales_order"
   | "delivery_challan"
   | "invoice"
+  | "sales_receipt"
   | "credit_note"
   | "purchase_order"
   | "goods_receipt"
@@ -40,6 +41,9 @@ export interface DocumentKindConfig {
   };
   statusOverrides?: Partial<Record<DocumentStatus, string>>;
   conversions?: DocumentConversion[];
+  /** A counter sale is rung up for whoever is standing there: no party needed,
+   *  a name and phone captured on the sale, and a till that takes the money. */
+  counterSale?: boolean;
 }
 
 export const SALES_ORDER_CONFIG: DocumentKindConfig = {
@@ -118,6 +122,29 @@ export const INVOICE_CONFIG: DocumentKindConfig = {
     newAction: "New Invoice",
   },
   conversions: [{ target: "credit_note", label: "Create Credit Note" }],
+};
+
+export const SALES_RECEIPT_CONFIG: DocumentKindConfig = {
+  kind: "sales_receipt",
+  apiPath: "sales-receipts",
+  basePath: "/sales/receipts",
+  permission: "invoices",
+  partyRole: "customer",
+  paymentDirection: "received",
+  tracksPayment: false,
+  priceField: "sale_price",
+  counterSale: true,
+  labels: {
+    singular: "Sales Receipt",
+    listTitle: "Sales Receipts",
+    listDescription: "Counter sales paid on the spot",
+    party: "Customer",
+    dateLabel: "Sale date",
+    referenceLabel: "Reference",
+    referencePlaceholder: "Slip / reference",
+    warehouseHint: "Stock leaves from here",
+    newAction: "New Sale",
+  },
 };
 
 export const CREDIT_NOTE_CONFIG: DocumentKindConfig = {

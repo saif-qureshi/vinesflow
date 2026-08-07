@@ -33,6 +33,7 @@ import {
 } from "@/hooks/useDocuments";
 import { PartySelect } from "@/components/parties/PartySelect";
 import { useParty } from "@/hooks/useParties";
+import { useBankAccounts } from "@/hooks/useBanks";
 import { useSalespeople } from "@/hooks/useSalespeople";
 import { useSession } from "@/hooks/useSession";
 import { useWarehouses } from "@/hooks/useWarehouses";
@@ -67,7 +68,10 @@ interface LineRow {
 
 interface FormValues {
   number?: string;
-  party_id: number;
+  party_id?: number | null;
+  contact_name?: string;
+  contact_phone?: string;
+  paid_through_account_id?: number | null;
   salesperson_id?: number | null;
   issue_date: Dayjs;
   due_date?: Dayjs | null;
@@ -143,7 +147,9 @@ export function DocumentForm({
   const showFbrReason = !!org?.fbr_enabled && config.kind === "credit_note";
   const isSandbox = org?.fbr_environment === "sandbox";
   const tracksCommission = config.kind === "invoice" || config.kind === "credit_note";
+  const counterSale = !!config.counterSale;
   const salespeople = useSalespeople(true);
+  const tills = useBankAccounts();
   const selectedPartyId = Form.useWatch("party_id", form);
   const selectedParty = useParty(selectedPartyId ?? null).data ?? null;
   const buyerRegistered = !!selectedParty?.strn;
@@ -611,7 +617,14 @@ export function DocumentForm({
       ? values[config.secondaryDateField]
       : undefined;
     const payload: DocumentInput = {
-      party_id: values.party_id,
+      party_id: values.party_id ?? null,
+      ...(counterSale
+        ? {
+            contact_name: values.contact_name?.trim() || null,
+            contact_phone: values.contact_phone?.trim() || null,
+            paid_through_account_id: values.paid_through_account_id ?? null,
+          }
+        : {}),
       ...(tracksCommission ? { salesperson_id: values.salesperson_id ?? null } : {}),
       ...(numberOverride ? { number: numberOverride } : {}),
       issue_date: values.issue_date.format("YYYY-MM-DD"),
@@ -699,6 +712,9 @@ export function DocumentForm({
       initialValues={{
         number: document?.number ?? undefined,
         party_id: document?.party_id ?? undefined,
+        contact_name: document?.contact_name ?? undefined,
+        contact_phone: document?.contact_phone ?? undefined,
+        paid_through_account_id: document?.paid_through_account_id ?? undefined,
         salesperson_id: document?.salesperson?.id ?? undefined,
         issue_date: document ? dayjs(document.issue_date) : dayjs(),
         due_date: document?.due_date ? dayjs(document.due_date) : null,
@@ -729,16 +745,45 @@ export function DocumentForm({
           <Form.Item
             name="party_id"
             label={config.labels.party}
-            rules={[{ required: true, message: `${config.labels.party} is required` }]}
+            extra={counterSale ? "Optional — leave blank for a walk-in" : undefined}
+            rules={
+              counterSale ? [] : [{ required: true, message: `${config.labels.party} is required` }]
+            }
           >
             <PartySelect
               role={config.partyRole}
-              placeholder={`Select ${config.labels.party.toLowerCase()}`}
+              placeholder={counterSale ? "Walk-in" : `Select ${config.labels.party.toLowerCase()}`}
               selected={
                 document?.party ? { id: document.party.id, name: document.party.name } : null
               }
             />
           </Form.Item>
+          {counterSale && (
+            <>
+              <Form.Item name="contact_name" label="Name">
+                <Input placeholder="Optional" />
+              </Form.Item>
+              <Form.Item
+                name="contact_phone"
+                label="Phone"
+                extra="So the sale can be found if they come back"
+              >
+                <Input placeholder="Optional" />
+              </Form.Item>
+              <Form.Item name="paid_through_account_id" label="Received in">
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="Cash"
+                  loading={tills.isPending}
+                  options={(tills.data ?? []).map((t) => ({
+                    value: t.account_id,
+                    label: `${t.bank_name} — ${t.account_title}`,
+                  }))}
+                />
+              </Form.Item>
+            </>
+          )}
           {tracksCommission && (
             <Form.Item name="salesperson_id" label="Salesperson">
               <Select

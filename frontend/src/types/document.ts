@@ -68,6 +68,9 @@ export interface DocumentRecord {
   payment_status: DocumentPaymentStatus;
   party_id: number | null;
   party: DocumentParty | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+  paid_through_account_id: number | null;
   buyer_registered: boolean;
   credit_notes: RelatedDocument[];
   warehouse_id: number | null;
@@ -138,7 +141,10 @@ export interface DocumentLineInput {
 
 export interface DocumentInput {
   salesperson_id?: number | null;
-  party_id: number;
+  party_id?: number | null;
+  contact_name?: string | null;
+  contact_phone?: string | null;
+  paid_through_account_id?: number | null;
   number?: string | null;
   issue_date?: string | null;
   due_date?: string | null;
