@@ -412,10 +412,10 @@
         "buyerRegistrationType": "Unregistered",
         "items": [
             {
-                "hsCode": "0101.2100",
+                "hsCode": "2710.1210",
                 "productDescription": "TEST",
                 "rate": "1.43%",
-                "uoM": "Numbers, pieces, units",
+                "uoM": "Liter",
                 "quantity": 123,
                 "totalValues": 132,
                 "valueSalesExcludingST": 100,
@@ -428,7 +428,8 @@
                 "fedPayable": 0,
                 "discount": 0,
                 "saleType": "Petroleum Products",
-                "sroItemSerialNo": "4"
+                "sroItemSerialNo": "4",
+                "petroleumLevyOn": "Direct Sale"
             }
         ]
     },
