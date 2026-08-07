@@ -186,6 +186,20 @@ DEFAULT_ACCOUNTS: list[dict] = [
     },
 ]
 
+SUBSIDIARY_OPENING_ACCOUNTS: dict[str, str] = {
+    "inventory": (
+        "Enter inventory through item opening stock so quantity and accounting stay aligned"
+    ),
+    "accounts_receivable": (
+        "Enter the invoices still owed to you, dated before your start date, so each "
+        "customer's balance can be aged and chased"
+    ),
+    "accounts_payable": (
+        "Enter the bills you still owe, dated before your start date, so each supplier's "
+        "balance can be aged and settled"
+    ),
+}
+
 # Role -> account code, seeded per org into the "accounting" settings group.
 ACCOUNT_MAPPING: dict[str, str] = {
     "cash": "1110",

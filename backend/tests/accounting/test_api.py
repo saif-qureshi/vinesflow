@@ -135,8 +135,8 @@ def test_opening_balances_post_and_balance_to_obe(client, register, org_id_of, h
         "date": "2026-07-01",
         "entries": [
             {"account_id": code["1110"], "debit": "50000", "credit": "0"},  # Cash
-            {"account_id": code["1130"], "debit": "80000", "credit": "0"},  # AR (control)
-            {"account_id": code["2110"], "debit": "0", "credit": "60000"},  # AP (control)
+            {"account_id": code["1150"], "debit": "20000", "credit": "0"},  # Input Tax
+            {"account_id": code["2120"], "debit": "0", "credit": "60000"},  # Sales Tax Payable
         ],
     }
     res = client.post(f"{BASE}/opening-balances", json=body, headers=headers)
@@ -167,6 +167,25 @@ def test_opening_balances_reject_manual_inventory_value(client, register, org_id
     )
     assert res.status_code == 400
     assert "item opening stock" in res.json()["error"]["message"]
+
+
+def test_opening_balances_reject_lump_receivables_and_payables(client, register, org_id_of, h):
+    headers = _ctx(register, org_id_of, h)
+    code = _codes(client, headers)
+    for account_code, expected in (("1130", "aged and chased"), ("2110", "aged and settled")):
+        res = client.post(
+            f"{BASE}/opening-balances",
+            headers=headers,
+            json={
+                "date": "2026-07-01",
+                "entries": [
+                    {"account_id": code[account_code], "debit": "5000", "credit": "0"},
+                    {"account_id": code["3300"], "debit": "0", "credit": "5000"},
+                ],
+            },
+        )
+        assert res.status_code == 400, res.text
+        assert expected in res.json()["error"]["message"]
 
 
 def test_stock_opening_does_not_block_other_account_opening_balances(

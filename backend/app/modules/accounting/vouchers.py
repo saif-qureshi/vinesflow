@@ -6,7 +6,10 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
-from app.modules.accounting.constants import ACCOUNTING_SETTINGS_GROUP
+from app.modules.accounting.constants import (
+    ACCOUNTING_SETTINGS_GROUP,
+    SUBSIDIARY_OPENING_ACCOUNTS,
+)
 from app.modules.accounting.enums import VoucherStatus, VoucherType
 from app.modules.accounting.models import AccountingVoucher, VoucherLine
 from app.modules.accounting.schemas import JournalVoucherCreate, OpeningBalanceInput
@@ -135,13 +138,11 @@ class VoucherService:
         if not lines:
             raise BadRequestError("Enter at least one opening balance")
 
-        inventory_account = int(
-            SettingsService(self.db).get(org_id, ACCOUNTING_SETTINGS_GROUP, "inventory")
-        )
-        if any(line.account_id == inventory_account for line in lines):
-            raise BadRequestError(
-                "Enter inventory through item opening stock so quantity and accounting stay aligned"
-            )
+        settings = SettingsService(self.db)
+        for key, message in SUBSIDIARY_OPENING_ACCOUNTS.items():
+            account_id = settings.get(org_id, ACCOUNTING_SETTINGS_GROUP, key)
+            if account_id and any(line.account_id == int(account_id) for line in lines):
+                raise BadRequestError(message)
 
         net = sum((line.debit - line.credit for line in lines), _ZERO)
         if net != _ZERO:
