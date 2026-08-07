@@ -63,6 +63,7 @@ class Document(Base, TimestampMixin, AuditMixin):
         UniqueConstraint("org_id", "type", "number", name="uq_document_org_type_number"),
         Index("ix_documents_org_type", "org_id", "type"),
         Index("ix_documents_org_party", "org_id", "party_id"),
+        Index("ix_documents_org_contact_phone", "org_id", "contact_phone"),
         CheckConstraint(
             "type IN ('invoice', 'bill') OR due_date IS NULL",
             name="ck_documents_due_date_type",
@@ -83,7 +84,7 @@ class Document(Base, TimestampMixin, AuditMixin):
             name="ck_documents_fbr_reason_type",
         ),
         CheckConstraint(
-            "type IN ('invoice', 'bill') OR "
+            "type IN ('invoice', 'bill', 'sales_receipt') OR "
             "(amount_paid = 0 AND amount_credited = 0 AND payment_status = 'unpaid')",
             name="ck_documents_payment_fields_type",
         ),
@@ -103,6 +104,11 @@ class Document(Base, TimestampMixin, AuditMixin):
 
     party_id: Mapped[int | None] = mapped_column(
         ForeignKey("parties.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    contact_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    contact_phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    paid_through_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("accounts.id", ondelete="RESTRICT"), nullable=True
     )
     warehouse_id: Mapped[int | None] = mapped_column(
         ForeignKey("locations.id", ondelete="SET NULL"), nullable=True
@@ -206,6 +212,15 @@ class Document(Base, TimestampMixin, AuditMixin):
 
 class Invoice(Document):
     __mapper_args__ = {"polymorphic_identity": DocumentType.INVOICE}
+
+    stock_direction = -1
+    movement_type = "sale"
+
+
+class SalesReceipt(Document):
+    """A counter sale: goods out, money in, no receivable and no party required."""
+
+    __mapper_args__ = {"polymorphic_identity": DocumentType.SALES_RECEIPT}
 
     stock_direction = -1
     movement_type = "sale"

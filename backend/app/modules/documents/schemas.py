@@ -58,7 +58,10 @@ class DocumentLineInput(BaseModel):
 
 class DocumentCreate(BaseModel):
     salesperson_id: int | None = None
-    party_id: int
+    party_id: int | None = None
+    contact_name: str | None = Field(default=None, max_length=150)
+    contact_phone: str | None = Field(default=None, max_length=40)
+    paid_through_account_id: int | None = None
     number: str | None = Field(default=None, max_length=40)
     issue_date: date | None = None
     due_date: date | None = None

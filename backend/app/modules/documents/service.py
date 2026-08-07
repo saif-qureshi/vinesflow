@@ -29,6 +29,7 @@ from app.modules.documents.models import (
     Invoice,
     PurchaseOrder,
     SalesOrder,
+    SalesReceipt,
     TaxRate,
 )
 from app.modules.documents.numbering import assign_number, numbering_format, preview_number
@@ -60,6 +61,7 @@ DOCUMENT_CLASSES: dict[DocumentType, type[Document]] = {
     DocumentType.SALES_ORDER: SalesOrder,
     DocumentType.DELIVERY_CHALLAN: DeliveryChallan,
     DocumentType.INVOICE: Invoice,
+    DocumentType.SALES_RECEIPT: SalesReceipt,
     DocumentType.CREDIT_NOTE: CreditNote,
     DocumentType.PURCHASE_ORDER: PurchaseOrder,
     DocumentType.GOODS_RECEIPT: GoodsReceipt,
@@ -77,6 +79,9 @@ CONVERSIONS: dict[DocumentType, list[DocumentType]] = {
 
 # Orders stop committing / expecting stock once a converted document is finalized.
 CLOSED_ON_CONVERT = {DocumentType.SALES_ORDER, DocumentType.PURCHASE_ORDER}
+
+# A counter sale is rung up for whoever is standing there; a name is optional.
+PARTY_OPTIONAL_TYPES = {DocumentType.SALES_RECEIPT}
 
 SALES_TYPES = {
     DocumentType.SALES_ORDER,
@@ -607,7 +612,13 @@ class DocumentService:
     def create(self, org_id: int, doc_type: DocumentType, payload: DocumentCreate) -> Document:
         self._validate_type_fields(doc_type, payload)
         doc_cls = DOCUMENT_CLASSES[doc_type]
-        party = self._get_party(org_id, payload.party_id, doc_type)
+        if payload.party_id is None and doc_type not in PARTY_OPTIONAL_TYPES:
+            raise BadRequestError("Select a party for this document")
+        party = (
+            self._get_party(org_id, payload.party_id, doc_type)
+            if payload.party_id is not None
+            else None
+        )
         if payload.warehouse_id is not None:
             self._validate_warehouse(org_id, payload.warehouse_id)
         issue_date = payload.issue_date or date.today()
@@ -622,7 +633,12 @@ class DocumentService:
         doc = doc_cls(
             org_id=org_id,
             status=DocumentStatus.DRAFT,
-            party_id=party.id,
+            party_id=party.id if party else None,
+            contact_name=payload.contact_name,
+            contact_phone=payload.contact_phone,
+            paid_through_account_id=(
+                payload.paid_through_account_id if doc_type == DocumentType.SALES_RECEIPT else None
+            ),
             salesperson_id=(
                 self._resolve_salesperson(org_id, payload.salesperson_id)
                 if doc_type in COMMISSIONABLE_TYPES
@@ -639,8 +655,8 @@ class DocumentService:
             terms=payload.terms,
             shipping=_q(payload.shipping),
             adjustment=_q(payload.adjustment),
-            billing_address=party.billing_address,
-            shipping_address=party.shipping_address,
+            billing_address=party.billing_address if party else None,
+            shipping_address=party.shipping_address if party else None,
             fbr_sale_origin=payload.fbr_sale_origin if doc_type in FBR_TYPES else None,
             fbr_sale_destination=payload.fbr_sale_destination if doc_type in FBR_TYPES else None,
             fbr_scenario_id=payload.fbr_scenario_id if doc_type in FBR_TYPES else None,
@@ -1141,6 +1157,8 @@ class DocumentService:
             self._post_stock(org_id, doc, reverse=False)
             doc.stock_posted = True
         self.ledger.post_document(self.db, doc)
+        if doc.type == DocumentType.SALES_RECEIPT:
+            self.apply_settlement(doc, doc.total - doc.amount_paid)
         doc.status = DocumentStatus.SENT
         if source is not None and source.type in CLOSED_ON_CONVERT:
             source.status = DocumentStatus.CLOSED

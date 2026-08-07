@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import pytest
 from sqlalchemy import func, select
 
+from app.core.exceptions import BadRequestError
 from app.core.security import hash_password
 from app.modules.accounting.constants import ACCOUNTING_SETTINGS_GROUP
 from app.modules.accounting.enums import VoucherStatus, VoucherType
@@ -120,6 +122,61 @@ def _invoice(db, org_id, cust_id, pid):
         ),
     )
     return svc.finalize(org_id, doc.id)
+
+
+def test_counter_sale_takes_cash_and_leaves_no_receivable(db):
+    org_id, _cust_id, pid = _setup(db)
+    svc = DocumentService(db)
+    _seed_stock(db, org_id, pid)
+    tax_rate = db.scalar(select(TaxRate).where(TaxRate.org_id == org_id, TaxRate.name == "GST 18%"))
+    doc = svc.create(
+        org_id,
+        DocumentType.SALES_RECEIPT,
+        DocumentCreate(
+            contact_name="Walk-in",
+            contact_phone="03001234567",
+            lines=[
+                DocumentLineInput(
+                    product_id=pid,
+                    description="Widget",
+                    quantity=Decimal("2"),
+                    unit_price=Decimal("100"),
+                    tax_rate_id=tax_rate.id,
+                )
+            ],
+        ),
+    )
+    assert doc.party_id is None
+    doc = svc.finalize(org_id, doc.id)
+
+    tax = doc.tax_total + doc.further_tax_total
+    assert _bal(db, org_id, "cash") == doc.total
+    assert _bal(db, org_id, "accounts_receivable") == Decimal("0")
+    assert _bal(db, org_id, "sales_revenue") == -(doc.total - tax)
+    assert _bal(db, org_id, "sales_tax_payable") == -tax
+    assert _bal(db, org_id, "cogs") == Decimal("120")
+    assert doc.amount_paid == doc.total
+    assert doc.payment_status == "paid"
+    assert _tb_balances(db, org_id)
+
+
+def test_a_credit_sale_still_needs_a_party(db):
+    org_id, _cust_id, pid = _setup(db)
+    with pytest.raises(BadRequestError):
+        DocumentService(db).create(
+            org_id,
+            DocumentType.INVOICE,
+            DocumentCreate(
+                lines=[
+                    DocumentLineInput(
+                        product_id=pid,
+                        description="Widget",
+                        quantity=Decimal("1"),
+                        unit_price=Decimal("100"),
+                    )
+                ]
+            ),
+        )
 
 
 def test_invoice_finalize_posts_balanced_double_entry(db):

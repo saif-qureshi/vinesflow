@@ -108,6 +108,7 @@ class RealLedgerPoster:
                 self._delivery_challan_lines,
                 VoucherType.DELIVERY_CHALLAN,
             ),
+            DocumentType.SALES_RECEIPT: (self._sales_receipt_lines, VoucherType.SALES_INVOICE),
             DocumentType.CREDIT_NOTE: (self._credit_note_lines, VoucherType.CREDIT_NOTE),
             DocumentType.BILL: (self._bill_lines, VoucherType.BILL),
             DocumentType.GOODS_RECEIPT: (self._goods_receipt_lines, VoucherType.GOODS_RECEIPT),
@@ -155,6 +156,31 @@ class RealLedgerPoster:
             )
         if doc.stock_posted:
             cost = -self._stock_value(db, doc)  # outbound value is negative → cost positive
+            if cost != _ZERO:
+                lines.append(JournalLine(account_id=self._account(db, org_id, "cogs"), debit=cost))
+                lines.append(
+                    JournalLine(account_id=self._account(db, org_id, "inventory"), credit=cost)
+                )
+        return lines
+
+    def _sales_receipt_lines(self, db: Session, doc) -> list[JournalLine]:
+        """Paid at the counter, so the money lands in the till instead of
+        receivables. No party leg: nobody owes anything once it is rung up."""
+        org_id = doc.org_id
+        tax = doc.tax_total + doc.further_tax_total
+        revenue = doc.total - tax
+        till = doc.paid_through_account_id or self._account(db, org_id, "cash")
+        lines = [JournalLine(account_id=till, debit=doc.total)]
+        if revenue != _ZERO:
+            lines.append(
+                JournalLine(account_id=self._account(db, org_id, "sales_revenue"), credit=revenue)
+            )
+        if tax != _ZERO:
+            lines.append(
+                JournalLine(account_id=self._account(db, org_id, "sales_tax_payable"), credit=tax)
+            )
+        if doc.stock_posted:
+            cost = -self._stock_value(db, doc)
             if cost != _ZERO:
                 lines.append(JournalLine(account_id=self._account(db, org_id, "cogs"), debit=cost))
                 lines.append(
