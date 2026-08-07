@@ -221,6 +221,18 @@ def test_cash_flow_classifies_movements_and_ties_to_the_cash_balance(db):
     assert _grand(result, "amount") == Decimal("4000")  # 5000 in, 1000 out
 
 
+def test_cash_book_opens_and_closes_each_day(db):
+    org_id = _setup(db)
+    result = ReportService(db).run(org_id, "cash_book", {})
+    cash = next(s for s in result.sections if "Cash" in (s.title or ""))
+    day = next(r for r in cash.rows if r.get("date"))
+    assert day["paid"] == Decimal("1000")  # the expense left the cash account
+    assert day["closing"] == day["opening"] - day["paid"] + day["received"]
+    assert cash.subtotal["closing"] == Decimal("-1000")
+    # Every cash and bank account is listed, including ones with no movement.
+    assert any("Bank" in (s.title or "") for s in result.sections)
+
+
 def test_general_ledger_groups_every_account_and_ties(db):
     org_id = _setup(db)
     result = ReportService(db).run(org_id, "general_ledger", {})

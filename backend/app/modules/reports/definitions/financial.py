@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 from app.modules.accounting.reports import ReportsService
 from app.modules.reports.contract import Column, Filter, ReportDef, ReportResult, Section
 from app.modules.reports.registry import register
@@ -160,6 +162,72 @@ register(
         columns=AMOUNT_COLS,
         filters=[Filter("as_of", "date", "As of date")],
         run=_balance_sheet,
+        supports_filters=False,
+    )
+)
+
+
+# --- Cash and Bank Book --------------------------------------------------
+
+CASH_BOOK_COLS = [
+    Column("date", "Date", "date"),
+    Column("opening", "Opening", "money", "right", aggregate="none"),
+    Column("received", "Received", "money", "right"),
+    Column("paid", "Paid", "money", "right"),
+    Column("closing", "Closing", "money", "right", aggregate="none"),
+]
+
+
+def _cash_book(db, org_id, params) -> ReportResult:
+    d = ReportsService(db).cash_book(org_id, params["start"], params["end"])
+    sections = [
+        Section(
+            title=f"{account['code']} — {account['name']}",
+            rows=[
+                {
+                    "date": None,
+                    "opening": None,
+                    "received": None,
+                    "paid": None,
+                    "closing": account["opening"],
+                    "label": "Opening balance",
+                    "account_id": account["account_id"],
+                },
+                *account["rows"],
+            ],
+            subtotal={
+                "date": None,
+                "opening": account["opening"],
+                "received": account["received"],
+                "paid": account["paid"],
+                "closing": account["closing"],
+            },
+        )
+        for account in d["accounts"]
+    ]
+    return ReportResult(
+        title="Cash and Bank Book",
+        subtitle=_period(params),
+        columns=CASH_BOOK_COLS,
+        sections=sections or [Section(rows=[])],
+        grand_total={
+            "date": None,
+            "received": sum((a["received"] for a in d["accounts"]), Decimal("0")),
+            "paid": sum((a["paid"] for a in d["accounts"]), Decimal("0")),
+            "closing": sum((a["closing"] for a in d["accounts"]), Decimal("0")),
+        },
+    )
+
+
+register(
+    ReportDef(
+        key="cash_book",
+        name="Cash and Bank Book",
+        category="Financial",
+        description="Opening and closing balance of every cash and bank account, day by day.",
+        columns=CASH_BOOK_COLS,
+        filters=[Filter("range", "date_range", "Date range", default="this_month")],
+        run=_cash_book,
         supports_filters=False,
     )
 )

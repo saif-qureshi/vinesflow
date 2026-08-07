@@ -284,6 +284,105 @@ class ReportsService:
             "rows": rows,
         }
 
+    def cash_book(self, org_id: int, start: date, end: date) -> dict:
+        """Each cash and bank account day by day: what it opened with, what came
+        in and went out, what it closed with."""
+        cash_ids = cash_account_ids(self.db, org_id)
+        if not cash_ids:
+            return {"from_date": start, "to_date": end, "accounts": []}
+
+        openings = dict(
+            self.db.execute(
+                select(
+                    LedgerEntry.account_id,
+                    func.coalesce(func.sum(LedgerEntry.debit - LedgerEntry.credit), 0),
+                )
+                .where(
+                    LedgerEntry.org_id == org_id,
+                    LedgerEntry.account_id.in_(cash_ids),
+                    LedgerEntry.posting_date < start,
+                )
+                .group_by(LedgerEntry.account_id)
+            ).all()
+        )
+        daily = self.db.execute(
+            select(
+                Account.id,
+                Account.code,
+                Account.name,
+                LedgerEntry.posting_date,
+                func.coalesce(func.sum(LedgerEntry.debit), 0),
+                func.coalesce(func.sum(LedgerEntry.credit), 0),
+            )
+            .join(Account, Account.id == LedgerEntry.account_id)
+            .where(
+                LedgerEntry.org_id == org_id,
+                LedgerEntry.account_id.in_(cash_ids),
+                LedgerEntry.posting_date >= start,
+                LedgerEntry.posting_date <= end,
+            )
+            .group_by(Account.id, LedgerEntry.posting_date)
+            .order_by(Account.code, LedgerEntry.posting_date)
+        ).all()
+
+        seen = {row[0] for row in daily}
+        accounts = []
+        for account_id, group in groupby(daily, key=lambda row: row[0]):
+            days = list(group)
+            _, code, name, *_ = days[0]
+            running = openings.get(account_id, _ZERO)
+            opening = running
+            rows = []
+            received = paid = _ZERO
+            for _, _, _, day, debit, credit in days:
+                running += debit - credit
+                received += debit
+                paid += credit
+                rows.append(
+                    {
+                        "date": day,
+                        "opening": running - debit + credit,
+                        "received": debit,
+                        "paid": credit,
+                        "closing": running,
+                    }
+                )
+            accounts.append(
+                {
+                    "account_id": account_id,
+                    "code": code,
+                    "name": name,
+                    "opening": opening,
+                    "received": received,
+                    "paid": paid,
+                    "closing": running,
+                    "rows": rows,
+                }
+            )
+
+        for account_id, code, name in self.db.execute(
+            select(Account.id, Account.code, Account.name)
+            .where(Account.id.in_(cash_ids), Account.is_postable.is_(True))
+            .order_by(Account.code)
+        ).all():
+            if account_id in seen:
+                continue
+            balance = openings.get(account_id, _ZERO)
+            accounts.append(
+                {
+                    "account_id": account_id,
+                    "code": code,
+                    "name": name,
+                    "opening": balance,
+                    "received": _ZERO,
+                    "paid": _ZERO,
+                    "closing": balance,
+                    "rows": [],
+                }
+            )
+        accounts.sort(key=lambda a: a["code"])
+        return {"from_date": start, "to_date": end, "accounts": accounts}
+
     def cash_flow(self, org_id: int, start: date, end: date) -> dict:
         """Direct method: every voucher that moved cash, classified by what it
         moved cash *for* — the non-cash side of the same voucher."""
