@@ -135,14 +135,47 @@ def test_sales_by_item_and_expenses_by_category(db):
     rows = sales.sections[0].rows
     assert any(r["item"] == "Widget" and r["amount"] == Decimal("200") for r in rows)
 
+    # Every expense account, so it ties to cost of sales plus operating on the P&L.
     expenses = svc.run(org_id, "expenses_by_category", {})
-    assert _grand(expenses, "amount") == Decimal("1000")
+    pl = svc.run(org_id, "profit_and_loss", {})
+    cost_of_sales = next(s for s in pl.sections if s.title == "Cost of Goods Sold")
+    operating = next(s for s in pl.sections if s.title == "Operating Expenses")
+    assert _grand(expenses, "amount") == (
+        cost_of_sales.subtotal["amount"] + operating.subtotal["amount"]
+    )
 
 
 def test_customer_balance_summary_shows_unpaid_invoice(db):
     org_id = _setup(db)
     result = ReportService(db).run(org_id, "customer_balance_summary", {})
     assert _grand(result, "balance") == Decimal("236.00")  # 200 + 18% tax
+
+
+def test_receivables_drop_by_the_credit_note(db):
+    from app.modules.documents.models import Document
+
+    org_id = _setup(db)
+    docs = DocumentService(db)
+    invoice = db.scalar(
+        select(Document).where(Document.org_id == org_id, Document.type == DocumentType.INVOICE)
+    )
+    note = docs.convert(org_id, invoice.id, DocumentType.INVOICE, DocumentType.CREDIT_NOTE)
+    docs.finalize(org_id, note.id)
+
+    svc = ReportService(db)
+    # The credit note writes the whole invoice back, so nothing is owed and the
+    # customer drops off both reports — as it already does in the ledger.
+    assert svc.run(org_id, "customer_balance_summary", {}).grand_total["balance"] == Decimal("0")
+    assert svc.run(org_id, "ar_aging_summary", {}).grand_total["total"] == Decimal("0")
+
+
+def test_aging_ignores_documents_issued_after_the_report_date(db):
+    from datetime import date, timedelta
+
+    org_id = _setup(db)
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    result = ReportService(db).run(org_id, "ar_aging_summary", {"as_of": yesterday})
+    assert _grand(result, "total") == Decimal("0")  # today's invoice is not yet raised
 
 
 def test_metadata_resolves_account_options(db):

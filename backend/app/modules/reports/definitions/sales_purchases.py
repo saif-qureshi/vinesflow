@@ -4,11 +4,10 @@ from decimal import Decimal
 
 from sqlalchemy import case, func, select
 
-from app.modules.accounting.models import Account
+from app.modules.accounting.enums import AccountType
+from app.modules.accounting.models import Account, LedgerEntry
 from app.modules.documents.enums import DocumentStatus, DocumentType
 from app.modules.documents.models import Document, DocumentLine
-from app.modules.expenses.enums import ExpenseStatus
-from app.modules.expenses.models import Expense, ExpenseLine
 from app.modules.parties.models import Party
 from app.modules.products.models import Product
 from app.modules.reports.contract import Column, Filter, ReportDef, ReportResult, Section
@@ -141,18 +140,24 @@ def _sales_by_customer(db, org_id, params):
 
 
 def _expenses_by_category(db, org_id, params):
+    # Read the ledger, not the expense module: a supplier bill for a service
+    # posts straight to an expense account and never becomes an Expense row.
     rows = db.execute(
-        select(Account.code, Account.name, func.coalesce(func.sum(ExpenseLine.amount), 0))
-        .join(ExpenseLine, ExpenseLine.account_id == Account.id)
-        .join(Expense, Expense.id == ExpenseLine.expense_id)
+        select(
+            Account.code,
+            Account.name,
+            func.coalesce(func.sum(LedgerEntry.debit - LedgerEntry.credit), 0),
+        )
+        .join(LedgerEntry, LedgerEntry.account_id == Account.id)
         .where(
-            Expense.org_id == org_id,
-            Expense.status == ExpenseStatus.SUBMITTED,
-            Expense.expense_date >= params["start"],
-            Expense.expense_date <= params["end"],
+            LedgerEntry.org_id == org_id,
+            Account.account_type == AccountType.EXPENSE,
+            LedgerEntry.posting_date >= params["start"],
+            LedgerEntry.posting_date <= params["end"],
         )
         .group_by(Account.id)
-        .order_by(func.coalesce(func.sum(ExpenseLine.amount), 0).desc())
+        .having(func.coalesce(func.sum(LedgerEntry.debit - LedgerEntry.credit), 0) != 0)
+        .order_by(func.coalesce(func.sum(LedgerEntry.debit - LedgerEntry.credit), 0).desc())
     ).all()
     section_rows = [
         {"category": f"{code} — {name}", "amount": amount} for code, name, amount in rows

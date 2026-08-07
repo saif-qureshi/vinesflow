@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundError
-from app.modules.accounting.accounts import cash_account_ids
+from app.modules.accounting.accounts import cash_account_ids, configured_subtree_ids
 from app.modules.accounting.enums import AccountType
 from app.modules.accounting.models import Account, FiscalYear, LedgerEntry
 from app.modules.parties.models import Party
@@ -115,6 +115,7 @@ class ReportsService:
 
     def profit_and_loss(self, org_id: int, start: date, end: date) -> dict:
         income, cogs, operating = [], [], []
+        cost_of_sales = set(configured_subtree_ids(self.db, org_id, "cogs"))
         for _id, code, name, atype, debit, credit in self._account_rows(
             org_id, start=start, end=end
         ):
@@ -123,7 +124,7 @@ class ReportsService:
                 bucket = income
             elif atype == "expense":
                 amount = debit - credit
-                bucket = cogs if code.startswith("51") else operating
+                bucket = cogs if _id in cost_of_sales else operating
             else:
                 continue
             if amount == _ZERO:

@@ -9,15 +9,15 @@ from app.modules.accounting.models import Account, LedgerEntry
 from app.modules.accounting.schemas import AccountCreate, AccountUpdate
 
 
-def cash_account_ids(db: Session, org_id: int) -> list[int]:
-    """The Cash and Bank accounts, plus every account beneath them —
-    each bank account the org adds lives under Bank."""
+def configured_subtree_ids(db: Session, org_id: int, *keys: str) -> list[int]:
+    """The accounts mapped to these settings keys, plus everything beneath them.
+    Roles are configured per org, so a subtree beats matching on code prefix."""
     from app.modules.settings.service import SettingsService
 
     settings = SettingsService(db)
     roots = [
         int(account_id)
-        for key in ("cash", "bank")
+        for key in keys
         if (account_id := settings.get(org_id, ACCOUNTING_SETTINGS_GROUP, key)) is not None
     ]
     if not roots:
@@ -34,6 +34,12 @@ def cash_account_ids(db: Session, org_id: int) -> list[int]:
                 found.add(child)
                 queue.append(child)
     return list(found)
+
+
+def cash_account_ids(db: Session, org_id: int) -> list[int]:
+    """Cash and Bank, plus every account beneath them — each bank account the
+    org adds lives under Bank."""
+    return configured_subtree_ids(db, org_id, "cash", "bank")
 
 
 class AccountsService:

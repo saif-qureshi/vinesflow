@@ -4,13 +4,20 @@ from decimal import Decimal
 
 from sqlalchemy import func, select
 
-from app.modules.documents.enums import DocumentStatus, DocumentType
+from app.modules.documents.enums import DocumentStatus, DocumentType, PaymentStatus
 from app.modules.documents.models import Document
 from app.modules.parties.models import Party
+from app.modules.payments.models import Payment, PaymentAllocation
 from app.modules.reports.contract import Column, Filter, ReportDef, ReportResult, Section
 from app.modules.reports.registry import register
 
 _ZERO = Decimal("0")
+
+# The credit note type that writes value back against each kind of document.
+_CREDIT_TYPE = {
+    DocumentType.INVOICE: DocumentType.CREDIT_NOTE,
+    DocumentType.BILL: DocumentType.VENDOR_CREDIT,
+}
 
 AGING = [
     ("current", "Current"),
@@ -33,29 +40,85 @@ def _bucket(age_days: int) -> str:
     return "d90"
 
 
-# --- Balance summaries ---------------------------------------------------
+# --- Outstanding as of a date --------------------------------------------
 
 
-def _balance_summary(db, org_id, doc_type, party_label):
-    rows = db.execute(
+def _settled_by_document(db, org_id, doc_type, as_of) -> dict[int, Decimal]:
+    """What had been taken off each document by `as_of` — payments applied and
+    credit notes raised. Today's counters on the document cannot answer this,
+    because they carry settlements made after the reporting date."""
+    settled: dict[int, Decimal] = {}
+    paid = db.execute(
         select(
-            Party.name,
-            func.coalesce(func.sum(Document.total - Document.amount_paid), 0),
+            PaymentAllocation.document_id,
+            func.coalesce(func.sum(PaymentAllocation.amount), 0),
         )
-        .join(Document, Document.party_id == Party.id)
+        .join(Payment, Payment.id == PaymentAllocation.payment_id)
         .where(
+            Payment.org_id == org_id,
+            Payment.status == PaymentStatus.SUBMITTED,
+            Payment.posting_date <= as_of,
+        )
+        .group_by(PaymentAllocation.document_id)
+    ).all()
+    for document_id, amount in paid:
+        settled[document_id] = settled.get(document_id, _ZERO) + amount
+
+    credited = db.execute(
+        select(
+            Document.source_document_id,
+            func.coalesce(func.sum(Document.settled_amount), 0),
+        )
+        .where(
+            Document.org_id == org_id,
+            Document.type == _CREDIT_TYPE[doc_type],
+            Document.status == DocumentStatus.SENT,
+            Document.source_document_id.is_not(None),
+            Document.issue_date <= as_of,
+        )
+        .group_by(Document.source_document_id)
+    ).all()
+    for document_id, amount in credited:
+        settled[document_id] = settled.get(document_id, _ZERO) + amount
+    return settled
+
+
+def _open_documents(db, org_id, doc_type, as_of) -> list[tuple[Document, Decimal]]:
+    settled = _settled_by_document(db, org_id, doc_type, as_of)
+    docs = db.scalars(
+        select(Document).where(
             Document.org_id == org_id,
             Document.type == doc_type,
             Document.status == DocumentStatus.SENT,
+            Document.issue_date <= as_of,
         )
-        .group_by(Party.id)
-        .order_by(Party.name)
-    ).all()
-    section_rows = [{"party": name, "balance": bal} for name, bal in rows if bal and bal != _ZERO]
+    )
+    open_docs = []
+    for doc in docs:
+        balance = doc.total - settled.get(doc.id, _ZERO)
+        if balance > _ZERO:
+            open_docs.append((doc, balance))
+    return open_docs
+
+
+# --- Balance summaries ---------------------------------------------------
+
+
+def _balance_summary(db, org_id, doc_type, party_label, as_of):
+    names = dict(db.execute(select(Party.id, Party.name).where(Party.org_id == org_id)).all())
+    balances: dict[int, Decimal] = {}
+    for doc, balance in _open_documents(db, org_id, doc_type, as_of):
+        balances[doc.party_id] = balances.get(doc.party_id, _ZERO) + balance
+
+    section_rows = sorted(
+        ({"party": names.get(pid, "—"), "balance": bal} for pid, bal in balances.items()),
+        key=lambda r: r["party"],
+    )
     total = sum((r["balance"] for r in section_rows), _ZERO)
     columns = [Column("party", party_label), Column("balance", "Balance Due", "money", "right")]
     return ReportResult(
         title=f"{party_label} Balance Summary",
+        subtitle=f"As of {as_of.isoformat()}",
         columns=columns,
         sections=[Section(rows=section_rows)],
         grand_total={"party": "Total", "balance": total},
@@ -63,11 +126,11 @@ def _balance_summary(db, org_id, doc_type, party_label):
 
 
 def _customer_balance(db, org_id, params):
-    return _balance_summary(db, org_id, DocumentType.INVOICE, "Customer")
+    return _balance_summary(db, org_id, DocumentType.INVOICE, "Customer", params["as_of"])
 
 
 def _vendor_balance(db, org_id, params):
-    return _balance_summary(db, org_id, DocumentType.BILL, "Vendor")
+    return _balance_summary(db, org_id, DocumentType.BILL, "Vendor", params["as_of"])
 
 
 # --- Aging ---------------------------------------------------------------
@@ -75,18 +138,8 @@ def _vendor_balance(db, org_id, params):
 
 def _aging(db, org_id, doc_type, as_of, party_label):
     names = dict(db.execute(select(Party.id, Party.name).where(Party.org_id == org_id)).all())
-    docs = db.scalars(
-        select(Document).where(
-            Document.org_id == org_id,
-            Document.type == doc_type,
-            Document.status == DocumentStatus.SENT,
-        )
-    )
     acc: dict[int, dict] = {}
-    for doc in docs:
-        balance = doc.total - doc.amount_paid
-        if balance <= _ZERO:
-            continue
+    for doc, balance in _open_documents(db, org_id, doc_type, as_of):
         ref = doc.due_date or doc.issue_date
         bucket = _bucket((as_of - ref).days)
         row = acc.setdefault(
@@ -127,6 +180,7 @@ register(
         category="Receivables",
         description="Outstanding balance owed by each customer.",
         columns=[Column("party", "Customer"), Column("balance", "Balance Due", "money", "right")],
+        filters=[Filter("as_of", "date", "As of date")],
         run=_customer_balance,
     )
 )
@@ -150,6 +204,7 @@ register(
         category="Payables",
         description="Outstanding balance owed to each vendor.",
         columns=[Column("party", "Vendor"), Column("balance", "Balance Due", "money", "right")],
+        filters=[Filter("as_of", "date", "As of date")],
         run=_vendor_balance,
     )
 )
