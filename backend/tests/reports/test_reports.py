@@ -147,9 +147,64 @@ def test_customer_balance_summary_shows_unpaid_invoice(db):
 
 def test_metadata_resolves_account_options(db):
     org_id = _setup(db)
-    meta = ReportService(db).metadata("general_ledger", org_id)
+    meta = ReportService(db).metadata("account_statement", org_id)
     account_filter = next(f for f in meta["filters"] if f["key"] == "account_id")
     assert account_filter["options"]  # populated from the org's chart
+
+
+def test_general_ledger_groups_every_account_and_ties(db):
+    org_id = _setup(db)
+    result = ReportService(db).run(org_id, "general_ledger", {})
+    titles = [s.title for s in result.sections]
+    assert len(titles) > 1 and all(titles)  # one section per account head
+    assert _grand(result, "debit") == _grand(result, "credit")
+    for section in result.sections:
+        assert section.rows[0]["description"] == "Opening balance"
+        assert section.subtotal["description"] == "Closing balance"
+
+
+def test_credit_normal_account_reads_positive(db):
+    org_id = _setup(db)
+    result = ReportService(db).run(
+        org_id, "account_statement", {"account_id": _acct(db, org_id, "sales_revenue")}
+    )
+    # Revenue is credit-normal: 200 earned reads +200, matching the P&L.
+    assert result.sections[0].subtotal["balance"] == Decimal("200")
+
+
+def test_party_ledger_shows_what_the_customer_owes(db):
+    org_id = _setup(db)
+    customer = db.scalar(select(Party).where(Party.org_id == org_id, Party.is_customer.is_(True)))
+    result = ReportService(db).run(org_id, "party_ledger", {"party_id": customer.id})
+    section = result.sections[0]
+    assert section.subtotal["balance"] == Decimal("236.00")  # 200 + 18% tax
+    assert [r["description"] for r in section.rows][0] == "Opening balance"
+    assert any(r["voucher"] == "sales_invoice" for r in section.rows[1:])
+
+
+def test_party_ledger_flips_sign_for_a_supplier(db):
+    org_id = _setup(db)
+    vendor = Party(org_id=org_id, is_vendor=True, name="Supplier Ltd")
+    db.add(vendor)
+    db.flush()
+    docs = DocumentService(db)
+    bill = docs.create(
+        org_id,
+        DocumentType.BILL,
+        DocumentCreate(
+            party_id=vendor.id,
+            lines=[
+                DocumentLineInput(
+                    description="Parts", quantity=Decimal("1"), unit_price=Decimal("500")
+                )
+            ],
+        ),
+    )
+    docs.finalize(org_id, bill.id)
+
+    result = ReportService(db).run(org_id, "party_ledger", {"party_id": vendor.id})
+    # Payable is credit-normal: what the business owes reads positive, as on the Balance Sheet.
+    assert result.sections[0].subtotal["balance"] == Decimal("500")
 
 
 def test_column_filter_keeps_matching_rows_and_recomputes_total(db):

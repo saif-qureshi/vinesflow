@@ -168,55 +168,68 @@ register(
 # --- General Ledger ------------------------------------------------------
 
 
-def _general_ledger(db, org_id, params) -> ReportResult:
-    account_id = params.get("account_id")
-    if not account_id:
-        return ReportResult(
-            title="General Ledger",
-            subtitle="Select an account to run this report",
-            columns=GL_COLS,
-            sections=[Section(rows=[])],
-        )
-    d = ReportsService(db).general_ledger(org_id, int(account_id), params["start"], params["end"])
-    rows = [
+def _opening_row(balance) -> dict:
+    return {
+        "date": None,
+        "voucher": "",
+        "number": "",
+        "description": "Opening balance",
+        "debit": None,
+        "credit": None,
+        "balance": balance,
+    }
+
+
+def _closing_row(balance, label="Closing balance") -> dict:
+    return {
+        "date": None,
+        "description": label,
+        "debit": None,
+        "credit": None,
+        "balance": balance,
+    }
+
+
+def _entry_rows(entries: list[dict]) -> list[dict]:
+    return [
         {
-            "date": None,
-            "voucher": "",
-            "number": "",
-            "description": "Opening balance",
-            "debit": None,
-            "credit": None,
-            "balance": d["opening_balance"],
+            "date": e["posting_date"],
+            "voucher": e["voucher_type"],
+            "number": e["number"],
+            "description": e["description"],
+            "debit": e["debit"],
+            "credit": e["credit"],
+            "balance": e["balance"],
         }
+        for e in entries
     ]
-    for entry in d["rows"]:
-        rows.append(
-            {
-                "date": entry["posting_date"],
-                "voucher": entry["voucher_type"],
-                "number": entry["number"],
-                "description": entry["description"],
-                "debit": entry["debit"],
-                "credit": entry["credit"],
-                "balance": entry["balance"],
-            }
-        )
+
+
+def _statement_section(d: dict, title: str | None = None) -> Section:
+    return Section(
+        title=title,
+        rows=[_opening_row(d["opening_balance"]), *_entry_rows(d["rows"])],
+        subtotal=_closing_row(d["closing_balance"]),
+    )
+
+
+def _general_ledger(db, org_id, params) -> ReportResult:
+    d = ReportsService(db).general_ledger(org_id, params["start"], params["end"])
     return ReportResult(
-        title=f"General Ledger — {d['account_code']} {d['account_name']}",
+        title="General Ledger",
         subtitle=_period(params),
         columns=GL_COLS,
         sections=[
-            Section(
-                rows=rows,
-                subtotal={
-                    "date": None,
-                    "description": "Closing balance",
-                    "debit": None,
-                    "credit": None,
-                    "balance": d["closing_balance"],
-                },
-            )
-        ],
+            _statement_section(account, f"{account['account_code']} — {account['account_name']}")
+            for account in d["accounts"]
+        ]
+        or [Section(rows=[])],
+        grand_total={
+            "description": "Total",
+            "debit": d["total_debit"],
+            "credit": d["total_credit"],
+            "balance": None,
+        },
     )
 
 
@@ -225,13 +238,88 @@ register(
         key="general_ledger",
         name="General Ledger",
         category="Financial",
-        description="Every transaction posted to an account, with running balance.",
+        description="Every posting in the period, grouped by account head.",
+        columns=GL_COLS,
+        filters=[Filter("range", "date_range", "Date range", default="this_month")],
+        run=_general_ledger,
+        supports_filters=False,
+    )
+)
+
+
+# --- Account Statement ---------------------------------------------------
+
+
+def _account_statement(db, org_id, params) -> ReportResult:
+    account_id = params.get("account_id")
+    if not account_id:
+        return ReportResult(
+            title="Account Statement",
+            subtitle="Select an account to run this report",
+            columns=GL_COLS,
+            sections=[Section(rows=[])],
+        )
+    d = ReportsService(db).account_statement(
+        org_id, int(account_id), params["start"], params["end"]
+    )
+    return ReportResult(
+        title=f"Account Statement — {d['account_code']} {d['account_name']}",
+        subtitle=_period(params),
+        columns=GL_COLS,
+        sections=[_statement_section(d)],
+    )
+
+
+register(
+    ReportDef(
+        key="account_statement",
+        name="Account Statement",
+        category="Financial",
+        description="Every transaction posted to one account, with running balance.",
         columns=GL_COLS,
         filters=[
             Filter("account_id", "select", "Account", required=True, source="accounts"),
             Filter("range", "date_range", "Date range", default="this_fiscal_year"),
         ],
-        run=_general_ledger,
+        run=_account_statement,
+        supports_filters=False,
+    )
+)
+
+
+# --- Party Ledger --------------------------------------------------------
+
+
+def _party_ledger(db, org_id, params) -> ReportResult:
+    party_id = params.get("party_id")
+    if not party_id:
+        return ReportResult(
+            title="Party Ledger",
+            subtitle="Select a customer or supplier to run this report",
+            columns=GL_COLS,
+            sections=[Section(rows=[])],
+        )
+    d = ReportsService(db).party_statement(org_id, int(party_id), params["start"], params["end"])
+    return ReportResult(
+        title=f"Party Ledger — {d['party_name']}",
+        subtitle=_period(params),
+        columns=GL_COLS,
+        sections=[_statement_section(d)],
+    )
+
+
+register(
+    ReportDef(
+        key="party_ledger",
+        name="Party Ledger",
+        category="Financial",
+        description="What one customer or supplier owes, and every document behind it.",
+        columns=GL_COLS,
+        filters=[
+            Filter("party_id", "select", "Customer / Supplier", required=True, source="parties"),
+            Filter("range", "date_range", "Date range", default="this_fiscal_year"),
+        ],
+        run=_party_ledger,
         supports_filters=False,
     )
 )

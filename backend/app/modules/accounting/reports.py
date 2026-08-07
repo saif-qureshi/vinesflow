@@ -2,14 +2,22 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from itertools import groupby
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundError
+from app.modules.accounting.enums import AccountType
 from app.modules.accounting.models import Account, FiscalYear, LedgerEntry
+from app.modules.parties.models import Party
 
 _ZERO = Decimal("0")
+_CREDIT_NORMAL = {AccountType.LIABILITY, AccountType.EQUITY, AccountType.INCOME}
+
+
+def _sign(account_type: str) -> int:
+    return -1 if account_type in _CREDIT_NORMAL else 1
 
 
 class ReportsService:
@@ -166,38 +174,41 @@ class ReportsService:
             "balanced": total_assets == total_liabilities + total_equity,
         }
 
-    def general_ledger(self, org_id: int, account_id: int, start: date, end: date) -> dict:
-        account = self.db.scalar(
-            select(Account).where(Account.id == account_id, Account.org_id == org_id)
-        )
-        if account is None:
-            raise NotFoundError("Account not found")
+    def _opening_balance(
+        self,
+        org_id: int,
+        start: date,
+        *,
+        account_id: int | None = None,
+        party_id: int | None = None,
+    ) -> Decimal:
+        stmt = select(
+            func.coalesce(func.sum(LedgerEntry.debit), 0)
+            - func.coalesce(func.sum(LedgerEntry.credit), 0)
+        ).where(LedgerEntry.org_id == org_id, LedgerEntry.posting_date < start)
+        if account_id is not None:
+            stmt = stmt.where(LedgerEntry.account_id == account_id)
+        if party_id is not None:
+            stmt = stmt.where(LedgerEntry.party_id == party_id)
+        return self.db.scalar(stmt) or _ZERO
 
-        opening = self.db.scalar(
-            select(
-                func.coalesce(func.sum(LedgerEntry.debit), 0)
-                - func.coalesce(func.sum(LedgerEntry.credit), 0)
-            ).where(
-                LedgerEntry.org_id == org_id,
-                LedgerEntry.account_id == account_id,
-                LedgerEntry.posting_date < start,
-            )
-        ) or _ZERO
-
-        entries = self.db.scalars(
+    def _entries(self, org_id: int, start: date, end: date):
+        return (
             select(LedgerEntry)
             .where(
                 LedgerEntry.org_id == org_id,
-                LedgerEntry.account_id == account_id,
                 LedgerEntry.posting_date >= start,
                 LedgerEntry.posting_date <= end,
             )
             .order_by(LedgerEntry.posting_date, LedgerEntry.id)
         )
+
+    @staticmethod
+    def _statement_rows(entries, opening: Decimal, sign: int) -> tuple[list[dict], Decimal]:
         running = opening
         rows = []
         for entry in entries:
-            running += entry.debit - entry.credit
+            running += (entry.debit - entry.credit) * sign
             rows.append(
                 {
                     "id": entry.id,
@@ -210,6 +221,21 @@ class ReportsService:
                     "balance": running,
                 }
             )
+        return rows, running
+
+    def account_statement(self, org_id: int, account_id: int, start: date, end: date) -> dict:
+        account = self.db.scalar(
+            select(Account).where(Account.id == account_id, Account.org_id == org_id)
+        )
+        if account is None:
+            raise NotFoundError("Account not found")
+
+        sign = _sign(account.account_type)
+        opening = self._opening_balance(org_id, start, account_id=account_id) * sign
+        entries = self.db.scalars(
+            self._entries(org_id, start, end).where(LedgerEntry.account_id == account_id)
+        )
+        rows, closing = self._statement_rows(entries, opening, sign)
         return {
             "account_id": account.id,
             "account_code": account.code,
@@ -217,6 +243,80 @@ class ReportsService:
             "from_date": start,
             "to_date": end,
             "opening_balance": opening,
-            "closing_balance": running,
+            "closing_balance": closing,
             "rows": rows,
+        }
+
+    def party_statement(self, org_id: int, party_id: int, start: date, end: date) -> dict:
+        party = self.db.scalar(select(Party).where(Party.id == party_id, Party.org_id == org_id))
+        if party is None:
+            raise NotFoundError("Party not found")
+
+        # Only the receivable/payable leg of a voucher carries the party, so filtering
+        # on it alone yields what the party owes — never their revenue or tax lines.
+        sign = -1 if party.is_vendor and not party.is_customer else 1
+        opening = self._opening_balance(org_id, start, party_id=party_id) * sign
+        entries = self.db.scalars(
+            self._entries(org_id, start, end).where(LedgerEntry.party_id == party_id)
+        )
+        rows, closing = self._statement_rows(entries, opening, sign)
+        return {
+            "party_id": party.id,
+            "party_name": party.name,
+            "from_date": start,
+            "to_date": end,
+            "opening_balance": opening,
+            "closing_balance": closing,
+            "rows": rows,
+        }
+
+    def general_ledger(self, org_id: int, start: date, end: date) -> dict:
+        openings = dict(
+            self.db.execute(
+                select(
+                    LedgerEntry.account_id,
+                    func.coalesce(func.sum(LedgerEntry.debit), 0)
+                    - func.coalesce(func.sum(LedgerEntry.credit), 0),
+                )
+                .where(LedgerEntry.org_id == org_id, LedgerEntry.posting_date < start)
+                .group_by(LedgerEntry.account_id)
+            ).all()
+        )
+        posted = self.db.execute(
+            select(LedgerEntry, Account)
+            .join(Account, Account.id == LedgerEntry.account_id)
+            .where(
+                LedgerEntry.org_id == org_id,
+                LedgerEntry.posting_date >= start,
+                LedgerEntry.posting_date <= end,
+            )
+            .order_by(Account.code, LedgerEntry.posting_date, LedgerEntry.id)
+        ).all()
+
+        accounts = []
+        total_debit = total_credit = _ZERO
+        for _account_id, group in groupby(posted, key=lambda row: row[1].id):
+            entries = list(group)
+            account = entries[0][1]
+            sign = _sign(account.account_type)
+            opening = openings.get(account.id, _ZERO) * sign
+            rows, closing = self._statement_rows((e[0] for e in entries), opening, sign)
+            total_debit += sum((r["debit"] for r in rows), _ZERO)
+            total_credit += sum((r["credit"] for r in rows), _ZERO)
+            accounts.append(
+                {
+                    "account_id": account.id,
+                    "account_code": account.code,
+                    "account_name": account.name,
+                    "opening_balance": opening,
+                    "closing_balance": closing,
+                    "rows": rows,
+                }
+            )
+        return {
+            "from_date": start,
+            "to_date": end,
+            "accounts": accounts,
+            "total_debit": total_debit,
+            "total_credit": total_credit,
         }

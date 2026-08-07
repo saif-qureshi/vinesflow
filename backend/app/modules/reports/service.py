@@ -107,13 +107,12 @@ class ReportService:
             return [{"value": "", "label": label}] + [
                 {"value": i, "label": name} for i, name in rows
             ]
-        if source in ("customers", "vendors"):
-            column = Party.is_customer if source == "customers" else Party.is_vendor
-            rows = self.db.execute(
-                select(Party.id, Party.name)
-                .where(Party.org_id == org_id, column.is_(True))
-                .order_by(Party.name)
-            ).all()
+        if source in ("customers", "vendors", "parties"):
+            stmt = select(Party.id, Party.name).where(Party.org_id == org_id)
+            if source != "parties":
+                column = Party.is_customer if source == "customers" else Party.is_vendor
+                stmt = stmt.where(column.is_(True))
+            rows = self.db.execute(stmt.order_by(Party.name)).all()
             return [{"value": i, "label": name} for i, name in rows]
         return []
 
