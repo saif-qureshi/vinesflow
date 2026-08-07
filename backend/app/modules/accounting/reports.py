@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundError
+from app.modules.accounting.accounts import cash_account_ids
 from app.modules.accounting.enums import AccountType
 from app.modules.accounting.models import Account, FiscalYear, LedgerEntry
 from app.modules.parties.models import Party
@@ -18,6 +19,18 @@ _CREDIT_NORMAL = {AccountType.LIABILITY, AccountType.EQUITY, AccountType.INCOME}
 
 def _sign(account_type: str) -> int:
     return -1 if account_type in _CREDIT_NORMAL else 1
+
+
+def _cash_flow_bucket(account_type: str, code: str) -> str:
+    """Current assets and liabilities fund the trade, so they are operating;
+    what sits outside them is the business buying assets or raising money."""
+    if account_type == AccountType.EQUITY:
+        return "financing"
+    if account_type == AccountType.ASSET and not code.startswith("11"):
+        return "investing"
+    if account_type == AccountType.LIABILITY and not code.startswith("21"):
+        return "financing"
+    return "operating"
 
 
 class ReportsService:
@@ -268,6 +281,85 @@ class ReportsService:
             "opening_balance": opening,
             "closing_balance": closing,
             "rows": rows,
+        }
+
+    def cash_flow(self, org_id: int, start: date, end: date) -> dict:
+        """Direct method: every voucher that moved cash, classified by what it
+        moved cash *for* — the non-cash side of the same voucher."""
+        cash_ids = cash_account_ids(self.db, org_id)
+        empty = {
+            "from_date": start,
+            "to_date": end,
+            "opening_cash": _ZERO,
+            "operating": [],
+            "investing": [],
+            "financing": [],
+            "total_operating": _ZERO,
+            "total_investing": _ZERO,
+            "total_financing": _ZERO,
+            "net_change": _ZERO,
+            "closing_cash": _ZERO,
+        }
+        if not cash_ids:
+            return empty
+
+        opening = self.db.scalar(
+            select(func.coalesce(func.sum(LedgerEntry.debit - LedgerEntry.credit), 0)).where(
+                LedgerEntry.org_id == org_id,
+                LedgerEntry.account_id.in_(cash_ids),
+                LedgerEntry.posting_date < start,
+            )
+        ) or _ZERO
+
+        moved = select(LedgerEntry.voucher_id).where(
+            LedgerEntry.org_id == org_id,
+            LedgerEntry.account_id.in_(cash_ids),
+            LedgerEntry.posting_date >= start,
+            LedgerEntry.posting_date <= end,
+        )
+        # The voucher balances, so its non-cash lines net to exactly the cash it moved.
+        counterparts = self.db.execute(
+            select(
+                Account.id,
+                Account.code,
+                Account.name,
+                Account.account_type,
+                func.coalesce(func.sum(LedgerEntry.credit - LedgerEntry.debit), 0),
+            )
+            .join(Account, Account.id == LedgerEntry.account_id)
+            .where(
+                LedgerEntry.org_id == org_id,
+                LedgerEntry.voucher_id.in_(moved),
+                LedgerEntry.account_id.not_in(cash_ids),
+            )
+            .group_by(Account.id)
+            .order_by(Account.code)
+        ).all()
+
+        buckets: dict[str, list[dict]] = {"operating": [], "investing": [], "financing": []}
+        for account_id, code, name, account_type, amount in counterparts:
+            if amount == _ZERO:
+                continue
+            buckets[_cash_flow_bucket(account_type, code)].append(
+                {"account_id": account_id, "code": code, "name": name, "amount": amount}
+            )
+
+        totals = {
+            key: sum((row["amount"] for row in rows), _ZERO) for key, rows in buckets.items()
+        }
+        net = totals["operating"] + totals["investing"] + totals["financing"]
+        return {
+            "from_date": start,
+            "to_date": end,
+            "opening_cash": opening,
+            "operating": buckets["operating"],
+            "investing": buckets["investing"],
+            "financing": buckets["financing"],
+            "total_operating": totals["operating"],
+            "total_investing": totals["investing"],
+            "total_financing": totals["financing"],
+            "net_change": net,
+            "closing_cash": opening + net,
         }
 
     def general_ledger(self, org_id: int, start: date, end: date) -> dict:

@@ -152,6 +152,42 @@ def test_metadata_resolves_account_options(db):
     assert account_filter["options"]  # populated from the org's chart
 
 
+def test_cash_flow_classifies_movements_and_ties_to_the_cash_balance(db):
+    from datetime import date
+
+    from app.modules.accounting.models import Account
+    from app.modules.accounting.schemas import JournalLineInput, JournalVoucherCreate
+    from app.modules.accounting.vouchers import VoucherService
+
+    org_id = _setup(db)  # the only cash movement so far is the 1000 expense
+    result = ReportService(db).run(org_id, "cash_flow", {})
+    operating = next(s for s in result.sections if s.title == "Operating Activities")
+    assert operating.subtotal["amount"] == Decimal("-1000")
+    assert _grand(result, "amount") == Decimal("-1000")
+
+    owner_equity = db.scalar(
+        select(Account.id).where(Account.org_id == org_id, Account.code == "3100")
+    )
+    vouchers = VoucherService(db)
+    voucher = vouchers.create_journal_voucher(
+        org_id,
+        JournalVoucherCreate(
+            date=date.today(),
+            description="Owner puts money in",
+            lines=[
+                JournalLineInput(account_id=_acct(db, org_id, "bank"), debit=Decimal("5000")),
+                JournalLineInput(account_id=owner_equity, credit=Decimal("5000")),
+            ],
+        ),
+    )
+    vouchers.post_journal_voucher(org_id, voucher.id)
+
+    result = ReportService(db).run(org_id, "cash_flow", {})
+    financing = next(s for s in result.sections if s.title == "Financing Activities")
+    assert financing.subtotal["amount"] == Decimal("5000")  # equity, not operating
+    assert _grand(result, "amount") == Decimal("4000")  # 5000 in, 1000 out
+
+
 def test_general_ledger_groups_every_account_and_ties(db):
     org_id = _setup(db)
     result = ReportService(db).run(org_id, "general_ledger", {})

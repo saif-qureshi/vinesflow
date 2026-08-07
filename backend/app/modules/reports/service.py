@@ -107,6 +107,17 @@ class ReportService:
             return [{"value": "", "label": label}] + [
                 {"value": i, "label": name} for i, name in rows
             ]
+        if source == "salespeople":
+            from app.modules.salespeople.models import Salesperson
+
+            rows = self.db.execute(
+                select(Salesperson.id, Salesperson.name)
+                .where(Salesperson.org_id == org_id)
+                .order_by(Salesperson.name)
+            ).all()
+            return [{"value": "", "label": "All salespeople"}] + [
+                {"value": i, "label": name} for i, name in rows
+            ]
         if source in ("customers", "vendors", "parties"):
             stmt = select(Party.id, Party.name).where(Party.org_id == org_id)
             if source != "parties":

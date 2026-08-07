@@ -4,8 +4,36 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
+from app.modules.accounting.constants import ACCOUNTING_SETTINGS_GROUP
 from app.modules.accounting.models import Account, LedgerEntry
 from app.modules.accounting.schemas import AccountCreate, AccountUpdate
+
+
+def cash_account_ids(db: Session, org_id: int) -> list[int]:
+    """The Cash and Bank accounts, plus every account beneath them —
+    each bank account the org adds lives under Bank."""
+    from app.modules.settings.service import SettingsService
+
+    settings = SettingsService(db)
+    roots = [
+        int(account_id)
+        for key in ("cash", "bank")
+        if (account_id := settings.get(org_id, ACCOUNTING_SETTINGS_GROUP, key)) is not None
+    ]
+    if not roots:
+        return []
+    children: dict[int | None, list[int]] = {}
+    for account_id, parent_id in db.execute(
+        select(Account.id, Account.parent_id).where(Account.org_id == org_id)
+    ).all():
+        children.setdefault(parent_id, []).append(account_id)
+    found, queue = set(roots), list(roots)
+    while queue:
+        for child in children.get(queue.pop(), []):
+            if child not in found:
+                found.add(child)
+                queue.append(child)
+    return list(found)
 
 
 class AccountsService:

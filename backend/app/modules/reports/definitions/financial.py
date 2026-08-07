@@ -165,6 +165,57 @@ register(
 )
 
 
+# --- Cash Flow -----------------------------------------------------------
+
+
+def _cash_flow(db, org_id, params) -> ReportResult:
+    d = ReportsService(db).cash_flow(org_id, params["start"], params["end"])
+    sections = [
+        Section(
+            rows=[{"account": "Cash at the start of the period", "amount": d["opening_cash"]}],
+        ),
+        Section(
+            title="Operating Activities",
+            rows=_rows(d["operating"]),
+            subtotal={"account": "Net Cash from Operating", "amount": d["total_operating"]},
+        ),
+        Section(
+            title="Investing Activities",
+            rows=_rows(d["investing"]),
+            subtotal={"account": "Net Cash from Investing", "amount": d["total_investing"]},
+        ),
+        Section(
+            title="Financing Activities",
+            rows=_rows(d["financing"]),
+            subtotal={"account": "Net Cash from Financing", "amount": d["total_financing"]},
+        ),
+        Section(
+            rows=[{"account": "Net change in cash", "amount": d["net_change"]}],
+        ),
+    ]
+    return ReportResult(
+        title="Cash Flow Statement",
+        subtitle=_period(params),
+        columns=AMOUNT_COLS,
+        sections=sections,
+        grand_total={"account": "Cash at the end of the period", "amount": d["closing_cash"]},
+    )
+
+
+register(
+    ReportDef(
+        key="cash_flow",
+        name="Cash Flow Statement",
+        category="Financial",
+        description="Where cash came from and where it went, from opening to closing balance.",
+        columns=AMOUNT_COLS,
+        filters=[Filter("range", "date_range", "Date range", default="this_month")],
+        run=_cash_flow,
+        supports_filters=False,
+    )
+)
+
+
 # --- General Ledger ------------------------------------------------------
 
 

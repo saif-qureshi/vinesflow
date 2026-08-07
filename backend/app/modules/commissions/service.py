@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import case, func, select
@@ -181,7 +181,13 @@ class CommissionService:
 
     # --- balances ---------------------------------------------------------
 
-    def _earned(self, org_id: int, salesperson_id: int | None = None):
+    def _earned(
+        self,
+        org_id: int,
+        salesperson_id: int | None = None,
+        start: date | None = None,
+        end: date | None = None,
+    ):
         stmt = select(
             Document.salesperson_id,
             func.coalesce(func.sum(_EARNED_SIGN * Document.commission_amount), 0),
@@ -192,9 +198,19 @@ class CommissionService:
         )
         if salesperson_id is not None:
             stmt = stmt.where(Document.salesperson_id == salesperson_id)
+        if start is not None:
+            stmt = stmt.where(Document.issue_date >= start)
+        if end is not None:
+            stmt = stmt.where(Document.issue_date <= end)
         return stmt.group_by(Document.salesperson_id)
 
-    def _paid(self, org_id: int, salesperson_id: int | None = None):
+    def _paid(
+        self,
+        org_id: int,
+        salesperson_id: int | None = None,
+        start: date | None = None,
+        end: date | None = None,
+    ):
         stmt = select(
             CommissionPayout.salesperson_id,
             func.coalesce(func.sum(CommissionPayout.amount), 0),
@@ -204,6 +220,10 @@ class CommissionService:
         )
         if salesperson_id is not None:
             stmt = stmt.where(CommissionPayout.salesperson_id == salesperson_id)
+        if start is not None:
+            stmt = stmt.where(CommissionPayout.payout_date >= start)
+        if end is not None:
+            stmt = stmt.where(CommissionPayout.payout_date <= end)
         return stmt.group_by(CommissionPayout.salesperson_id)
 
     def balance_for(self, org_id: int, salesperson_id: int) -> Decimal:
@@ -211,9 +231,18 @@ class CommissionService:
         paid = self.db.execute(self._paid(org_id, salesperson_id)).first()
         return (earned[1] if earned else _ZERO) - (paid[1] if paid else _ZERO)
 
-    def balances(self, org_id: int) -> list[dict]:
-        earned = dict(self.db.execute(self._earned(org_id)).all())
-        paid = dict(self.db.execute(self._paid(org_id)).all())
+    def balances(
+        self, org_id: int, start: date | None = None, end: date | None = None
+    ) -> list[dict]:
+        earned = dict(self.db.execute(self._earned(org_id, start=start, end=end)).all())
+        paid = dict(self.db.execute(self._paid(org_id, start=start, end=end)).all())
+        if start is None:
+            opening_earned: dict[int, Decimal] = {}
+            opening_paid: dict[int, Decimal] = {}
+        else:
+            before = start - timedelta(days=1)
+            opening_earned = dict(self.db.execute(self._earned(org_id, end=before)).all())
+            opening_paid = dict(self.db.execute(self._paid(org_id, end=before)).all())
         people = {
             row.id: row
             for row in self.db.scalars(
@@ -223,14 +252,39 @@ class CommissionService:
         rows = []
         for sid, person in people.items():
             got, gave = earned.get(sid, _ZERO), paid.get(sid, _ZERO)
-            if got == _ZERO and gave == _ZERO and not person.is_active:
+            opening = opening_earned.get(sid, _ZERO) - opening_paid.get(sid, _ZERO)
+            if got == _ZERO and gave == _ZERO and opening == _ZERO and not person.is_active:
                 continue
             rows.append(
                 {
                     "salesperson": person,
+                    "opening": opening,
                     "earned": got,
                     "paid": gave,
-                    "outstanding": got - gave,
+                    "outstanding": opening + got - gave,
                 }
             )
         return rows
+
+    def earnings(
+        self,
+        org_id: int,
+        start: date,
+        end: date,
+        salesperson_id: int | None = None,
+    ) -> list[Document]:
+        stmt = (
+            select(Document)
+            .where(
+                Document.org_id == org_id,
+                Document.status == DocumentStatus.SENT,
+                Document.salesperson_id.is_not(None),
+                Document.commission_amount != _ZERO,
+                Document.issue_date >= start,
+                Document.issue_date <= end,
+            )
+            .order_by(Document.issue_date, Document.id)
+        )
+        if salesperson_id is not None:
+            stmt = stmt.where(Document.salesperson_id == salesperson_id)
+        return list(self.db.scalars(stmt))

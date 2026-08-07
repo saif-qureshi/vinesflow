@@ -134,3 +134,48 @@ def test_commission_summary_report(db):
     assert result.grand_total["paid"] == Decimal("4.00")
     assert result.grand_total["outstanding"] == Decimal("6.00")
     assert result.sections[0].rows[0]["salesperson"] == "Ali"
+
+
+def test_commission_summary_carries_earlier_earnings_as_opening(db):
+    from datetime import date, timedelta
+
+    from app.modules.reports.service import ReportService
+
+    org_id, party_id, pid, tax_id, rep_id = _setup(db)
+    invoice = _earned_invoice(db, org_id, party_id, pid, tax_id, rep_id)
+    invoice.issue_date = date.today().replace(day=1) - timedelta(days=1)
+    db.flush()
+
+    result = ReportService(db).run(org_id, "commission_summary", {})
+    assert result.grand_total["opening"] == Decimal("10.00")
+    assert result.grand_total["earned"] == Decimal("0")
+    assert result.grand_total["outstanding"] == Decimal("10.00")
+
+
+def test_commission_detail_shows_the_document_behind_the_number(db):
+    from app.modules.reports.service import ReportService
+
+    org_id, party_id, pid, tax_id, rep_id = _setup(db)
+    invoice = _earned_invoice(db, org_id, party_id, pid, tax_id, rep_id)
+
+    result = ReportService(db).run(org_id, "commission_detail", {})
+    row = result.sections[0].rows[0]
+    assert row["number"] == invoice.number
+    assert row["customer"] == "Beta Corp"
+    assert row["salesperson"] == "Ali"
+    assert row["commission"] == Decimal("10.00")
+    assert result.grand_total["commission"] == Decimal("10.00")
+
+
+def test_commission_detail_nets_off_a_credit_note(db):
+    from app.modules.documents.enums import DocumentType
+    from app.modules.reports.service import ReportService
+
+    org_id, party_id, pid, tax_id, rep_id = _setup(db)
+    docs = DocumentService(db)
+    invoice = _invoice(docs, org_id, party_id, pid, tax_id, rep_id)
+    note = docs.convert(org_id, invoice.id, DocumentType.INVOICE, DocumentType.CREDIT_NOTE)
+    docs.finalize(org_id, note.id)
+
+    result = ReportService(db).run(org_id, "commission_detail", {})
+    assert result.grand_total["commission"] == Decimal("0.00")

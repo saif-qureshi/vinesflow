@@ -6,8 +6,8 @@ from decimal import Decimal
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.modules.accounting.constants import ACCOUNTING_SETTINGS_GROUP
-from app.modules.accounting.models import Account, LedgerEntry
+from app.modules.accounting.accounts import cash_account_ids
+from app.modules.accounting.models import LedgerEntry
 from app.modules.dashboard.schemas import (
     AgingBucket,
     CashFlowPoint,
@@ -20,7 +20,6 @@ from app.modules.dashboard.schemas import (
 from app.modules.documents.enums import DocumentStatus, DocumentType
 from app.modules.documents.models import Document
 from app.modules.parties.models import Party
-from app.modules.settings.service import SettingsService
 
 _ZERO = Decimal("0")
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -95,7 +94,7 @@ class DashboardService:
             )
         ) or 0
 
-        cash_accounts = self._cash_account_ids(org_id)
+        cash_accounts = cash_account_ids(self.db, org_id)
         return DashboardSummary(
             kpis=DashboardKpis(
                 revenue=rev_this,
@@ -111,30 +110,6 @@ class DashboardService:
             invoice_status=self._status_counts(org_id, today),
             recent_invoices=self._recent(org_id, today),
         )
-
-    def _cash_account_ids(self, org_id: int) -> list[int]:
-        """The Cash and Bank accounts, plus every account beneath them —
-        each bank account the org adds lives under Bank."""
-        settings = SettingsService(self.db)
-        roots = [
-            int(account_id)
-            for key in ("cash", "bank")
-            if (account_id := settings.get(org_id, ACCOUNTING_SETTINGS_GROUP, key)) is not None
-        ]
-        if not roots:
-            return []
-        children: dict[int | None, list[int]] = {}
-        for account_id, parent_id in self.db.execute(
-            select(Account.id, Account.parent_id).where(Account.org_id == org_id)
-        ).all():
-            children.setdefault(parent_id, []).append(account_id)
-        found, queue = set(roots), list(roots)
-        while queue:
-            for child in children.get(queue.pop(), []):
-                if child not in found:
-                    found.add(child)
-                    queue.append(child)
-        return list(found)
 
     def _cash_on_hand(self, org_id: int, account_ids: list[int]) -> Decimal:
         if not account_ids:
