@@ -4,10 +4,11 @@ import { useRouter } from "next/navigation";
 
 import { errorState, loadingState, notFoundState } from "@/components/ui/QueryFallback";
 import { Descriptions} from "antd";
-import { Pencil, Trash2, X } from "lucide-react";
+import { BookOpen, Pencil, Trash2, X } from "lucide-react";
 
 import { App, Avatar, Button, Card, Popconfirm, Tag, Typography } from "@/components/ui";
 import { useCan } from "@/hooks/useSession";
+import { useCurrency } from "@/hooks/useCurrency";
 import { useDeleteParty, useParty } from "@/hooks/useParties";
 import { apiErrorMessage } from "@/lib/api";
 import type { Address } from "@/types";
@@ -33,6 +34,22 @@ function AddressBlock({ address }: { address: Address | null }) {
         <div key={i}>{l}</div>
       ))}
     </div>
+  );
+}
+
+function BalanceCard({ balance }: { balance: number }) {
+  const { money } = useCurrency();
+  const settled = balance === 0;
+  const owesUs = balance > 0;
+  const label = settled ? "Nothing outstanding" : owesUs ? "Owes you" : "You owe";
+  const tone = settled ? "text-slate-800" : owesUs ? "text-emerald-700" : "text-red-600";
+  return (
+    <Card className="border-gray-100">
+      <p className="text-xs text-gray-500">{label}</p>
+      <p className={`mt-1 text-2xl font-semibold tabular-nums ${tone}`}>
+        {money(Math.abs(balance))}
+      </p>
+    </Card>
   );
 }
 
@@ -89,6 +106,14 @@ export function PartyView({ id }: { id: number }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {can("reports:read") && (
+            <Button
+              icon={<BookOpen size={16} />}
+              onClick={() => router.push(`/reports/party_ledger?party_id=${p.id}`)}
+            >
+              Open Ledger
+            </Button>
+          )}
           {can("parties:update") && (
             <Button icon={<Pencil size={16} />} onClick={() => router.push(`/parties/${p.id}/edit`)}>
               Edit
@@ -110,6 +135,8 @@ export function PartyView({ id }: { id: number }) {
           <Button type="text" icon={<X size={18} />} onClick={() => router.push("/parties")} />
         </div>
       </div>
+
+      <BalanceCard balance={Number(p.balance ?? 0)} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">

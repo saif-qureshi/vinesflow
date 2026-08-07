@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import or_, select
+from decimal import Decimal
+
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
@@ -11,6 +13,7 @@ from app.modules.parties.models import Party
 from app.modules.parties.schemas import PartyCreate, PartyListQuery, PartyUpdate
 
 _ADDRESS_FIELDS = {"billing_address", "shipping_address"}
+_ZERO = Decimal("0")
 
 
 def _entity_type(party: Party) -> str:
@@ -55,7 +58,33 @@ class PartyService:
             stmt = stmt.where(Party.type == query.type)
         if query.is_active is not None:
             stmt = stmt.where(Party.is_active == query.is_active)
-        return paginate_cursor(self.db, stmt, Party.id, query)
+        rows, cursor, has_more = paginate_cursor(self.db, stmt, Party.id, query)
+        self._attach_balances(org_id, rows)
+        return rows, cursor, has_more
+
+    def _attach_balances(self, org_id: int, parties: list[Party]) -> None:
+        """What each party owes, straight off the ledger. Only the receivable and
+        payable legs of a voucher carry a party, so this is their account with the
+        business: positive when they owe us, negative when we owe them."""
+        from app.modules.accounting.models import LedgerEntry
+
+        if not parties:
+            return
+        balances = dict(
+            self.db.execute(
+                select(
+                    LedgerEntry.party_id,
+                    func.coalesce(func.sum(LedgerEntry.debit - LedgerEntry.credit), 0),
+                )
+                .where(
+                    LedgerEntry.org_id == org_id,
+                    LedgerEntry.party_id.in_([p.id for p in parties]),
+                )
+                .group_by(LedgerEntry.party_id)
+            ).all()
+        )
+        for party in parties:
+            party.balance = balances.get(party.id, _ZERO)
 
     def get(self, org_id: int, party_id: int) -> Party:
         party = self.db.scalar(
@@ -63,6 +92,7 @@ class PartyService:
         )
         if party is None:
             raise NotFoundError("Party not found")
+        self._attach_balances(org_id, [party])
         return party
 
     def create(self, org_id: int, payload: PartyCreate) -> Party:

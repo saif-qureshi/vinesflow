@@ -36,6 +36,7 @@ export interface Party {
   shipping_address: Address | null;
   notes: string | null;
   is_active: boolean;
+  balance: string;
   created_at: string;
 }
 

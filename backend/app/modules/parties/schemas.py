@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -108,6 +109,7 @@ class PartyRead(BaseModel):
     shipping_address: Address | None = None
     notes: str | None = None
     is_active: bool
+    balance: Decimal = Decimal("0")
     created_at: datetime
 
 

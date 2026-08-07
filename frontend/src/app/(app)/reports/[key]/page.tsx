@@ -1,7 +1,7 @@
 "use client";
 
-import { use, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, use, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronDown, Download, SlidersHorizontal } from "lucide-react";
 import { DatePicker, Select } from "antd";
 import dayjs from "dayjs";
@@ -38,12 +38,33 @@ function initialParams(filters: ReportFilter[]): ReportParams {
 }
 
 export default function ReportRunnerPage({ params }: { params: Promise<{ key: string }> }) {
+  return (
+    <Suspense
+      fallback={
+        <div className="py-16 text-center">
+          <Spin />
+        </div>
+      }
+    >
+      <ReportRunner params={params} />
+    </Suspense>
+  );
+}
+
+function ReportRunner({ params }: { params: Promise<{ key: string }> }) {
   const { key } = use(params);
   const router = useRouter();
+  const search = useSearchParams();
   const { money } = useCurrency();
   const { message } = App.useApp();
   const meta = useReportMeta(key);
-  const [overrides, setOverrides] = useState<ReportParams>({});
+  const [overrides, setOverrides] = useState<ReportParams>(() => {
+    const seeded: ReportParams = {};
+    search.forEach((value, name) => {
+      seeded[name] = value;
+    });
+    return seeded;
+  });
   const [advanced, setAdvanced] = useState<BuiltFilter[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const [exporting, setExporting] = useState(false);

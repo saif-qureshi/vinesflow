@@ -138,3 +138,42 @@ def test_addresses_roundtrip(db):
     )
     assert party.billing_address["city"] == "Lahore"
     assert party.shipping_address is None
+
+
+def test_balance_reflects_what_the_party_owes(db):
+    from decimal import Decimal
+
+    from sqlalchemy import select
+
+    from app.modules.documents.enums import DocumentType
+    from app.modules.documents.models import TaxRate
+    from app.modules.documents.schemas import DocumentCreate, DocumentLineInput
+    from app.modules.documents.service import DocumentService
+
+    org_id = _org(db)
+    svc = PartyService(db)
+    customer = svc.create(org_id, PartyCreate(name="Beta Corp", is_customer=True))
+    assert svc.get(org_id, customer.id).balance == Decimal("0")
+
+    tax = db.scalar(select(TaxRate).where(TaxRate.org_id == org_id, TaxRate.name == "GST 18%"))
+    docs = DocumentService(db)
+    invoice = docs.create(
+        org_id,
+        DocumentType.INVOICE,
+        DocumentCreate(
+            party_id=customer.id,
+            lines=[
+                DocumentLineInput(
+                    description="Widget",
+                    quantity=Decimal("2"),
+                    unit_price=Decimal("100"),
+                    tax_rate_id=tax.id,
+                )
+            ],
+        ),
+    )
+    docs.finalize(org_id, invoice.id)
+
+    assert svc.get(org_id, customer.id).balance == Decimal("236.00")
+    rows, _, _ = svc.list(org_id, PartyListQuery())
+    assert next(p for p in rows if p.id == customer.id).balance == Decimal("236.00")
